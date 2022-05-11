@@ -8,10 +8,7 @@ use bonsaidb_core::{
     connection::{Connection, StorageConnection},
     document::{CollectionDocument, Emit},
     keyvalue::KeyValue,
-    schema::{
-        Collection, CollectionViewSchema, ReduceResult, Schema, SerializedCollection, View,
-        ViewMappedValue,
-    },
+    schema::{Collection, CollectionViewSchema, ReduceResult, Schema, SerializedCollection, View},
     test_util::TestDirectory,
 };
 use fs_extra::dir;
@@ -80,10 +77,10 @@ impl CollectionViewSchema for Scores {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
-        Ok(mappings.iter().map(|map| map.value).sum())
+        Ok(mappings.iter().sum())
     }
 }
 

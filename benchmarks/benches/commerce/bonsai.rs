@@ -14,7 +14,7 @@ use bonsaidb::{
         schema::{
             view::map::Mappings, Collection, CollectionName, CollectionViewSchema,
             DefaultSerialization, InsertError, NamedCollection, Qualified, ReduceResult, Schema,
-            Schematic, SerializedCollection, View, ViewMapResult, ViewMappedValue,
+            Schematic, SerializedCollection, View, ViewMapResult,
         },
         transaction::{self, Transaction},
         Error,
@@ -325,6 +325,7 @@ impl Operator<Checkout, u32> for BonsaiOperator {
         };
 
         let measurement = measurements.begin(self.label, Metric::Checkout);
+        // TODO make this a transaction
         let cart = Cart::get_async(&cart, &self.database)
             .await
             .unwrap()
@@ -485,12 +486,12 @@ impl CollectionViewSchema for ProductReviewsByProduct {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings
             .iter()
-            .map(|mapping| mapping.value.clone())
+            .cloned()
             .reduce(|a, b| ProductRatings {
                 total_score: a.total_score + b.total_score,
                 ratings: a.ratings + b.ratings,

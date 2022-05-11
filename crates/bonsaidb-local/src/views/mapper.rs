@@ -5,26 +5,27 @@ use std::{
 };
 
 use bonsaidb_core::{
-    arc_bytes::{serde::Bytes, ArcBytes, OwnedBytes},
+    arc_bytes::{serde::CowBytes, ArcBytes, OwnedBytes},
     connection::Connection,
+    document::{BorrowedDocument, DocumentId, Header, Revision},
     schema::{
-        view::{self, map, Serialized},
+        view::{map, Serialized},
         CollectionName, ViewName,
     },
 };
 use easy_parallel::Parallel;
 use nebari::{
     io::any::AnyFile,
-    tree::{AnyTreeRoot, CompareSwap, KeyOperation, Operation, Unversioned, Versioned},
+    tree::{AnyTreeRoot, ByIdIndexer, CompareSwap, KeyOperation, Operation, Unversioned},
     LockedTransactionTree, Tree, UnlockedTransactionTree,
 };
 
 use crate::{
-    database::{deserialize_document, document_tree_name, Database},
+    database::{document_tree_name, Database, DocumentsTree},
     tasks::{Job, Keyed, Task},
     views::{
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
-        EntryMapping, ViewEntry,
+        EntryMapping, ViewEntries, ViewIndexer,
     },
     Error,
 };
@@ -52,18 +53,24 @@ impl Job for Mapper {
         let documents =
             self.database
                 .roots()
-                .tree(self.database.collection_tree::<Versioned, _>(
+                .tree(self.database.collection_tree::<DocumentsTree, _>(
                     &self.map.collection,
                     document_tree_name(&self.map.collection),
                 )?)?;
 
-        let view_entries =
+        let view_entries = self.database.roots().tree(
             self.database
-                .roots()
-                .tree(self.database.collection_tree::<Unversioned, _>(
+                .collection_tree_with_reducer::<ViewEntries, _>(
                     &self.map.collection,
                     view_entries_tree_name(&self.map.view_name),
-                )?)?;
+                    ByIdIndexer(ViewIndexer::new(
+                        self.database
+                            .schematic()
+                            .view_by_name(&self.map.view_name)?
+                            .clone(),
+                    )),
+                )?,
+        )?;
 
         let document_map =
             self.database
@@ -111,8 +118,8 @@ impl Job for Mapper {
 fn map_view(
     invalidated_entries: &Tree<Unversioned, AnyFile>,
     document_map: &Tree<Unversioned, AnyFile>,
-    documents: &Tree<Versioned, AnyFile>,
-    view_entries: &Tree<Unversioned, AnyFile>,
+    documents: &Tree<DocumentsTree, AnyFile>,
+    view_entries: &Tree<ViewEntries, AnyFile>,
     database: &Database,
     map_request: &Map,
 ) -> Result<(), Error> {
@@ -173,10 +180,10 @@ pub struct DocumentRequest<'a> {
     pub document_map: &'a UnlockedTransactionTree<AnyFile>,
     pub documents: &'a UnlockedTransactionTree<AnyFile>,
     pub view_entries: &'a UnlockedTransactionTree<AnyFile>,
-    pub view: &'a dyn Serialized,
+    pub view: &'a Arc<dyn Serialized>,
 }
 
-type DocumentIdPayload = (ArcBytes<'static>, Option<ArcBytes<'static>>);
+type DocumentIdPayload = (ArcBytes<'static>, Option<(Revision, ArcBytes<'static>)>);
 type BatchPayload = (Vec<ArcBytes<'static>>, flume::Receiver<DocumentIdPayload>);
 
 impl<'a> DocumentRequest<'a> {
@@ -186,20 +193,30 @@ impl<'a> DocumentRequest<'a> {
         documents: &UnlockedTransactionTree<AnyFile>,
     ) -> Result<(), Error> {
         // Generate batches
-        let mut documents = documents.lock::<Versioned>();
+        let mut documents = documents.lock::<DocumentsTree>();
         for chunk in document_ids.chunks(1024) {
             let (document_id_sender, document_id_receiver) = flume::bounded(chunk.len());
             batch_sender
                 .send((chunk.to_vec(), document_id_receiver))
                 .unwrap();
-            let mut documents = documents.get_multiple(chunk.iter().map(ArcBytes::as_slice))?;
+            let mut documents =
+                documents.get_multiple_with_indexes(chunk.iter().map(ArcBytes::as_slice))?;
             documents.sort_by(|a, b| a.0.cmp(&b.0));
 
             for document_id in chunk.iter().rev() {
                 let document = documents
                     .last()
-                    .map_or(false, |(key, _)| (key == document_id))
-                    .then(|| documents.pop().unwrap().1);
+                    .map_or(false, |(key, _, _)| (key == document_id))
+                    .then(|| {
+                        let (_key, value, index) = documents.pop().unwrap();
+                        (
+                            Revision {
+                                id: index.sequence_id.0,
+                                sha256: index.embedded.hash,
+                            },
+                            value,
+                        )
+                    });
 
                 document_id_sender
                     .send((document_id.clone(), document))
@@ -215,7 +232,7 @@ impl<'a> DocumentRequest<'a> {
     fn map_batches(
         batch_receiver: &flume::Receiver<BatchPayload>,
         mapped_sender: flume::Sender<Batch>,
-        view: &dyn Serialized,
+        view: &Arc<dyn Serialized>,
         parallelization: usize,
     ) -> Result<(), Error> {
         // Process batches
@@ -228,8 +245,14 @@ impl<'a> DocumentRequest<'a> {
                 .each(1..=parallelization, |_| -> Result<_, Error> {
                     let mut results = Vec::new();
                     while let Ok((document_id, document)) = document_id_receiver.recv() {
-                        let map_result = if let Some(document) = document {
-                            let document = deserialize_document(&document)?;
+                        let map_result = if let Some((revision, contents)) = document {
+                            let document = BorrowedDocument {
+                                header: Header {
+                                    id: DocumentId::try_from(document_id.as_slice()).unwrap(),
+                                    revision,
+                                },
+                                contents: CowBytes::from(contents.as_slice()),
+                            };
 
                             // Call the schema map function
                             view.map(&document).map_err(bonsaidb_core::Error::from)?
@@ -282,7 +305,7 @@ impl<'a> DocumentRequest<'a> {
         let mut maps_to_clear = Vec::new();
         document_map.modify(
             document_ids,
-            nebari::tree::Operation::CompareSwap(CompareSwap::new(&mut |key, value| {
+            nebari::tree::Operation::CompareSwap(CompareSwap::new(&mut |key, _index, value| {
                 if let Some(existing_map) = value {
                     maps_to_clear.push((key.to_owned(), existing_map));
                 }
@@ -306,9 +329,9 @@ impl<'a> DocumentRequest<'a> {
     }
 
     fn update_view_entries(
-        view: &dyn Serialized,
+        view: &Arc<dyn Serialized>,
         map_request: &Map,
-        view_entries: &mut LockedTransactionTree<'_, Unversioned, AnyFile>,
+        view_entries: &mut LockedTransactionTree<'_, ViewEntries, AnyFile>,
         all_keys: BTreeSet<ArcBytes<'static>>,
         view_entries_to_clean: BTreeMap<ArcBytes<'static>, HashSet<ArcBytes<'static>>>,
         new_mappings: BTreeMap<ArcBytes<'static>, Vec<map::Serialized>>,
@@ -319,12 +342,11 @@ impl<'a> DocumentRequest<'a> {
             view_entries_to_clean,
             new_mappings,
             result: Ok(()),
-            has_reduce: true,
         };
         view_entries
             .modify(
                 all_keys.into_iter().collect(),
-                Operation::CompareSwap(CompareSwap::new(&mut |key, view_entries| {
+                Operation::CompareSwap(CompareSwap::new(&mut |key, _index, view_entries| {
                     updater.compare_swap_view_entry(key, view_entries)
                 })),
             )
@@ -334,10 +356,10 @@ impl<'a> DocumentRequest<'a> {
 
     fn save_mappings(
         mapped_receiver: &flume::Receiver<Batch>,
-        view: &dyn Serialized,
+        view: &Arc<dyn Serialized>,
         map_request: &Map,
         document_map: &mut LockedTransactionTree<'_, Unversioned, AnyFile>,
-        view_entries: &mut LockedTransactionTree<'_, Unversioned, AnyFile>,
+        view_entries: &mut LockedTransactionTree<'_, ViewEntries, AnyFile>,
     ) -> Result<(), Error> {
         while let Ok(Batch {
             document_ids,
@@ -417,12 +439,11 @@ impl Keyed<Task> for Mapper {
 }
 
 struct ViewEntryUpdater<'a> {
-    view: &'a dyn Serialized,
+    view: &'a Arc<dyn Serialized>,
     map_request: &'a Map,
     view_entries_to_clean: BTreeMap<ArcBytes<'static>, HashSet<ArcBytes<'static>>>,
     new_mappings: BTreeMap<ArcBytes<'static>, Vec<map::Serialized>>,
     result: Result<(), Error>,
-    has_reduce: bool,
 }
 
 impl<'a> ViewEntryUpdater<'a> {
@@ -431,55 +452,27 @@ impl<'a> ViewEntryUpdater<'a> {
         key: &ArcBytes<'_>,
         view_entries: Option<ArcBytes<'static>>,
     ) -> KeyOperation<ArcBytes<'static>> {
-        let mut view_entry = view_entries
-            .and_then(|view_entries| bincode::deserialize::<ViewEntry>(&view_entries).ok())
-            .unwrap_or_else(|| ViewEntry {
-                key: Bytes::from(key.to_vec()),
-                view_version: self.view.version(),
-                mappings: vec![],
-                reduced_value: Bytes::default(),
-            });
+        let mut mappings = view_entries
+            .and_then(|view_entries| bincode::deserialize::<Vec<EntryMapping>>(&view_entries).ok())
+            .unwrap_or_default();
         let key = key.to_owned();
         if let Some(document_ids) = self.view_entries_to_clean.remove(&key) {
-            view_entry
-                .mappings
-                .retain(|m| !document_ids.contains(m.source.id.as_ref()));
+            mappings.retain(|m| !document_ids.contains(m.source.id.as_ref()));
 
-            if view_entry.mappings.is_empty() && !self.new_mappings.contains_key(&key[..]) {
+            if mappings.is_empty() && !self.new_mappings.contains_key(&key[..]) {
                 return KeyOperation::Remove;
-            } else if self.has_reduce {
-                let mappings = view_entry
-                    .mappings
-                    .iter()
-                    .map(|m| (&key[..], m.value.as_slice()))
-                    .collect::<Vec<_>>();
-
-                match self.view.reduce(&mappings, false) {
-                    Ok(reduced) => {
-                        view_entry.reduced_value = Bytes::from(reduced);
-                    }
-                    Err(view::Error::Core(bonsaidb_core::Error::ReduceUnimplemented)) => {
-                        self.has_reduce = false;
-                    }
-                    Err(other) => {
-                        self.result = Err(Error::from(other));
-                        return KeyOperation::Skip;
-                    }
-                }
             }
         }
 
         if let Some(new_mappings) = self.new_mappings.remove(&key[..]) {
             for map::Serialized { source, value, .. } in new_mappings {
                 // Before altering any data, verify that the key is unique if this is a unique view.
-                if self.view.unique()
-                    && !view_entry.mappings.is_empty()
-                    && view_entry.mappings[0].source.id != source.id
+                if self.view.unique() && !mappings.is_empty() && mappings[0].source.id != source.id
                 {
                     self.result = Err(Error::Core(bonsaidb_core::Error::UniqueKeyViolation {
                         view: self.map_request.view_name.clone(),
                         conflicting_document: Box::new(source),
-                        existing_document: Box::new(view_entry.mappings[0].source.clone()),
+                        existing_document: Box::new(mappings[0].source.clone()),
                     }));
                     return KeyOperation::Skip;
                 }
@@ -489,7 +482,7 @@ impl<'a> ViewEntryUpdater<'a> {
                 // entry for this document, if
                 // present
                 let mut found = false;
-                for mapping in &mut view_entry.mappings {
+                for mapping in &mut mappings {
                     if mapping.source.id == entry_mapping.source.id {
                         found = true;
                         mapping.source.revision = entry_mapping.source.revision;
@@ -501,7 +494,7 @@ impl<'a> ViewEntryUpdater<'a> {
                 // If an existing mapping wasn't
                 // found, add it
                 if !found {
-                    view_entry.mappings.push(entry_mapping);
+                    mappings.push(entry_mapping);
                 }
             }
 
@@ -516,29 +509,29 @@ impl<'a> ViewEntryUpdater<'a> {
             // precision in some contexts over time. Thus, the decision was
             // made to always call reduce() with all the mappings within a
             // single ViewEntry.
-            if self.has_reduce {
-                let mappings = view_entry
-                    .mappings
-                    .iter()
-                    .map(|m| (key.as_slice(), m.value.as_slice()))
-                    .collect::<Vec<_>>();
+            // if self.has_reduce {
+            //     let mappings =
+            //         mappings
+            //         .iter()
+            //         .map(|m| (key.as_slice(), m.value.as_slice()))
+            //         .collect::<Vec<_>>();
 
-                match self.view.reduce(&mappings, false) {
-                    Ok(reduced) => {
-                        view_entry.reduced_value = Bytes::from(reduced);
-                    }
-                    Err(view::Error::Core(bonsaidb_core::Error::ReduceUnimplemented)) => {
-                        self.has_reduce = false;
-                    }
-                    Err(other) => {
-                        self.result = Err(Error::from(other));
-                        return KeyOperation::Skip;
-                    }
-                }
-            }
+            //     match self.view.reduce(&mappings, false) {
+            //         Ok(reduced) => {
+            //             view_entry.reduced_value = Bytes::from(reduced);
+            //         }
+            //         Err(view::Error::Core(bonsaidb_core::Error::ReduceUnimplemented)) => {
+            //             self.has_reduce = false;
+            //         }
+            //         Err(other) => {
+            //             self.result = Err(Error::from(other));
+            //             return KeyOperation::Skip;
+            //         }
+            //     }
+            // }
         }
 
-        let value = bincode::serialize(&view_entry).unwrap();
+        let value = bincode::serialize(&mappings).unwrap();
         KeyOperation::Set(ArcBytes::from(value))
     }
 }

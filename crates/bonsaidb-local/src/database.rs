@@ -2,6 +2,7 @@ use std::{
     borrow::{Borrow, Cow},
     collections::{BTreeMap, HashMap, HashSet},
     convert::Infallible,
+    io::ErrorKind,
     ops::{self, Deref},
     sync::Arc,
     u8,
@@ -10,12 +11,12 @@ use std::{
 #[cfg(any(feature = "encryption", feature = "compression"))]
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{
-    arc_bytes::{serde::CowBytes, ArcBytes},
+    arc_bytes::{serde::Bytes, ArcBytes},
     connection::{
         self, AccessPolicy, Connection, HasSchema, HasSession, LowLevelConnection, Range,
         SerializedQueryKey, Session, Sort, StorageConnection,
     },
-    document::{BorrowedDocument, DocumentId, Header, OwnedDocument, Revision},
+    document::{DocumentId, Header, OwnedDocument, Revision},
     keyvalue::{KeyOperation, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     permissions::{
@@ -41,8 +42,9 @@ use nebari::{
     io::any::AnyFile,
     transaction::TransactionId,
     tree::{
-        AnyTreeRoot, BorrowByteRange, BorrowedRange, CompareSwap, Root, ScanEvaluation, TreeRoot,
-        Unversioned, Versioned,
+        AnyTreeRoot, BorrowByteRange, BorrowedRange, ByIdIndexer, CompareSwap, EmbeddedIndex,
+        Indexer, Reducer, Root, ScanEvaluation, Serializable, TreeRoot, Unversioned,
+        VersionedByIdIndex, VersionedTreeRoot,
     },
     AbortError, ExecutingTransaction, Roots, Tree,
 };
@@ -60,7 +62,7 @@ use crate::{
     storage::StorageLock,
     views::{
         mapper, view_document_map_tree_name, view_entries_tree_name,
-        view_invalidated_docs_tree_name, ViewEntry,
+        view_invalidated_docs_tree_name, ViewEntries, ViewEntry, ViewIndexer,
     },
     Storage,
 };
@@ -207,14 +209,13 @@ impl Database {
         &self.data.context.roots
     }
 
-    fn for_each_in_view<F: FnMut(ViewEntry) -> Result<(), bonsaidb_core::Error> + Send + Sync>(
+    fn access_view<
+        F: FnOnce(&Tree<ViewEntries, AnyFile>) -> Result<(), bonsaidb_core::Error> + Send + Sync,
+    >(
         &self,
-        view: &dyn view::Serialized,
-        key: Option<SerializedQueryKey>,
-        order: Sort,
-        limit: Option<u32>,
+        view: &Arc<dyn view::Serialized>,
         access_policy: AccessPolicy,
-        mut callback: F,
+        callback: F,
     ) -> Result<(), bonsaidb_core::Error> {
         if matches!(access_policy, AccessPolicy::UpdateBefore) {
             self.storage
@@ -235,17 +236,14 @@ impl Database {
 
         let view_entries = self
             .roots()
-            .tree(self.collection_tree(
+            .tree(self.collection_tree_with_reducer(
                 &view.collection(),
                 view_entries_tree_name(&view.view_name()),
+                ByIdIndexer(ViewIndexer::new(view.clone())),
             )?)
             .map_err(Error::from)?;
 
-        {
-            for entry in Self::create_view_iterator(&view_entries, key, order, limit)? {
-                callback(entry)?;
-            }
-        }
+        callback(&view_entries)?;
 
         if matches!(access_policy, AccessPolicy::UpdateAfter) {
             let db = self.clone();
@@ -262,6 +260,23 @@ impl Database {
         }
 
         Ok(())
+    }
+
+    fn for_each_in_view<F: FnMut(ViewEntry) -> Result<(), bonsaidb_core::Error> + Send + Sync>(
+        &self,
+        view: &Arc<dyn view::Serialized>,
+        key: Option<SerializedQueryKey>,
+        order: Sort,
+        limit: Option<u32>,
+        access_policy: AccessPolicy,
+        mut callback: F,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.access_view(view, access_policy, |view_entries| {
+            for entry in Self::create_view_iterator(view_entries, key, order, limit)? {
+                callback(entry)?;
+            }
+            Ok(())
+        })
     }
 
     fn apply_transaction_to_roots(
@@ -461,95 +476,88 @@ impl Database {
         contents: &[u8],
     ) -> Result<OperationResult, crate::Error> {
         let mut documents = transaction
-            .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
+            .tree::<DocumentsTree>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         let document_id = ArcBytes::from(id.to_vec());
-        let mut result = None;
-        let mut updated = false;
-        documents.modify(
+        let mut existing_revision = None;
+        let mut conflicting_header = None;
+        let results = documents.modify(
             vec![document_id.clone()],
             nebari::tree::Operation::CompareSwap(CompareSwap::new(&mut |_key,
+                                                                        index: Option<
+                &VersionedByIdIndex<DocumentHash>,
+            >,
                                                                         value: Option<
                 ArcBytes<'_>,
             >| {
-                if let Some(old) = value {
-                    let doc = match deserialize_document(&old) {
-                        Ok(doc) => doc,
-                        Err(err) => {
-                            result = Some(Err(err));
-                            return nebari::tree::KeyOperation::Skip;
-                        }
+                if let (Some(old), Some(index)) = (value, index) {
+                    let last_revision = Revision {
+                        id: index.sequence_id.0,
+                        sha256: index.embedded.hash,
                     };
-                    if check_revision.is_none() || Some(&doc.header.revision) == check_revision {
-                        if let Some(updated_revision) = doc.header.revision.next_revision(contents)
-                        {
-                            let updated_header = Header {
-                                id: id.clone(),
-                                revision: updated_revision,
-                            };
-                            let serialized_doc = match serialize_document(&BorrowedDocument {
-                                header: updated_header.clone(),
-                                contents: CowBytes::from(contents),
-                            }) {
-                                Ok(bytes) => bytes,
-                                Err(err) => {
-                                    result = Some(Err(Error::from(err)));
-                                    return nebari::tree::KeyOperation::Skip;
-                                }
-                            };
-                            result = Some(Ok(OperationResult::DocumentUpdated {
-                                collection: operation.collection.clone(),
-                                header: updated_header,
-                            }));
-                            updated = true;
-                            return nebari::tree::KeyOperation::Set(ArcBytes::from(serialized_doc));
+                    existing_revision = Some(last_revision);
+                    let passes_revision_check = match check_revision {
+                        Some(revision) => revision == &last_revision,
+                        None => true,
+                    };
+                    if passes_revision_check {
+                        if contents != old.as_ref() {
+                            return nebari::tree::KeyOperation::Set(ArcBytes::from(
+                                contents.to_vec(),
+                            ));
                         }
-
-                        // If no new revision was made, it means an attempt to
-                        // save a document with the same contents was made.
-                        // We'll return a success but not actually give a new
-                        // version
-                        result = Some(Ok(OperationResult::DocumentUpdated {
-                            collection: operation.collection.clone(),
-                            header: doc.header,
-                        }));
                     } else {
-                        result = Some(Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
-                            operation.collection.clone(),
-                            Box::new(doc.header),
-                        ))));
+                        conflicting_header = Some(Header {
+                            id: id.clone(),
+                            revision: Revision {
+                                id: index.sequence_id.0,
+                                sha256: index.embedded.hash,
+                            },
+                        });
                     }
                 } else if check_revision.is_none() {
-                    let doc = BorrowedDocument::new(id.clone(), contents);
-                    match serialize_document(&doc).map(|bytes| (doc, bytes)) {
-                        Ok((doc, serialized)) => {
-                            result = Some(Ok(OperationResult::DocumentUpdated {
-                                collection: operation.collection.clone(),
-                                header: doc.header,
-                            }));
-                            updated = true;
-                            return nebari::tree::KeyOperation::Set(ArcBytes::from(serialized));
-                        }
-                        Err(err) => {
-                            result = Some(Err(Error::from(err)));
-                        }
-                    }
-                } else {
-                    result = Some(Err(Error::Core(bonsaidb_core::Error::DocumentNotFound(
-                        operation.collection.clone(),
-                        Box::new(id.clone()),
-                    ))));
+                    return nebari::tree::KeyOperation::Set(ArcBytes::from(contents.to_vec()));
                 }
                 nebari::tree::KeyOperation::Skip
             })),
         )?;
         drop(documents);
 
-        if updated {
+        if let Some(header) = conflicting_header {
+            Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
+                operation.collection.clone(),
+                Box::new(header),
+            )))
+        } else if let Some(result) = results.into_iter().next() {
             self.update_eager_views(&document_id, operation, transaction, tree_index_map)?;
+            let index = result.index.expect("no removal possible");
+            Ok(OperationResult::DocumentUpdated {
+                collection: operation.collection.clone(),
+                header: Header {
+                    id: id.clone(),
+                    revision: Revision {
+                        id: index.sequence_id.0,
+                        sha256: index.embedded.hash,
+                    },
+                },
+            })
+        } else if let Some(existing_revision) = existing_revision {
+            // The document contents didn't change. We return a DocumentUpdated
+            // result, but the header is the same as it was before. This code
+            // block can only be reached if the revision check succeeded.
+            Ok(OperationResult::DocumentUpdated {
+                collection: operation.collection.clone(),
+                header: Header {
+                    id: id.clone(),
+                    revision: existing_revision,
+                },
+            })
+        } else {
+            Err(Error::Core(bonsaidb_core::Error::DocumentNotFound(
+                operation.collection.clone(),
+                Box::new(id.clone()),
+            )))
         }
-
-        result.expect("nebari should invoke the callback even when the key isn't found")
     }
 
     #[cfg_attr(
@@ -573,7 +581,7 @@ impl Database {
         contents: &[u8],
     ) -> Result<OperationResult, Error> {
         let mut documents = transaction
-            .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
+            .tree::<DocumentsTree>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         let id = if let Some(id) = id {
             id
@@ -588,23 +596,33 @@ impl Database {
                 .next_id_for_collection(&operation.collection, None)?
         };
 
-        let doc = BorrowedDocument::new(id, contents);
-        let serialized: Vec<u8> = serialize_document(&doc)?;
-        let document_id = ArcBytes::from(doc.header.id.as_ref().to_vec());
-        if let Some(document) = documents.replace(document_id.clone(), serialized)? {
-            let doc = deserialize_document(&document)?;
-            Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
+        let document_id = ArcBytes::from(id.as_ref().to_vec());
+        match documents.replace(document_id.clone(), ArcBytes::from(contents.to_vec()))? {
+            (Some(_), index) => Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
                 operation.collection.clone(),
-                Box::new(doc.header),
-            )))
-        } else {
-            drop(documents);
-            self.update_eager_views(&document_id, operation, transaction, tree_index_map)?;
+                Box::new(Header {
+                    id,
+                    revision: Revision {
+                        id: index.sequence_id.0,
+                        sha256: index.embedded.hash,
+                    },
+                }),
+            ))),
+            (None, index) => {
+                drop(documents);
+                self.update_eager_views(&document_id, operation, transaction, tree_index_map)?;
 
-            Ok(OperationResult::DocumentUpdated {
-                collection: operation.collection.clone(),
-                header: doc.header,
-            })
+                Ok(OperationResult::DocumentUpdated {
+                    collection: operation.collection.clone(),
+                    header: Header {
+                        id,
+                        revision: Revision {
+                            id: index.sequence_id.0,
+                            sha256: index.embedded.hash,
+                        },
+                    },
+                })
+            }
         }
     }
 
@@ -625,14 +643,17 @@ impl Database {
         header: &Header,
     ) -> Result<OperationResult, Error> {
         let mut documents = transaction
-            .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
+            .tree::<DocumentsTree>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
-        if let Some(vec) = documents.remove(header.id.as_ref())? {
+        if let Some((_, index)) = documents.remove(header.id.as_ref())? {
             drop(documents);
-            let doc = deserialize_document(&vec)?;
-            if &doc.header == header {
+            let removed_revision = Revision {
+                id: index.sequence_id.0,
+                sha256: index.embedded.hash,
+            };
+            if removed_revision == header.revision {
                 self.update_eager_views(
-                    &ArcBytes::from(doc.header.id.to_vec()),
+                    &ArcBytes::from(header.id.to_vec()),
                     operation,
                     transaction,
                     tree_index_map,
@@ -645,7 +666,10 @@ impl Database {
             } else {
                 Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
                     operation.collection.clone(),
-                    Box::new(header.clone()),
+                    Box::new(Header {
+                        id: header.id.clone(),
+                        revision: removed_revision,
+                    }),
                 )))
             }
         } else {
@@ -724,14 +748,17 @@ impl Database {
         revision: Option<Revision>,
     ) -> Result<OperationResult, Error> {
         let mut documents = transaction
-            .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
+            .tree::<DocumentsTree>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
-        if let Some(vec) = documents.get(id.as_ref())? {
+        if let Some(index) = documents.get_index(id.as_ref())? {
             drop(documents);
 
             if let Some(revision) = revision {
-                let doc = deserialize_document(&vec)?;
-                if doc.header.revision != revision {
+                let retrieved_revision = Revision {
+                    id: index.sequence_id.0,
+                    sha256: index.embedded.hash,
+                };
+                if retrieved_revision != revision {
                     return Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
                         operation.collection.clone(),
                         Box::new(Header { id, revision }),
@@ -749,7 +776,7 @@ impl Database {
     }
 
     fn create_view_iterator(
-        view_entries: &Tree<Unversioned, AnyFile>,
+        view_entries: &Tree<ViewEntries, AnyFile>,
         key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
@@ -776,23 +803,25 @@ impl Database {
                             }
                             ScanEvaluation::ReadData
                         },
-                        |_key, _index, value| {
-                            values.push(value);
+                        |key, index, value| {
+                            values.push((Bytes::from(key), index.clone(), value));
                             Ok(())
                         },
                     )?;
                 }
                 SerializedQueryKey::Matches(key) => {
-                    values.extend(view_entries.get(&key)?);
+                    if let Some((value, index)) = view_entries.get_with_index(&key)? {
+                        values.push((key, index, value));
+                    }
                 }
                 SerializedQueryKey::Multiple(mut list) => {
                     list.sort();
 
                     values.extend(
                         view_entries
-                            .get_multiple(list.iter().map(|bytes| bytes.as_slice()))?
+                            .get_multiple_with_indexes(list.iter().map(|bytes| bytes.as_slice()))?
                             .into_iter()
-                            .map(|(_, value)| value),
+                            .map(|(key, value, index)| (Bytes::from(key), index, value)),
                     );
                 }
             }
@@ -810,8 +839,8 @@ impl Database {
                     }
                     ScanEvaluation::ReadData
                 },
-                |_, _, value| {
-                    values.push(value);
+                |key, index, value| {
+                    values.push((Bytes::from(key), index.clone(), value));
                     Ok(())
                 },
             )?;
@@ -819,7 +848,14 @@ impl Database {
 
         values
             .into_iter()
-            .map(|value| bincode::deserialize(&value).map_err(Error::from))
+            .map(|(key, index, value)| match bincode::deserialize(&value) {
+                Ok(mappings) => Ok(ViewEntry {
+                    key,
+                    reduced_value: Bytes::from(index.embedded.value.unwrap_or_default()),
+                    mappings,
+                }),
+                Err(err) => Err(Error::from(err)),
+            })
             .collect::<Result<Vec<_>, Error>>()
     }
 
@@ -828,6 +864,17 @@ impl Database {
         self.schematic()
             .encryption_key_for_collection(collection)
             .or_else(|| self.storage.default_encryption_key())
+    }
+
+    pub(crate) fn collection_tree<R: Root, S: Into<Cow<'static, str>>>(
+        &self,
+        collection: &CollectionName,
+        name: S,
+    ) -> Result<TreeRoot<R, AnyFile>, Error>
+    where
+        R::Reducer: Default,
+    {
+        self.collection_tree_with_reducer(collection, name, <R::Reducer as Default>::default())
     }
 
     #[cfg_attr(
@@ -840,15 +887,13 @@ impl Database {
         )
     )]
     #[allow(clippy::unnecessary_wraps)]
-    pub(crate) fn collection_tree<R: Root + Default, S: Into<Cow<'static, str>>>(
+    pub(crate) fn collection_tree_with_reducer<R: Root, S: Into<Cow<'static, str>>>(
         &self,
         collection: &CollectionName,
         name: S,
-    ) -> Result<TreeRoot<R, AnyFile>, Error>
-    where
-        R::Reducer: Default,
-    {
-        let mut tree = R::tree(name);
+        reducer: R::Reducer,
+    ) -> Result<TreeRoot<R, AnyFile>, Error> {
+        let mut tree = R::tree_with_reducer(name, reducer);
 
         #[cfg(any(feature = "encryption", feature = "compression"))]
         match (
@@ -960,26 +1005,31 @@ struct LegacyDocument<'a> {
     contents: &'a [u8],
 }
 
-pub(crate) fn deserialize_document(bytes: &[u8]) -> Result<BorrowedDocument<'_>, Error> {
-    match pot::from_slice::<BorrowedDocument<'_>>(bytes) {
-        Ok(document) => Ok(document),
-        Err(err) => match bincode::deserialize::<LegacyDocument<'_>>(bytes) {
-            Ok(legacy_doc) => Ok(BorrowedDocument {
-                header: Header {
-                    id: DocumentId::from_u64(legacy_doc.header.id),
-                    revision: legacy_doc.header.revision,
-                },
-                contents: CowBytes::from(legacy_doc.contents),
-            }),
-            Err(_) => Err(Error::from(err)),
-        },
+#[derive(Debug, Clone, Copy)]
+pub enum DocumentHashAlgorithm {
+    Sha256 = 0,
+    Blake3 = 1,
+}
+
+impl Default for DocumentHashAlgorithm {
+    fn default() -> Self {
+        Self::Blake3
     }
 }
 
-fn serialize_document(document: &BorrowedDocument<'_>) -> Result<Vec<u8>, bonsaidb_core::Error> {
-    pot::to_vec(document)
-        .map_err(Error::from)
-        .map_err(bonsaidb_core::Error::from)
+impl TryFrom<u8> for DocumentHashAlgorithm {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Sha256),
+            1 => Ok(Self::Blake3),
+            _ => Err(Error::Core(bonsaidb_core::Error::other(
+                "bonsaidb-local",
+                "unknown document hash algorithm",
+            ))),
+        }
+    }
 }
 
 impl HasSession for Database {
@@ -1214,14 +1264,26 @@ impl LowLevelConnection for Database {
             document_resource_name(self.name(), collection, &id),
             &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
         )?;
-        let tree = self
-            .data
-            .context
-            .roots
-            .tree(self.collection_tree::<Versioned, _>(collection, document_tree_name(collection))?)
-            .map_err(Error::from)?;
-        if let Some(vec) = tree.get(id.as_ref()).map_err(Error::from)? {
-            Ok(Some(deserialize_document(&vec)?.into_owned()))
+        let tree =
+            self.data
+                .context
+                .roots
+                .tree(self.collection_tree::<DocumentsTree, _>(
+                    collection,
+                    document_tree_name(collection),
+                )?)
+                .map_err(Error::from)?;
+        if let Some((contents, index)) = tree.get_with_index(id.as_ref()).map_err(Error::from)? {
+            Ok(Some(OwnedDocument {
+                header: Header {
+                    id,
+                    revision: Revision {
+                        id: index.sequence_id.0,
+                        sha256: index.embedded.hash,
+                    },
+                },
+                contents: Bytes::from(contents),
+            }))
         } else {
             Ok(None)
         }
@@ -1247,12 +1309,15 @@ impl LowLevelConnection for Database {
             collection_resource_name(self.name(), collection),
             &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::List)),
         )?;
-        let tree = self
-            .data
-            .context
-            .roots
-            .tree(self.collection_tree::<Versioned, _>(collection, document_tree_name(collection))?)
-            .map_err(Error::from)?;
+        let tree =
+            self.data
+                .context
+                .roots
+                .tree(self.collection_tree::<DocumentsTree, _>(
+                    collection,
+                    document_tree_name(collection),
+                )?)
+                .map_err(Error::from)?;
         let mut found_docs = Vec::new();
         let mut keys_read = 0;
         let ids = DocumentIdRange(ids);
@@ -1273,12 +1338,17 @@ impl LowLevelConnection for Database {
                 }
                 ScanEvaluation::ReadData
             },
-            |_, _, doc| {
-                found_docs.push(
-                    deserialize_document(&doc)
-                        .map(BorrowedDocument::into_owned)
-                        .map_err(AbortError::Other)?,
-                );
+            |key, index, contents| {
+                found_docs.push(OwnedDocument {
+                    header: Header {
+                        id: DocumentId::try_from(key.as_slice()).unwrap(),
+                        revision: Revision {
+                            id: index.sequence_id.0,
+                            sha256: index.embedded.hash,
+                        },
+                    },
+                    contents: Bytes::from(contents),
+                });
                 Ok(())
             },
         )
@@ -1310,12 +1380,15 @@ impl LowLevelConnection for Database {
             collection_resource_name(self.name(), collection),
             &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::ListHeaders)),
         )?;
-        let tree = self
-            .data
-            .context
-            .roots
-            .tree(self.collection_tree::<Versioned, _>(collection, document_tree_name(collection))?)
-            .map_err(Error::from)?;
+        let tree =
+            self.data
+                .context
+                .roots
+                .tree(self.collection_tree::<DocumentsTree, _>(
+                    collection,
+                    document_tree_name(collection),
+                )?)
+                .map_err(Error::from)?;
         let mut found_headers = Vec::new();
         let mut keys_read = 0;
         let ids = DocumentIdRange(ids);
@@ -1326,7 +1399,7 @@ impl LowLevelConnection for Database {
                 Sort::Descending => false,
             },
             |_, _, _| ScanEvaluation::ReadData,
-            |_, _| {
+            |key, index| {
                 if let Some(limit) = limit {
                     if keys_read >= limit {
                         return ScanEvaluation::Stop;
@@ -1334,16 +1407,16 @@ impl LowLevelConnection for Database {
 
                     keys_read += 1;
                 }
-                ScanEvaluation::ReadData
+                found_headers.push(Header {
+                    id: DocumentId::try_from(key.as_slice()).unwrap(),
+                    revision: Revision {
+                        id: index.sequence_id.0,
+                        sha256: index.embedded.hash,
+                    },
+                });
+                ScanEvaluation::Skip
             },
-            |_, _, doc| {
-                found_headers.push(
-                    deserialize_document(&doc)
-                        .map(|doc| doc.header)
-                        .map_err(AbortError::Other)?,
-                );
-                Ok(())
-            },
+            |_, _, _| unreachable!(),
         )
         .map_err(|err| match err {
             AbortError::Other(err) => err,
@@ -1371,12 +1444,15 @@ impl LowLevelConnection for Database {
             collection_resource_name(self.name(), collection),
             &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Count)),
         )?;
-        let tree = self
-            .data
-            .context
-            .roots
-            .tree(self.collection_tree::<Versioned, _>(collection, document_tree_name(collection))?)
-            .map_err(Error::from)?;
+        let tree =
+            self.data
+                .context
+                .roots
+                .tree(self.collection_tree::<DocumentsTree, _>(
+                    collection,
+                    document_tree_name(collection),
+                )?)
+                .map_err(Error::from)?;
         let ids = DocumentIdRange(ids);
         let stats = tree.reduce(&ids.borrow_as_bytes()).map_err(Error::from)?;
 
@@ -1409,20 +1485,29 @@ impl LowLevelConnection for Database {
             .data
             .context
             .roots
-            .tree(
-                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
-            )
+            .tree(self.collection_tree::<DocumentsTree, _>(
+                &collection,
+                document_tree_name(&collection),
+            )?)
             .map_err(Error::from)?;
         ids.sort();
         let keys_and_values = tree
-            .get_multiple(ids.iter().map(|id| id.as_ref()))
+            .get_multiple_with_indexes(ids.iter().map(|id| id.as_ref()))
             .map_err(Error::from)?;
 
-        keys_and_values
+        Ok(keys_and_values
             .into_iter()
-            .map(|(_, value)| deserialize_document(&value).map(BorrowedDocument::into_owned))
-            .collect::<Result<Vec<_>, Error>>()
-            .map_err(bonsaidb_core::Error::from)
+            .map(|(key, contents, index)| OwnedDocument {
+                header: Header {
+                    id: DocumentId::try_from(key.as_slice()).unwrap(),
+                    revision: Revision {
+                        id: index.sequence_id.0,
+                        sha256: index.embedded.hash,
+                    },
+                },
+                contents: Bytes::from(contents),
+            })
+            .collect::<Vec<_>>())
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
@@ -1553,7 +1638,7 @@ impl LowLevelConnection for Database {
             view.reduce(
                 &mappings
                     .iter()
-                    .map(|map| (map.key.as_ref(), map.value.as_ref()))
+                    .map(|map| map.value.as_ref())
                     .collect::<Vec<_>>(),
                 true,
             )
@@ -1585,6 +1670,7 @@ impl LowLevelConnection for Database {
             &BonsaiAction::Database(DatabaseAction::View(ViewAction::Reduce)),
         )?;
         let mut mappings = Vec::new();
+        // self.access_view(view, access_policy, |view_entries| view_entries.scan())?;
         self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
             mappings.push(MappedSerializedValue {
                 key: entry.key,
@@ -1632,24 +1718,6 @@ impl LowLevelConnection for Database {
 impl HasSchema for Database {
     fn schematic(&self) -> &Schematic {
         &self.data.schema
-    }
-}
-
-type ViewIterator<'a> =
-    Box<dyn Iterator<Item = Result<(ArcBytes<'static>, ArcBytes<'static>), Error>> + 'a>;
-
-struct ViewEntryCollectionIterator<'a> {
-    iterator: ViewIterator<'a>,
-}
-
-impl<'a> Iterator for ViewEntryCollectionIterator<'a> {
-    type Item = Result<ViewEntry, crate::Error>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iterator.next().map(|item| {
-            item.map_err(crate::Error::from)
-                .and_then(|(_, value)| bincode::deserialize(&value).map_err(Error::from))
-        })
     }
 }
 
@@ -1780,5 +1848,76 @@ pub trait DatabaseNonBlocking {
 impl DatabaseNonBlocking for Database {
     fn name(&self) -> &str {
         self.data.name.as_ref()
+    }
+}
+
+pub type DocumentsTree = VersionedTreeRoot<DocumentHash>;
+
+#[derive(Debug, Clone, Default)]
+pub struct DocumentsIndexer;
+
+impl EmbeddedIndex for DocumentHash {
+    type Reduced = ();
+
+    type Indexer = DocumentsIndexer;
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct DocumentHash {
+    pub algorithm: DocumentHashAlgorithm,
+    pub hash: [u8; 32],
+}
+
+impl Indexer<DocumentHash> for DocumentsIndexer {
+    fn index(&self, _key: &ArcBytes<'_>, value: Option<&ArcBytes<'static>>) -> DocumentHash {
+        value
+            .map(|value| DocumentHash {
+                algorithm: DocumentHashAlgorithm::Blake3,
+                hash: *blake3::hash(value).as_bytes(),
+            })
+            .unwrap_or_default()
+    }
+}
+
+impl Reducer<DocumentHash, ()> for DocumentsIndexer {
+    fn reduce<'a, Indexes, IndexesIter>(&self, _indexes: Indexes)
+    where
+        DocumentHash: 'a,
+        Indexes: IntoIterator<Item = &'a DocumentHash, IntoIter = IndexesIter> + ExactSizeIterator,
+        IndexesIter: Iterator<Item = &'a DocumentHash> + ExactSizeIterator + Clone,
+    {
+    }
+
+    fn rereduce<'a, ReducedIndexes, ReducedIndexesIter>(&self, _values: ReducedIndexes)
+    where
+        Self: 'a,
+        (): 'a,
+        ReducedIndexes:
+            IntoIterator<Item = &'a (), IntoIter = ReducedIndexesIter> + ExactSizeIterator,
+        ReducedIndexesIter: Iterator<Item = &'a ()> + ExactSizeIterator + Clone,
+    {
+    }
+}
+
+impl Serializable for DocumentHash {
+    fn serialize_to<W: byteorder::WriteBytesExt>(
+        &self,
+        writer: &mut W,
+    ) -> Result<usize, nebari::Error> {
+        writer.write_u8(self.algorithm as u8)?;
+        writer.write_all(&self.hash)?;
+        Ok(self.hash.len() + 1)
+    }
+
+    fn deserialize_from<R: byteorder::ReadBytesExt>(reader: &mut R) -> Result<Self, nebari::Error> {
+        let mut algorithm = [0; 1];
+        reader.read_exact(&mut algorithm)?;
+        let algorithm = DocumentHashAlgorithm::try_from(algorithm[0])
+            .map_err(|err| nebari::Error::from(std::io::Error::new(ErrorKind::Other, err)))?;
+
+        let mut hash = [0; 32];
+        reader.read_exact(&mut hash)?;
+
+        Ok(Self { algorithm, hash })
     }
 }

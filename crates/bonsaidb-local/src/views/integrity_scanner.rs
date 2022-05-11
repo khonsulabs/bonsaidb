@@ -6,7 +6,7 @@ use bonsaidb_core::{
 };
 use nebari::{
     io::any::AnyFile,
-    tree::{Operation, ScanEvaluation, Unversioned, Versioned},
+    tree::{Operation, ScanEvaluation, Unversioned},
     ArcBytes, Roots, Tree,
 };
 use parking_lot::Mutex;
@@ -17,7 +17,7 @@ use super::{
     view_invalidated_docs_tree_name, view_versions_tree_name,
 };
 use crate::{
-    database::{document_tree_name, Database},
+    database::{document_tree_name, Database, DocumentsTree},
     tasks::{handle::Handle, Job, Keyed, Task},
     views::{view_document_map_tree_name, view_entries_tree_name},
     Error,
@@ -49,7 +49,7 @@ impl Job for IntegrityScanner {
         let documents =
             self.database
                 .roots()
-                .tree(self.database.collection_tree::<Versioned, _>(
+                .tree(self.database.collection_tree::<DocumentsTree, _>(
                     &self.scan.collection,
                     document_tree_name(&self.scan.collection),
                 )?)?;
@@ -95,7 +95,7 @@ impl Job for IntegrityScanner {
                     ViewVersion::current_for(view_version).to_vec()?,
                 )?;
                 // The view isn't the current version, queue up all documents.
-                let missing_entries = tree_keys::<Versioned>(&documents)?;
+                let missing_entries = tree_keys(&documents)?;
                 let mut invalidated_entries = transaction.tree::<Unversioned>(0).unwrap();
                 let mut missing_entries = missing_entries
                     .into_iter()

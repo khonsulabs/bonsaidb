@@ -20,7 +20,7 @@ use bonsaidb::{
         document::{CollectionDocument, Emit},
         schema::{
             view::CollectionViewSchema, Collection, ReduceResult, SerializedCollection,
-            SerializedView, View, ViewMappedValue,
+            SerializedView, View,
         },
         transmog::{Format, OwnedDeserializer},
     },
@@ -113,18 +113,18 @@ impl CollectionViewSchema for AsHistogram {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         let mut mappings = mappings.iter();
         let mut combined = SyncHistogram::from(
             mappings
                 .next()
-                .map(|h| h.value.deref().clone())
+                .map(|h| h.deref().clone())
                 .unwrap_or_else(|| Histogram::new(4).unwrap()),
         );
         for map in mappings {
-            combined.add(map.value.deref()).unwrap();
+            combined.add(map.deref()).unwrap();
         }
         Ok(combined)
     }

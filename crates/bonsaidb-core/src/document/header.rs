@@ -182,7 +182,7 @@ where
 fn emissions_tests() -> Result<(), crate::Error> {
     use crate::{schema::Map, test_util::Basic};
 
-    let doc = BorrowedDocument::with_contents::<Basic, _>(&1, &Basic::default())?;
+    let doc = BorrowedDocument::with_contents::<Basic, _>(&1, 0, &Basic::default())?;
 
     assert_eq!(
         doc.header.emit()?,
@@ -211,7 +211,7 @@ fn emissions_tests() -> Result<(), crate::Error> {
 fn chained_mappings_test() -> Result<(), crate::Error> {
     use crate::{schema::Map, test_util::Basic};
 
-    let doc = BorrowedDocument::with_contents::<Basic, _>(&1, &Basic::default())?;
+    let doc = BorrowedDocument::with_contents::<Basic, _>(&1, 0, &Basic::default())?;
 
     assert_eq!(
         doc.header.emit()?.and(doc.header.emit()?),
@@ -227,7 +227,7 @@ fn chained_mappings_test() -> Result<(), crate::Error> {
 #[test]
 fn header_display_test() {
     let original_contents = b"one";
-    let revision = Revision::new(original_contents);
+    let revision = Revision::with_id(0, original_contents);
     let header = Header {
         id: DocumentId::new(&42_u64).unwrap(),
         revision,

@@ -59,7 +59,7 @@ impl TaskManager {
 
     pub fn update_view_if_needed(
         &self,
-        view: &dyn view::Serialized,
+        view: &Arc<dyn view::Serialized>,
         database: &Database,
         block_until_updated: bool,
     ) -> Result<(), crate::Error> {
@@ -132,7 +132,7 @@ impl TaskManager {
 
     pub fn spawn_integrity_check(
         &self,
-        view: &dyn view::Serialized,
+        view: &Arc<dyn view::Serialized>,
         database: &Database,
     ) -> Option<Handle<OptionalViewMapHandle, Error>> {
         let view_name = view.view_name();

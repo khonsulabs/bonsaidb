@@ -707,7 +707,7 @@ impl KeyValueState {
             .unwrap()
             .modify(
                 all_keys,
-                Operation::CompareSwap(CompareSwap::new(&mut |key, existing_value| {
+                Operation::CompareSwap(CompareSwap::new(&mut |key, _index, existing_value| {
                     let full_key = std::str::from_utf8(key).unwrap();
                     let (namespace, key) = split_key(full_key).unwrap();
 

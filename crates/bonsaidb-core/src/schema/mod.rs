@@ -18,7 +18,7 @@ pub use self::{
     },
     schematic::Schematic,
     view::{
-        map::{Map, MappedValue, ViewMappedValue},
+        map::{Map, MappedValue},
         CollectionViewSchema, DefaultViewSerialization, ReduceResult, SerializedView, View,
         ViewMapResult, ViewSchema,
     },
