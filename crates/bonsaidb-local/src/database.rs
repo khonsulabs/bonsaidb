@@ -37,13 +37,12 @@ use bonsaidb_core::{
         Transaction,
     },
 };
-use itertools::Itertools;
 use nebari::{
     io::any::AnyFile,
     transaction::TransactionId,
     tree::{
         AnyTreeRoot, BorrowByteRange, BorrowedRange, ByIdIndexer, CompareSwap, EmbeddedIndex,
-        Indexer, Reducer, Root, ScanEvaluation, Serializable, TreeRoot, Unversioned,
+        Indexer, Reducer, Root, ScanEvaluation, SequenceId, Serializable, TreeRoot,
         VersionedByIdIndex, VersionedTreeRoot,
     },
     AbortError, ExecutingTransaction, Roots, Tree,
@@ -61,8 +60,8 @@ use crate::{
     open_trees::OpenTrees,
     storage::StorageLock,
     views::{
-        mapper, view_document_map_tree_name, view_entries_tree_name,
-        view_invalidated_docs_tree_name, ViewEntries, ViewEntry, ViewIndexer,
+        mapper, view_document_map_tree_name, view_entries_tree_name, ViewEntries, ViewEntry,
+        ViewIndexer,
     },
     Storage,
 };
@@ -370,13 +369,6 @@ impl Database {
             results.push(result);
         }
 
-        self.invalidate_changed_documents(
-            &mut roots_transaction,
-            &open_trees,
-            &collections,
-            &changed_documents,
-        )?;
-
         roots_transaction
             .entry_mut()
             .set_data(compat::serialize_executed_transaction_changes(
@@ -389,35 +381,6 @@ impl Database {
         roots_transaction.commit()?;
 
         Ok(results)
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
-    fn invalidate_changed_documents(
-        &self,
-        roots_transaction: &mut ExecutingTransaction<AnyFile>,
-        open_trees: &OpenTrees,
-        collections: &[CollectionName],
-        changed_documents: &[ChangedDocument],
-    ) -> Result<(), Error> {
-        for (collection, changed_documents) in &changed_documents
-            .iter()
-            .group_by(|doc| &collections[usize::from(doc.collection)])
-        {
-            if let Some(views) = self.data.schema.views_in_collection(collection) {
-                let changed_documents = changed_documents.collect::<Vec<_>>();
-                for view in views.into_iter().filter(|view| !view.eager()) {
-                    let view_name = view.view_name();
-                    let tree_name = view_invalidated_docs_tree_name(&view_name);
-                    for changed_document in &changed_documents {
-                        let mut invalidated_docs = roots_transaction
-                            .tree::<Unversioned>(open_trees.trees_index_by_name[&tree_name])
-                            .unwrap();
-                        invalidated_docs.set(changed_document.id.as_ref().to_vec(), b"")?;
-                    }
-                }
-            }
-        }
-        Ok(())
     }
 
     fn execute_operation(
@@ -529,8 +492,8 @@ impl Database {
                 Box::new(header),
             )))
         } else if let Some(result) = results.into_iter().next() {
-            self.update_eager_views(&document_id, operation, transaction, tree_index_map)?;
             let index = result.index.expect("no removal possible");
+            self.update_eager_views(index.sequence_id, operation, transaction, tree_index_map)?;
             Ok(OperationResult::DocumentUpdated {
                 collection: operation.collection.clone(),
                 header: Header {
@@ -610,7 +573,7 @@ impl Database {
             ))),
             (None, index) => {
                 drop(documents);
-                self.update_eager_views(&document_id, operation, transaction, tree_index_map)?;
+                self.update_eager_views(index.sequence_id, operation, transaction, tree_index_map)?;
 
                 Ok(OperationResult::DocumentUpdated {
                     collection: operation.collection.clone(),
@@ -652,12 +615,7 @@ impl Database {
                 sha256: index.embedded.hash,
             };
             if removed_revision == header.revision {
-                self.update_eager_views(
-                    &ArcBytes::from(header.id.to_vec()),
-                    operation,
-                    transaction,
-                    tree_index_map,
-                )?;
+                self.update_eager_views(index.sequence_id, operation, transaction, tree_index_map)?;
 
                 Ok(OperationResult::DocumentDeleted {
                     collection: operation.collection.clone(),
@@ -691,7 +649,7 @@ impl Database {
     ))]
     fn update_eager_views(
         &self,
-        document_id: &ArcBytes<'static>,
+        sequence_id: SequenceId,
         operation: &Operation,
         transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
@@ -713,8 +671,8 @@ impl Database {
                     .unlocked_tree(tree_index_map[&view_entries_tree_name(&name)])
                     .unwrap();
                 mapper::DocumentRequest {
+                    sequence_ids: vec![sequence_id],
                     database: self,
-                    document_ids: vec![document_id.clone()],
                     map_request: &mapper::Map {
                         database: self.data.name.clone(),
                         collection: operation.collection.clone(),

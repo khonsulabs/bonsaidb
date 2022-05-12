@@ -10,8 +10,8 @@ use crate::{
     database::{document_tree_name, keyvalue::KEY_TREE, DatabaseNonBlocking, DocumentsTree},
     tasks::{Job, Keyed, Task},
     views::{
-        view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
-        view_versions_tree_name, ViewEntries, ViewIndexer,
+        view_document_map_tree_name, view_entries_tree_name, view_versions_tree_name, ViewEntries,
+        ViewIndexer,
     },
     Database, Error,
 };
@@ -127,9 +127,6 @@ fn gather_collection_trees(
                 tree_name: view_entries_tree_name(&name),
             });
             trees.push(Target::UnversionedTree(view_document_map_tree_name(&name)));
-            trees.push(Target::UnversionedTree(view_invalidated_docs_tree_name(
-                &name,
-            )));
         }
     }
 }

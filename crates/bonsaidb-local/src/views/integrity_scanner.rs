@@ -1,23 +1,16 @@
-use std::{borrow::Cow, collections::HashSet, convert::Infallible, hash::Hash, sync::Arc};
+use std::{borrow::Cow, hash::Hash, sync::Arc};
 
-use bonsaidb_core::{
-    document::DocumentId,
-    schema::{CollectionName, ViewName},
-};
-use nebari::{
-    io::any::AnyFile,
-    tree::{Operation, ScanEvaluation, Unversioned},
-    ArcBytes, Roots, Tree,
-};
+use bonsaidb_core::schema::{CollectionName, ViewName};
+use nebari::{io::any::AnyFile, tree::Unversioned, Roots};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use super::{
     mapper::{Map, Mapper},
-    view_invalidated_docs_tree_name, view_versions_tree_name,
+    view_versions_tree_name,
 };
 use crate::{
-    database::{document_tree_name, Database, DocumentsTree},
+    database::Database,
     tasks::{handle::Handle, Job, Keyed, Task},
     views::{view_document_map_tree_name, view_entries_tree_name},
     Error,
@@ -46,14 +39,6 @@ impl Job for IntegrityScanner {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     #[allow(clippy::too_many_lines)]
     fn execute(&mut self) -> Result<Self::Output, Self::Error> {
-        let documents =
-            self.database
-                .roots()
-                .tree(self.database.collection_tree::<DocumentsTree, _>(
-                    &self.scan.collection,
-                    document_tree_name(&self.scan.collection),
-                )?)?;
-
         let view_versions_tree = self.database.collection_tree::<Unversioned, _>(
             &self.scan.collection,
             view_versions_tree_name(&self.scan.collection),
@@ -77,32 +62,16 @@ impl Job for IntegrityScanner {
             // When a version is updated, we can make no guarantees about
             // existing keys. The best we can do is delete the existing files so
             // that the view starts fresh.
-            roots.delete_tree(view_invalidated_docs_tree_name(&self.scan.view_name))?;
             roots.delete_tree(view_entries_tree_name(&self.scan.view_name))?;
             roots.delete_tree(view_document_map_tree_name(&self.scan.view_name))?;
-            // Add all missing entries to the invalidated list. The view
-            // mapping job will update them on the next pass.
-            let invalidated_entries_tree = self.database.collection_tree::<Unversioned, _>(
-                &self.scan.collection,
-                view_invalidated_docs_tree_name(&self.scan.view_name),
-            )?;
 
-            let transaction = roots.transaction(&[invalidated_entries_tree, view_versions_tree])?;
+            let transaction = roots.transaction(&[view_versions_tree])?;
             {
-                let mut view_versions = transaction.tree::<Unversioned>(1).unwrap();
+                let mut view_versions = transaction.tree::<Unversioned>(0).unwrap();
                 view_versions.set(
                     view_name.to_string().as_bytes().to_vec(),
                     ViewVersion::current_for(view_version).to_vec()?,
                 )?;
-                // The view isn't the current version, queue up all documents.
-                let missing_entries = tree_keys(&documents)?;
-                let mut invalidated_entries = transaction.tree::<Unversioned>(0).unwrap();
-                let mut missing_entries = missing_entries
-                    .into_iter()
-                    .map(|id| ArcBytes::from(id.to_vec()))
-                    .collect::<Vec<_>>();
-                missing_entries.sort();
-                invalidated_entries.modify(missing_entries, Operation::Set(ArcBytes::default()))?;
             }
             transaction.commit()?;
 
@@ -144,7 +113,7 @@ pub struct ViewVersion {
 }
 
 impl ViewVersion {
-    const CURRENT_VERSION: u8 = 3;
+    const CURRENT_VERSION: u8 = 4;
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, crate::Error> {
         match pot::from_slice(bytes) {
             Ok(version) => Ok(version),
@@ -181,29 +150,12 @@ impl ViewVersion {
             // omitted entries was removed
             roots.delete_tree(format!("view.{:#}.omitted", view))?;
         }
+        if self.internal_version < 4 {
+            // omitted entries was removed
+            roots.delete_tree(format!("view.{:#}.invalidated", view))?;
+        }
         Ok(())
     }
-}
-
-fn tree_keys<R: nebari::tree::Root>(
-    tree: &Tree<R, AnyFile>,
-) -> Result<HashSet<DocumentId>, crate::Error> {
-    let mut ids = Vec::new();
-    tree.scan::<Infallible, _, _, _, _>(
-        &(..),
-        true,
-        |_, _, _| ScanEvaluation::ReadData,
-        |key, _| {
-            ids.push(key.clone());
-            ScanEvaluation::Skip
-        },
-        |_, _, _| unreachable!(),
-    )?;
-
-    Ok(ids
-        .into_iter()
-        .map(|key| DocumentId::try_from(key.as_slice()))
-        .collect::<Result<HashSet<_>, bonsaidb_core::Error>>()?)
 }
 
 impl Keyed<Task> for IntegrityScanner {

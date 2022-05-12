@@ -13,7 +13,7 @@ use bonsaidb_core::{
     document::Header,
     schema::{view, CollectionName},
 };
-use nebari::tree::{EmbeddedIndex, Indexer, Reducer, Serializable};
+use nebari::tree::{EmbeddedIndex, Indexer, Reducer, SequenceId, Serializable};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
@@ -29,9 +29,10 @@ pub struct EntryMapping {
     pub value: Bytes,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EntryIndex {
     pub value: Option<Vec<u8>>,
+    pub latest_sequence: SequenceId,
 }
 
 impl EmbeddedIndex for EntryIndex {
@@ -50,16 +51,20 @@ impl Indexer<EntryIndex> for ViewIndexer {
             if let Some(mappings) =
                 value.and_then(|bytes| bincode::deserialize::<Vec<EntryMapping>>(bytes).ok())
             {
+                let mut latest_sequence_id = 0;
                 let mappings = mappings
                     .iter()
-                    .map(|m| m.value.as_slice())
+                    .map(|m| {
+                        latest_sequence_id = latest_sequence_id.max(m.source.revision.id);
+                        m.value.as_slice()
+                    })
                     .collect::<Vec<_>>();
 
-                return self.reduce_values(&mappings);
+                return self.reduce_values(SequenceId(latest_sequence_id), &mappings);
             }
         }
 
-        EntryIndex { value: None }
+        EntryIndex::default()
     }
 }
 
@@ -74,9 +79,10 @@ impl Serializable for EntryIndex {
             match u32::try_from(header_usize) {
                 Ok(header) => {
                     writer.write_all(&header.to_be_bytes())?;
+                    writer.write_all(&self.latest_sequence.0.to_be_bytes())?;
                     writer.write_all(value)?;
 
-                    Ok(value.len() + size_of::<u32>())
+                    Ok(value.len() + size_of::<u64>() + size_of::<u32>())
                 }
                 Err(err) => Err(nebari::Error::from(std::io::Error::new(
                     ErrorKind::Other,
@@ -85,15 +91,21 @@ impl Serializable for EntryIndex {
             }
         } else {
             writer.write_all(&0_u32.to_be_bytes())?;
-            Ok(size_of::<u32>())
+            writer.write_all(&self.latest_sequence.0.to_be_bytes())?;
+            Ok(size_of::<u32>() + size_of::<u64>())
         }
     }
 
     fn deserialize_from<R: byteorder::ReadBytesExt>(reader: &mut R) -> Result<Self, nebari::Error> {
         let mut header_bytes = [0; 4];
         reader.read_exact(&mut header_bytes)?;
-        match u32::from_be_bytes(header_bytes).checked_sub(1) {
-            None => Ok(Self { value: None }),
+
+        let mut sequence_bytes = [0; 8];
+        reader.read_exact(&mut sequence_bytes)?;
+        let latest_sequence = SequenceId(u64::from_be_bytes(sequence_bytes));
+
+        let value = match u32::from_be_bytes(header_bytes).checked_sub(1) {
+            None => None,
             Some(value_length) => {
                 let value_length = match usize::try_from(value_length) {
                     Ok(length) => length,
@@ -108,9 +120,14 @@ impl Serializable for EntryIndex {
                 if value_length > 0 {
                     reader.read_exact(&mut bytes)?;
                 }
-                Ok(Self { value: Some(bytes) })
+                Some(bytes)
             }
-        }
+        };
+
+        Ok(Self {
+            value,
+            latest_sequence,
+        })
     }
 }
 
@@ -128,25 +145,29 @@ impl ViewIndexer {
         }
     }
 
-    fn reduce_values(&self, values: &[&[u8]]) -> EntryIndex {
+    fn reduce_values(&self, latest_sequence: SequenceId, values: &[&[u8]]) -> EntryIndex {
+        let mut entry = EntryIndex {
+            value: None,
+            latest_sequence,
+        };
+
         let has_reduce = self.has_reduce.load(Ordering::Relaxed);
         if has_reduce {
-            return match self.view.reduce(values, false) {
-                Ok(reduced) => EntryIndex {
-                    value: Some(reduced),
-                },
+            match self.view.reduce(values, false) {
+                Ok(reduced) => {
+                    entry.value = Some(reduced);
+                }
                 Err(view::Error::Core(bonsaidb_core::Error::ReduceUnimplemented)) => {
                     self.has_reduce.store(false, Ordering::Relaxed);
-                    EntryIndex { value: None }
                 }
                 Err(other) => {
-                    // TODO handle error in view indexing...
-                    EntryIndex { value: None }
+                    // TODO handle error in view indexing... For now maybe store
+                    // the error's Display.
                 }
             };
         }
 
-        EntryIndex { value: None }
+        entry
     }
 }
 
@@ -157,12 +178,15 @@ impl Reducer<EntryIndex> for ViewIndexer {
         Indexes: IntoIterator<Item = &'a EntryIndex, IntoIter = IndexesIter> + ExactSizeIterator,
         IndexesIter: Iterator<Item = &'a EntryIndex> + ExactSizeIterator + Clone,
     {
-        self.reduce_values(
-            &indexes
-                .into_iter()
-                .filter_map(|m| m.value.as_deref())
-                .collect::<Vec<_>>(),
-        )
+        let mut latest_sequence_id = SequenceId::default();
+        let values = indexes
+            .into_iter()
+            .filter_map(|m| {
+                latest_sequence_id = latest_sequence_id.max(m.latest_sequence);
+                m.value.as_deref()
+            })
+            .collect::<Vec<_>>();
+        self.reduce_values(latest_sequence_id, &values)
     }
 
     fn rereduce<'a, ReducedIndexes, ReducedIndexesIter>(&self, values: ReducedIndexes) -> EntryIndex
@@ -188,10 +212,6 @@ pub fn view_entries_tree_name(view_name: &impl Display) -> String {
 /// Used to store Document ID -> Key mappings, so that when a document is updated, we can remove the old entry.
 pub fn view_document_map_tree_name(view_name: &impl Display) -> String {
     format!("view.{:#}.document-map", view_name)
-}
-
-pub fn view_invalidated_docs_tree_name(view_name: &impl Display) -> String {
-    format!("view.{:#}.invalidated", view_name)
 }
 
 pub fn view_versions_tree_name(collection: &CollectionName) -> String {

@@ -10,10 +10,7 @@ use nebari::{
 use crate::storage::TreeVault;
 use crate::{
     database::{document_tree_name, DocumentsTree},
-    views::{
-        view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
-        ViewEntries, ViewIndexer,
-    },
+    views::{view_document_map_tree_name, view_entries_tree_name, ViewEntries, ViewIndexer},
 };
 
 #[derive(Default)]
@@ -87,12 +84,6 @@ impl OpenTrees {
                     self.open_tree_with_reducer::<ViewEntries>(
                         &view_entries_tree_name(&view_name),
                         ByIdIndexer(ViewIndexer::new(view.clone())),
-                        #[cfg(any(feature = "encryption", feature = "compression"))]
-                        vault.clone(),
-                    );
-                } else {
-                    self.open_tree::<Unversioned>(
-                        &view_invalidated_docs_tree_name(&view_name),
                         #[cfg(any(feature = "encryption", feature = "compression"))]
                         vault.clone(),
                     );

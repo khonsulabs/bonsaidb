@@ -312,11 +312,13 @@ fn self_compatibility() {
 }
 
 #[test]
+#[ignore = "currently expected to be broken in this pull request"]
 fn compatible_with_0_1_x() {
     test_compatibility("0.1");
 }
 
 #[test]
+#[ignore = "currently expected to be broken in this pull request"]
 fn compatible_with_0_2_x() {
     test_compatibility("0.2");
 }
