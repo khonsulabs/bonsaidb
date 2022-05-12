@@ -609,13 +609,14 @@ impl Database {
             .tree::<DocumentsTree>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         if let Some((_, index)) = documents.remove(header.id.as_ref())? {
+            let update_sequence = documents.current_sequence_id();
             drop(documents);
             let removed_revision = Revision {
                 id: index.sequence_id.0,
                 sha256: index.embedded.hash,
             };
             if removed_revision == header.revision {
-                self.update_eager_views(index.sequence_id, operation, transaction, tree_index_map)?;
+                self.update_eager_views(update_sequence, operation, transaction, tree_index_map)?;
 
                 Ok(OperationResult::DocumentDeleted {
                     collection: operation.collection.clone(),
