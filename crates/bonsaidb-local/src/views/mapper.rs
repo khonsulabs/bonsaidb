@@ -18,12 +18,13 @@ use easy_parallel::Parallel;
 use nebari::{
     io::any::AnyFile,
     tree::{
-        AnyTreeRoot, ByIdIndexer, CompareSwap, KeyOperation, Operation, ScanEvaluation, SequenceId,
-        Unversioned,
+        btree::KeyOperation, AnyTreeRoot, ByIdIndexer, CompareSwap, Operation, ScanEvaluation,
+        SequenceId, Unversioned,
     },
     LockedTransactionTree, Tree, UnlockedTransactionTree,
 };
 
+use super::EntryMappings;
 use crate::{
     database::{document_tree_name, Database, DocumentsTree},
     tasks::{Job, Keyed, Task},
@@ -137,12 +138,12 @@ fn map_view(
     documents.scan_sequences::<Infallible, _, _, _>(
         starting_sequence..,
         true,
-        &mut |sequence| {
+        |sequence| {
             let sequence_id = document_ids.entry(sequence.key).or_default();
             *sequence_id = (*sequence_id).max(sequence.sequence);
             ScanEvaluation::Skip
         },
-        &mut |_key, _value| unreachable!(),
+        |_key, _value| unreachable!(),
     )?;
     let mut sequence_ids = document_ids.into_iter().map(|(_, v)| v).collect::<Vec<_>>();
     sequence_ids.sort_unstable();
@@ -345,8 +346,8 @@ impl<'a> DocumentRequest<'a> {
         view_entries
             .modify(
                 all_keys.into_iter().collect(),
-                Operation::CompareSwap(CompareSwap::new(&mut |key, _index, view_entries| {
-                    updater.compare_swap_view_entry(key, view_entries)
+                Operation::CompareSwap(CompareSwap::new(&mut |key, _index, value| {
+                    updater.compare_swap_view_entry(key, value)
                 })),
             )
             .map_err(Error::from)
@@ -450,29 +451,34 @@ impl<'a> ViewEntryUpdater<'a> {
     fn compare_swap_view_entry(
         &mut self,
         key: &ArcBytes<'_>,
-        view_entries: Option<ArcBytes<'static>>,
-    ) -> KeyOperation<ArcBytes<'static>> {
-        let mut mappings = view_entries
-            .and_then(|view_entries| bincode::deserialize::<Vec<EntryMapping>>(&view_entries).ok())
-            .unwrap_or_default();
+        view_entries: Option<EntryMappings>,
+    ) -> KeyOperation<EntryMappings> {
+        let mut view_entries = view_entries.unwrap_or_default();
         let key = key.to_owned();
         if let Some(document_ids) = self.view_entries_to_clean.remove(&key) {
-            mappings.retain(|m| !document_ids.contains(m.source.id.as_ref()));
+            view_entries
+                .mappings
+                .retain(|m| !document_ids.contains(m.source.id.as_ref()));
+            for document_id in document_ids {
+                view_entries.documents.insert(document_id, false);
+            }
 
-            if mappings.is_empty() && !self.new_mappings.contains_key(&key[..]) {
-                return KeyOperation::Remove;
+            if view_entries.mappings.is_empty() && !self.new_mappings.contains_key(&key[..]) {
+                return KeyOperation::Set(view_entries);
             }
         }
 
         if let Some(new_mappings) = self.new_mappings.remove(&key[..]) {
             for map::Serialized { source, value, .. } in new_mappings {
                 // Before altering any data, verify that the key is unique if this is a unique view.
-                if self.view.unique() && !mappings.is_empty() && mappings[0].source.id != source.id
+                if self.view.unique()
+                    && !view_entries.mappings.is_empty()
+                    && view_entries.mappings[0].source.id != source.id
                 {
                     self.result = Err(Error::Core(bonsaidb_core::Error::UniqueKeyViolation {
                         view: self.map_request.view_name.clone(),
                         conflicting_document: Box::new(source),
-                        existing_document: Box::new(mappings[0].source.clone()),
+                        existing_document: Box::new(view_entries.mappings[0].source.clone()),
                     }));
                     return KeyOperation::Skip;
                 }
@@ -482,7 +488,7 @@ impl<'a> ViewEntryUpdater<'a> {
                 // entry for this document, if
                 // present
                 let mut found = false;
-                for mapping in &mut mappings {
+                for mapping in &mut view_entries.mappings {
                     if mapping.source.id == entry_mapping.source.id {
                         found = true;
                         mapping.source.revision = entry_mapping.source.revision;
@@ -494,7 +500,10 @@ impl<'a> ViewEntryUpdater<'a> {
                 // If an existing mapping wasn't
                 // found, add it
                 if !found {
-                    mappings.push(entry_mapping);
+                    view_entries
+                        .documents
+                        .insert(ArcBytes::from(entry_mapping.source.id.to_vec()), true);
+                    view_entries.mappings.push(entry_mapping);
                 }
             }
 
@@ -531,7 +540,6 @@ impl<'a> ViewEntryUpdater<'a> {
             // }
         }
 
-        let value = bincode::serialize(&mappings).unwrap();
-        KeyOperation::Set(ArcBytes::from(value))
+        KeyOperation::Set(view_entries)
     }
 }

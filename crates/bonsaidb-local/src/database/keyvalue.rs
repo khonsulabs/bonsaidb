@@ -718,16 +718,16 @@ impl KeyValueState {
                             deleted: false,
                         });
                         let bytes = bincode::serialize(new_value).unwrap();
-                        nebari::tree::KeyOperation::Set(ArcBytes::from(bytes))
+                        nebari::tree::btree::KeyOperation::Set(ArcBytes::from(bytes))
                     } else if existing_value.is_some() {
                         changed_keys.push(ChangedKey {
                             namespace,
                             key,
                             deleted: existing_value.is_some(),
                         });
-                        nebari::tree::KeyOperation::Remove
+                        nebari::tree::btree::KeyOperation::Remove
                     } else {
-                        nebari::tree::KeyOperation::Skip
+                        nebari::tree::btree::KeyOperation::Skip
                     }
                 })),
             )

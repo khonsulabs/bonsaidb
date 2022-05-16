@@ -41,8 +41,9 @@ use nebari::{
     io::any::AnyFile,
     transaction::TransactionId,
     tree::{
+        btree::{Indexer, Reducer},
         AnyTreeRoot, BorrowByteRange, BorrowedRange, ByIdIndexer, CompareSwap, EmbeddedIndex,
-        Indexer, Reducer, Root, ScanEvaluation, SequenceId, Serializable, TreeRoot,
+        Entry, Root, ScanEvaluation, SequenceId, Serializable, TreeRoot, ValueIndex,
         VersionedByIdIndex, VersionedTreeRoot,
     },
     AbortError, ExecutingTransaction, Roots, Tree,
@@ -448,7 +449,7 @@ impl Database {
             vec![document_id.clone()],
             nebari::tree::Operation::CompareSwap(CompareSwap::new(&mut |_key,
                                                                         index: Option<
-                &VersionedByIdIndex<DocumentHash>,
+                &VersionedByIdIndex<DocumentHash, ArcBytes<'static>>,
             >,
                                                                         value: Option<
                 ArcBytes<'_>,
@@ -465,7 +466,7 @@ impl Database {
                     };
                     if passes_revision_check {
                         if contents != old.as_ref() {
-                            return nebari::tree::KeyOperation::Set(ArcBytes::from(
+                            return nebari::tree::btree::KeyOperation::Set(ArcBytes::from(
                                 contents.to_vec(),
                             ));
                         }
@@ -479,9 +480,11 @@ impl Database {
                         });
                     }
                 } else if check_revision.is_none() {
-                    return nebari::tree::KeyOperation::Set(ArcBytes::from(contents.to_vec()));
+                    return nebari::tree::btree::KeyOperation::Set(ArcBytes::from(
+                        contents.to_vec(),
+                    ));
                 }
-                nebari::tree::KeyOperation::Skip
+                nebari::tree::btree::KeyOperation::Skip
             })),
         )?;
         drop(documents);
@@ -608,7 +611,7 @@ impl Database {
         let mut documents = transaction
             .tree::<DocumentsTree>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
-        if let Some((_, index)) = documents.remove(header.id.as_ref())? {
+        if let Some(ValueIndex { index, .. }) = documents.remove(header.id.as_ref())? {
             let update_sequence = documents.current_sequence_id();
             drop(documents);
             let removed_revision = Revision {
@@ -769,7 +772,7 @@ impl Database {
                     )?;
                 }
                 SerializedQueryKey::Matches(key) => {
-                    if let Some((value, index)) = view_entries.get_with_index(&key)? {
+                    if let Some(ValueIndex { value, index }) = view_entries.get_with_index(&key)? {
                         values.push((key, index, value));
                     }
                 }
@@ -780,7 +783,7 @@ impl Database {
                         view_entries
                             .get_multiple_with_indexes(list.iter().map(|bytes| bytes.as_slice()))?
                             .into_iter()
-                            .map(|(key, value, index)| (Bytes::from(key), index, value)),
+                            .map(|Entry { key, value, index }| (Bytes::from(key), index, value)),
                     );
                 }
             }
@@ -805,17 +808,14 @@ impl Database {
             )?;
         }
 
-        values
+        Ok(values
             .into_iter()
-            .map(|(key, index, value)| match bincode::deserialize(&value) {
-                Ok(mappings) => Ok(ViewEntry {
-                    key,
-                    reduced_value: Bytes::from(index.embedded.value.unwrap_or_default()),
-                    mappings,
-                }),
-                Err(err) => Err(Error::from(err)),
+            .map(|(key, index, value)| ViewEntry {
+                key,
+                reduced_value: Bytes::from(index.embedded.value.unwrap_or_default()),
+                mappings: value.mappings,
             })
-            .collect::<Result<Vec<_>, Error>>()
+            .collect::<Vec<_>>())
     }
 
     #[cfg(any(feature = "encryption", feature = "compression"))]
@@ -1232,7 +1232,9 @@ impl LowLevelConnection for Database {
                     document_tree_name(collection),
                 )?)
                 .map_err(Error::from)?;
-        if let Some((contents, index)) = tree.get_with_index(id.as_ref()).map_err(Error::from)? {
+        if let Some(ValueIndex { value, index }) =
+            tree.get_with_index(id.as_ref()).map_err(Error::from)?
+        {
             Ok(Some(OwnedDocument {
                 header: Header {
                     id,
@@ -1241,7 +1243,7 @@ impl LowLevelConnection for Database {
                         sha256: index.embedded.hash,
                     },
                 },
-                contents: Bytes::from(contents),
+                contents: Bytes::from(value),
             }))
         } else {
             Ok(None)
@@ -1456,7 +1458,7 @@ impl LowLevelConnection for Database {
 
         Ok(keys_and_values
             .into_iter()
-            .map(|(key, contents, index)| OwnedDocument {
+            .map(|Entry { key, index, value }| OwnedDocument {
                 header: Header {
                     id: DocumentId::try_from(key.as_slice()).unwrap(),
                     revision: Revision {
@@ -1464,7 +1466,7 @@ impl LowLevelConnection for Database {
                         sha256: index.embedded.hash,
                     },
                 },
-                contents: Bytes::from(contents),
+                contents: Bytes::from(value),
             })
             .collect::<Vec<_>>())
     }
@@ -1815,7 +1817,7 @@ pub type DocumentsTree = VersionedTreeRoot<DocumentHash>;
 #[derive(Debug, Clone, Default)]
 pub struct DocumentsIndexer;
 
-impl EmbeddedIndex for DocumentHash {
+impl EmbeddedIndex<ArcBytes<'static>> for DocumentHash {
     type Reduced = ();
 
     type Indexer = DocumentsIndexer;
@@ -1827,7 +1829,7 @@ pub struct DocumentHash {
     pub hash: [u8; 32],
 }
 
-impl Indexer<DocumentHash> for DocumentsIndexer {
+impl Indexer<ArcBytes<'static>, DocumentHash> for DocumentsIndexer {
     fn index(&self, _key: &ArcBytes<'_>, value: Option<&ArcBytes<'static>>) -> DocumentHash {
         value
             .map(|value| DocumentHash {
