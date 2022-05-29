@@ -6,7 +6,7 @@ use std::{
 };
 
 use bonsaidb_core::{
-    arc_bytes::{serde::CowBytes, ArcBytes, OwnedBytes},
+    arc_bytes::{serde::CowBytes, ArcBytes},
     connection::Connection,
     document::{BorrowedDocument, DocumentId, Header, Revision},
     schema::{
@@ -14,23 +14,21 @@ use bonsaidb_core::{
         CollectionName, ViewName,
     },
 };
-use easy_parallel::Parallel;
 use nebari::{
     io::any::AnyFile,
     tree::{
-        btree::KeyOperation, AnyTreeRoot, ByIdIndexer, CompareSwap, Operation, ScanEvaluation,
-        SequenceId, Unversioned,
+        btree::KeyOperation, AnyTreeRoot, ByIdIndexer, CompareSwap, KeyValue, Modification,
+        Operation, PersistenceMode, ScanEvaluation, SequenceId,
     },
-    LockedTransactionTree, Tree, UnlockedTransactionTree,
+    Tree,
 };
+use rayon::prelude::*;
 
 use super::EntryMappings;
 use crate::{
     database::{document_tree_name, Database, DocumentsTree},
     tasks::{Job, Keyed, Task},
-    views::{
-        view_document_map_tree_name, view_entries_tree_name, EntryMapping, ViewEntries, ViewIndexer,
-    },
+    views::{view_entries_tree_name, EntryMapping, ViewEntries, ViewEntriesTree, ViewIndexer},
     Error,
 };
 
@@ -48,7 +46,7 @@ pub struct Map {
 }
 
 impl Job for Mapper {
-    type Output = u64;
+    type Output = Option<SequenceId>;
     type Error = Error;
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
@@ -76,47 +74,20 @@ impl Job for Mapper {
                 )?,
         )?;
 
-        let document_map =
-            self.database
-                .roots()
-                .tree(self.database.collection_tree::<Unversioned, _>(
-                    &self.map.collection,
-                    view_document_map_tree_name(&self.map.view_name),
-                )?)?;
-
-        let transaction_id = self
-            .database
-            .last_transaction_id()?
-            .expect("no way to have documents without a transaction");
-
         let storage = self.database.clone();
         let map_request = self.map.clone();
-        map_view(
-            &document_map,
-            &documents,
-            &view_entries,
-            &storage,
-            &map_request,
-        )?;
+        let sequence_id = map_view(&documents, &view_entries, &storage, &map_request)?;
 
-        self.database.storage.instance.tasks().mark_view_updated(
-            self.map.database.clone(),
-            self.map.collection.clone(),
-            self.map.view_name.clone(),
-            transaction_id,
-        );
-
-        Ok(transaction_id)
+        Ok(sequence_id)
     }
 }
 
 fn map_view(
-    document_map: &Tree<Unversioned, AnyFile>,
     documents: &Tree<DocumentsTree, AnyFile>,
     view_entries: &Tree<ViewEntries, AnyFile>,
     database: &Database,
     map_request: &Map,
-) -> Result<(), Error> {
+) -> Result<Option<SequenceId>, Error> {
     const CHUNK_SIZE: usize = 100_000;
 
     let starting_sequence = if let Some(index) = view_entries.reduce(&(..))? {
@@ -147,41 +118,50 @@ fn map_view(
     )?;
     let mut sequence_ids = document_ids.into_iter().map(|(_, v)| v).collect::<Vec<_>>();
     sequence_ids.sort_unstable();
+    let last_sequence = sequence_ids.last().copied();
+
+    let view = database
+        .data
+        .schema
+        .view_by_name(&map_request.view_name)
+        .unwrap();
+    let mut documents = documents.open_for_read()?;
 
     while !sequence_ids.is_empty() {
         let sequence_ids = sequence_ids.split_off(sequence_ids.len().saturating_sub(CHUNK_SIZE));
-        let transaction = database
-            .roots()
-            .transaction::<_, dyn AnyTreeRoot<AnyFile>>(&[
-                Box::new(document_map.clone()) as Box<dyn AnyTreeRoot<AnyFile>>,
-                Box::new(documents.clone()),
-                Box::new(view_entries.clone()),
-            ])?;
-        {
-            let view = database
-                .data
-                .schema
-                .view_by_name(&map_request.view_name)
-                .unwrap();
-
-            let document_map = transaction.unlocked_tree(0).unwrap();
-            let documents = transaction.unlocked_tree(1).unwrap();
-            let view_entries = transaction.unlocked_tree(2).unwrap();
+        if view.eager() {
+            let tx = database
+                .roots()
+                .transaction::<_, dyn AnyTreeRoot<AnyFile>>(&[
+                    Box::new(view_entries.clone()) as Box<dyn AnyTreeRoot<AnyFile>>
+                ])?;
+            let mut view_entries = tx.tree(0).unwrap();
             DocumentRequest {
                 sequence_ids,
                 map_request,
                 database,
-                document_map,
-                documents,
-                view_entries,
+                documents: &mut documents,
+                view_entries: &mut view_entries.tree,
                 view,
+                persistence_mode: PersistenceMode::Transactional(tx.entry().id),
+            }
+            .map()?;
+        } else {
+            let mut view_entries = view_entries.open_for_write()?;
+            DocumentRequest {
+                sequence_ids,
+                map_request,
+                database,
+                documents: &mut documents,
+                view_entries: &mut view_entries,
+                view,
+                persistence_mode: PersistenceMode::Flush,
             }
             .map()?;
         }
-        transaction.commit()?;
     }
 
-    Ok(())
+    Ok(last_sequence)
 }
 
 pub struct DocumentRequest<'a> {
@@ -189,10 +169,10 @@ pub struct DocumentRequest<'a> {
     pub map_request: &'a Map,
     pub database: &'a Database,
 
-    pub document_map: &'a UnlockedTransactionTree<AnyFile>,
-    pub documents: &'a UnlockedTransactionTree<AnyFile>,
-    pub view_entries: &'a UnlockedTransactionTree<AnyFile>,
+    pub documents: &'a mut nebari::tree::TreeFile<DocumentsTree, AnyFile>,
+    pub view_entries: &'a mut nebari::tree::TreeFile<ViewEntries, AnyFile>,
     pub view: &'a Arc<dyn Serialized>,
+    pub persistence_mode: PersistenceMode,
 }
 
 type DocumentIdPayload = (ArcBytes<'static>, Revision, Option<ArcBytes<'static>>);
@@ -201,126 +181,94 @@ type BatchPayload = flume::Receiver<DocumentIdPayload>;
 impl<'a> DocumentRequest<'a> {
     fn generate_batches(
         document_ids: &[SequenceId],
-        batch_sender: flume::Sender<BatchPayload>,
-        documents: &UnlockedTransactionTree<AnyFile>,
-    ) -> Result<(), Error> {
-        // Generate batches
-        let mut documents = documents.lock::<DocumentsTree>();
-        for chunk in document_ids.chunks(1_000) {
-            let (document_id_sender, document_id_receiver) = flume::bounded(chunk.len());
-            batch_sender.send(document_id_receiver).unwrap();
-            let mut documents =
-                documents.get_multiple_with_indexes_by_sequence(chunk.iter().copied())?;
-
-            for sequence in chunk.iter().rev() {
-                if let Some(entry) = documents.remove(sequence) {
-                    document_id_sender
-                        .send((
-                            entry.index.key,
-                            Revision {
-                                id: sequence.0,
-                                sha256: entry.index.embedded.unwrap().hash,
-                            },
-                            entry.value,
-                        ))
-                        .unwrap();
-                }
-            }
-
-            drop(document_id_sender);
-        }
-        drop(batch_sender);
-        Ok(())
-    }
-
-    fn map_batches(
-        batch_receiver: &flume::Receiver<BatchPayload>,
+        documents: &mut nebari::tree::TreeFile<DocumentsTree, AnyFile>,
+        persistence_mode: PersistenceMode,
         mapped_sender: flume::Sender<Batch>,
         view: &Arc<dyn Serialized>,
-        parallelization: usize,
     ) -> Result<(), Error> {
-        // Process batches
-        while let Ok(document_id_receiver) = batch_receiver.recv() {
-            let mut batch = Batch::default();
-            for result in Parallel::new()
-                .each(1..=parallelization, |_| -> Result<_, Error> {
-                    let mut results = Vec::new();
-                    while let Ok((document_id, revision, contents)) = document_id_receiver.recv() {
-                        // Call the schema map function
-                        let map_result = if let Some(contents) = contents {
-                            let document = BorrowedDocument {
-                                header: Header {
-                                    id: DocumentId::try_from(document_id.as_slice()).unwrap(),
-                                    revision,
+        // Generate batches
+        for chunk in document_ids.chunks(1_000) {
+            let mut documents = documents.get_multiple_with_indexes_by_sequence(
+                chunk.iter().copied(),
+                persistence_mode.transaction_id().is_some(),
+            )?;
+
+            let batch = chunk
+                .iter()
+                .rev()
+                .filter_map(|sequence| documents.remove(sequence).map(|entry| (sequence, entry)))
+                .collect::<Vec<_>>();
+
+            let map_results = batch
+                .into_par_iter()
+                .map(|(sequence, entry)| {
+                    let map_result = if let Some(contents) = entry.value {
+                        let document = BorrowedDocument {
+                            header: Header {
+                                id: DocumentId::try_from(entry.index.key.as_slice()).unwrap(),
+                                revision: Revision {
+                                    id: sequence.0,
+                                    sha256: entry.index.embedded.unwrap().hash,
                                 },
-                                contents: CowBytes::from(contents.as_slice()),
-                            };
-                            view.map(&document).map_err(bonsaidb_core::Error::from)?
-                        } else {
-                            Vec::new()
+                            },
+                            contents: CowBytes::from(contents.as_slice()),
                         };
-                        let keys: HashSet<OwnedBytes> = map_result
+                        view.map(&document).map_err(bonsaidb_core::Error::from)
+                    } else {
+                        Ok(Vec::new())
+                    };
+
+                    map_result.map(|mappings| {
+                        let keys: HashSet<ArcBytes<'static>> = mappings
                             .iter()
-                            .map(|map| OwnedBytes::from(map.key.as_slice()))
+                            .map(|map| ArcBytes::from(map.key.to_vec()))
                             .collect();
-                        let new_keys = ArcBytes::from(bincode::serialize(&keys)?);
-
-                        results.push((document_id, new_keys, keys, map_result));
-                    }
-
-                    Ok(results)
+                        (entry.index.key.clone(), keys, mappings)
+                    })
                 })
-                .run()
-            {
-                for (document_id, new_keys, keys, map_result) in result? {
-                    for key in &keys {
-                        batch.all_keys.insert(key.0.clone());
-                    }
-                    batch.document_maps.insert(document_id.clone(), new_keys);
-                    batch.document_keys.insert(document_id.clone(), keys);
-                    batch.document_ids.push(document_id);
-                    for mapping in map_result {
-                        let key_mappings = batch
-                            .new_mappings
-                            .entry(ArcBytes::from(mapping.key.to_vec()))
-                            .or_insert_with(Vec::default);
-                        key_mappings.push(mapping);
-                    }
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let mut batch = Batch::default();
+            for (document_id, keys, map_result) in map_results.into_iter() {
+                for key in &keys {
+                    batch.all_keys.insert(key.clone());
+                }
+                batch.document_keys.insert(document_id.clone(), keys);
+                batch.document_ids.push(document_id);
+                for mapping in map_result {
+                    batch.last_sequence = batch
+                        .last_sequence
+                        .max(SequenceId(mapping.source.revision.id));
+                    let key_mappings = batch
+                        .new_mappings
+                        .entry(ArcBytes::from(mapping.key.to_vec()))
+                        .or_insert_with(Vec::default);
+                    key_mappings.push(mapping);
                 }
             }
             mapped_sender.send(batch).unwrap();
         }
-        drop(mapped_sender);
         Ok(())
     }
 
-    fn update_document_map(
-        document_ids: Vec<ArcBytes<'static>>,
-        document_map: &mut LockedTransactionTree<'_, Unversioned, AnyFile>,
-        document_maps: &BTreeMap<ArcBytes<'static>, ArcBytes<'static>>,
-        mut document_keys: BTreeMap<ArcBytes<'static>, HashSet<OwnedBytes>>,
+    fn find_entries_to_clean(
+        document_ids: &[ArcBytes<'static>],
+        view_entries: &mut nebari::tree::TreeFile<ViewEntries, AnyFile>,
+        mut document_keys: BTreeMap<ArcBytes<'static>, HashSet<ArcBytes<'static>>>,
         all_keys: &mut BTreeSet<ArcBytes<'static>>,
     ) -> Result<BTreeMap<ArcBytes<'static>, HashSet<ArcBytes<'static>>>, Error> {
-        // We need to store a record of all the mappings this document produced.
-        let mut maps_to_clear = Vec::new();
-        document_map.modify(
-            document_ids,
-            nebari::tree::Operation::CompareSwap(CompareSwap::new(&mut |key, _index, value| {
-                if let Some(existing_map) = value {
-                    maps_to_clear.push((key.to_owned(), existing_map));
-                }
-                let new_map = document_maps.get(key).unwrap();
-                KeyOperation::Set(new_map.clone())
-            })),
-        )?;
         let mut view_entries_to_clean = BTreeMap::new();
-        for (document_id, existing_map) in maps_to_clear {
-            let existing_keys = bincode::deserialize::<HashSet<OwnedBytes>>(&existing_map)?;
+        for KeyValue {
+            key: document_id,
+            value: existing_keys,
+        } in
+            view_entries.keys_for_documents(document_ids.iter().map(ArcBytes::as_slice), true)?
+        {
             let new_keys = document_keys.remove(&document_id).unwrap();
             for key in existing_keys.difference(&new_keys) {
-                all_keys.insert(key.clone().0);
+                all_keys.insert(key.clone());
                 let key_documents = view_entries_to_clean
-                    .entry(key.clone().0)
+                    .entry(key.clone())
                     .or_insert_with(HashSet::<_, RandomState>::default);
                 key_documents.insert(document_id.clone());
             }
@@ -331,10 +279,11 @@ impl<'a> DocumentRequest<'a> {
     fn update_view_entries(
         view: &Arc<dyn Serialized>,
         map_request: &Map,
-        view_entries: &mut LockedTransactionTree<'_, ViewEntries, AnyFile>,
+        view_entries: &mut nebari::tree::TreeFile<ViewEntries, AnyFile>,
         all_keys: BTreeSet<ArcBytes<'static>>,
         view_entries_to_clean: BTreeMap<ArcBytes<'static>, HashSet<ArcBytes<'static>>>,
         new_mappings: BTreeMap<ArcBytes<'static>, Vec<map::Serialized>>,
+        persistence_mode: PersistenceMode,
     ) -> Result<(), Error> {
         let mut updater = ViewEntryUpdater {
             view,
@@ -344,12 +293,13 @@ impl<'a> DocumentRequest<'a> {
             result: Ok(()),
         };
         view_entries
-            .modify(
-                all_keys.into_iter().collect(),
-                Operation::CompareSwap(CompareSwap::new(&mut |key, _index, value| {
+            .modify(Modification {
+                keys: all_keys.into_iter().collect(),
+                persistence_mode,
+                operation: Operation::CompareSwap(CompareSwap::new(&mut |key, _index, value| {
                     updater.compare_swap_view_entry(key, value)
                 })),
-            )
+            })
             .map_err(Error::from)
             .and(updater.result)
     }
@@ -358,22 +308,23 @@ impl<'a> DocumentRequest<'a> {
         mapped_receiver: &flume::Receiver<Batch>,
         view: &Arc<dyn Serialized>,
         map_request: &Map,
-        document_map: &mut LockedTransactionTree<'_, Unversioned, AnyFile>,
-        view_entries: &mut LockedTransactionTree<'_, ViewEntries, AnyFile>,
-    ) -> Result<(), Error> {
+        view_entries: &mut nebari::tree::TreeFile<ViewEntries, AnyFile>,
+        persistence_mode: PersistenceMode,
+    ) -> Result<Option<SequenceId>, Error> {
+        let mut sequence = None;
         while let Ok(Batch {
             mut document_ids,
-            document_maps,
             document_keys,
             new_mappings,
             mut all_keys,
+            last_sequence,
         }) = mapped_receiver.recv()
         {
+            sequence = Some(last_sequence);
             document_ids.sort_unstable();
-            let view_entries_to_clean = Self::update_document_map(
-                document_ids,
-                document_map,
-                &document_maps,
+            let view_entries_to_clean = Self::find_entries_to_clean(
+                &document_ids,
+                view_entries,
                 document_keys,
                 &mut all_keys,
             )?;
@@ -385,50 +336,57 @@ impl<'a> DocumentRequest<'a> {
                 all_keys,
                 view_entries_to_clean,
                 new_mappings,
+                persistence_mode,
             )?;
         }
-        Ok(())
+        Ok(sequence)
     }
 
-    pub fn map(&mut self) -> Result<(), Error> {
-        let (batch_sender, batch_receiver) = flume::bounded(1);
+    pub fn map(&mut self) -> Result<Option<SequenceId>, Error> {
         let (mapped_sender, mapped_receiver) = flume::bounded(1);
 
-        for result in Parallel::new()
-            .add(|| Self::generate_batches(&self.sequence_ids, batch_sender, self.documents))
-            .add(|| {
-                Self::map_batches(
-                    &batch_receiver,
+        let mut latest_sequence_id = Ok(None);
+        let mut generate_batches_result = Ok(());
+        rayon::scope(|scope| {
+            scope.spawn(|_| {
+                generate_batches_result = Self::generate_batches(
+                    &self.sequence_ids,
+                    self.documents,
+                    self.persistence_mode,
                     mapped_sender,
                     self.view,
-                    self.database.storage().parallelization(),
-                )
-            })
-            .add(|| {
-                let mut document_map = self.document_map.lock();
-                let mut view_entries = self.view_entries.lock();
-                Self::save_mappings(
+                );
+            });
+            scope.spawn(|_| {
+                latest_sequence_id = Self::save_mappings(
                     &mapped_receiver,
                     self.view,
                     self.map_request,
-                    &mut document_map,
-                    &mut view_entries,
-                )
-            })
-            .run()
-        {
-            result?;
+                    self.view_entries,
+                    self.persistence_mode,
+                );
+            });
+        });
+        generate_batches_result?;
+        let latest_sequence_id = latest_sequence_id?;
+
+        if let Some(sequence_id) = latest_sequence_id {
+            self.database.storage.instance.tasks().mark_view_updated(
+                self.database.data.name.clone(),
+                self.map_request.view_name.clone(),
+                sequence_id,
+            );
         }
 
-        Ok(())
+        Ok(latest_sequence_id)
     }
 }
 
 #[derive(Default)]
 struct Batch {
+    last_sequence: SequenceId,
     document_ids: Vec<ArcBytes<'static>>,
-    document_maps: BTreeMap<ArcBytes<'static>, ArcBytes<'static>>,
-    document_keys: BTreeMap<ArcBytes<'static>, HashSet<OwnedBytes>>,
+    document_keys: BTreeMap<ArcBytes<'static>, HashSet<ArcBytes<'static>>>,
     new_mappings: BTreeMap<ArcBytes<'static>, Vec<map::Serialized>>,
     all_keys: BTreeSet<ArcBytes<'static>>,
 }

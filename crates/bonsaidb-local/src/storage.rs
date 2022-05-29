@@ -252,7 +252,6 @@ impl From<StorageInstance> for Storage {
 struct Data {
     lock: StorageLock,
     path: PathBuf,
-    parallelization: usize,
     threadpool: ThreadPool<AnyFile>,
     file_manager: AnyFileManager,
     pub(crate) tasks: TaskManager,
@@ -342,7 +341,6 @@ impl Storage {
                 data: Arc::new(Data {
                     lock: storage_lock,
                     tasks,
-                    parallelization,
                     subscribers: Arc::default(),
                     authenticated_permissions,
                     sessions: RwLock::default(),
@@ -356,7 +354,7 @@ impl Storage {
                     tree_vault,
                     path: owned_path,
                     file_manager,
-                    chunk_cache: ChunkCache::new(2000, 160_384),
+                    chunk_cache: ChunkCache::new(2_000, 160_384),
                     threadpool: ThreadPool::new(parallelization),
                     schemas: RwLock::new(configuration.initial_schemas),
                     available_databases: RwLock::default(),
@@ -478,11 +476,6 @@ impl Storage {
     #[must_use]
     pub fn unique_id(&self) -> StorageId {
         self.instance.data.lock.id()
-    }
-
-    #[must_use]
-    pub(crate) fn parallelization(&self) -> usize {
-        self.instance.data.parallelization
     }
 
     #[must_use]

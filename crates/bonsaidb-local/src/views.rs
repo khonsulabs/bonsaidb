@@ -12,20 +12,23 @@ use std::{
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     document::Header,
-    schema::{view, CollectionName},
+    schema::{view, CollectionName, ViewName},
 };
 use byteorder::{BigEndian, ReadBytesExt};
 use nebari::{
+    io::{File, FileOp, ManagedFile, OperableFile},
     transaction::TransactionId,
     tree::{
         btree::{
-            BTreeEntry, BTreeNode, Indexer, KeyOperation, ModificationContext, Reducer, ScanArgs,
+            BTreeEntry, BTreeNode, Indexer, KeyOperation, ModificationContext, NodeInclusion,
+            Reducer, ScanArgs,
         },
         dynamic_order, BinarySerialization, ByIdIndexer, ByIdStats, ChangeResult, CompareSwap,
-        EmbeddedIndex, Modification, ModificationResult, Operation, PagedWriter, PersistenceMode,
-        Root, SequenceId, Serializable, UnversionedByIdIndex, PAGE_SIZE,
+        EmbeddedIndex, KeyRange, KeyValue, Modification, ModificationResult, Operation,
+        PagedWriter, PersistenceMode, Root, ScanEvaluation, SequenceId, Serializable, State,
+        TreeFile, UnversionedByIdIndex, PAGE_SIZE,
     },
-    ArcBytes, CacheEntry,
+    AnyVault, ArcBytes, CacheEntry, ChunkCache,
 };
 use serde::{Deserialize, Serialize};
 
@@ -55,9 +58,9 @@ impl EmbeddedIndex<EntryMappings> for EntryIndex {
 
 impl Indexer<EntryMappings, EntryIndex> for ViewIndexer {
     fn index(&self, _key: &ArcBytes<'_>, value: Option<&EntryMappings>) -> EntryIndex {
-        let has_reduce = self.has_reduce.load(Ordering::Relaxed);
-        if has_reduce {
-            if let Some(value) = value {
+        if let Some(value) = value {
+            let has_reduce = self.has_reduce.load(Ordering::Relaxed);
+            if has_reduce {
                 let mut latest_sequence_id = 0;
                 let mappings = value
                     .mappings
@@ -70,6 +73,17 @@ impl Indexer<EntryMappings, EntryIndex> for ViewIndexer {
 
                 return self.reduce_values(SequenceId(latest_sequence_id), &mappings);
             }
+
+            let latest_sequence_id = value
+                .mappings
+                .iter()
+                .map(|m| m.source.revision.id)
+                .max()
+                .unwrap_or_default();
+            return EntryIndex {
+                value: None,
+                latest_sequence: SequenceId(latest_sequence_id),
+            };
         }
 
         EntryIndex::default()
@@ -276,10 +290,13 @@ impl ViewEntries {
                                         ))
                                     })?,
                                 );
-                                let position = writer.write_chunk(&serialized)?;
+
                                 // write_chunk errors if it can't fit within a u32
                                 #[allow(clippy::cast_possible_truncation)]
                                 let value_length = serialized.len() as u32;
+
+                                let position = writer.write_chunk_cached(serialized)?;
+
                                 let new_index = UnversionedByIdIndex::new(
                                     value_length,
                                     position,
@@ -386,10 +403,12 @@ impl ViewEntries {
                         if let Some(value) = value {
                             if !value.is_empty() {
                                 let serialized = Self::serialize_document_map_entries(value);
-                                let position = writer.write_chunk(&serialized)?;
                                 // write_chunk errors if it can't fit within a u32
                                 #[allow(clippy::cast_possible_truncation)]
                                 let value_length = serialized.len() as u32;
+
+                                let position =
+                                    writer.write_chunk_cached(ArcBytes::from(serialized))?;
                                 let new_index =
                                     UnversionedByIdIndex::new(value_length, position, ());
 
@@ -677,26 +696,229 @@ impl Root for ViewEntries {
 
     fn copy_data_to(
         &mut self,
-        _include_nodes: bool,
-        _file: &mut dyn nebari::io::File,
-        _copied_chunks: &mut std::collections::HashMap<u64, u64>,
-        _writer: &mut nebari::tree::PagedWriter<'_>,
-        _vault: Option<&dyn nebari::AnyVault>,
+        include_nodes: bool,
+        file: &mut dyn nebari::io::File,
+        copied_chunks: &mut std::collections::HashMap<u64, u64>,
+        writer: &mut nebari::tree::PagedWriter<'_>,
+        vault: Option<&dyn nebari::AnyVault>,
     ) -> Result<(), nebari::Error> {
-        todo!()
+        let mut scratch = Vec::new();
+        self.by_id_root.copy_data_to(
+            if include_nodes {
+                NodeInclusion::IncludeNext
+            } else {
+                NodeInclusion::Exclude
+            },
+            file,
+            copied_chunks,
+            writer,
+            vault,
+            &mut scratch,
+            &mut |_key,
+                  index: &mut UnversionedByIdIndex<EntryIndex, EntryMappings>,
+                  from_file,
+                  copied_chunks,
+                  to_file,
+                  vault| {
+                let new_position =
+                    to_file.copy_chunk_from(index.position, from_file, copied_chunks, vault)?;
+
+                if new_position == index.position {
+                    // Data is already in the new file
+                    Ok(false)
+                } else {
+                    index.position = new_position;
+                    Ok(true)
+                }
+            },
+        )?;
+        self.by_source_root.copy_data_to(
+            if include_nodes {
+                NodeInclusion::IncludeNext
+            } else {
+                NodeInclusion::Exclude
+            },
+            file,
+            copied_chunks,
+            writer,
+            vault,
+            &mut scratch,
+            &mut |_key,
+                  index: &mut UnversionedByIdIndex<(), HashSet<ArcBytes<'static>>>,
+                  from_file,
+                  copied_chunks,
+                  to_file,
+                  vault| {
+                let new_position =
+                    to_file.copy_chunk_from(index.position, from_file, copied_chunks, vault)?;
+
+                if new_position == index.position {
+                    // Data is already in the new file
+                    Ok(false)
+                } else {
+                    index.position = new_position;
+                    Ok(true)
+                }
+            },
+        )?;
+
+        Ok(())
+    }
+}
+
+pub trait ViewEntriesTree {
+    fn keys_for_documents<'keys, KeysIntoIter, KeysIter>(
+        &mut self,
+        keys: KeysIntoIter,
+        in_transaction: bool,
+    ) -> Result<Vec<KeyValue<ArcBytes<'static>, HashSet<ArcBytes<'static>>>>, nebari::Error>
+    where
+        KeysIntoIter: IntoIterator<Item = &'keys [u8], IntoIter = KeysIter>,
+        KeysIter: Iterator<Item = &'keys [u8]> + ExactSizeIterator;
+}
+
+impl<File> ViewEntriesTree for TreeFile<ViewEntries, File>
+where
+    File: ManagedFile,
+{
+    fn keys_for_documents<'keys, KeysIntoIter, KeysIter>(
+        &mut self,
+        keys: KeysIntoIter,
+        in_transaction: bool,
+    ) -> Result<Vec<KeyValue<ArcBytes<'static>, HashSet<ArcBytes<'static>>>>, nebari::Error>
+    where
+        KeysIntoIter: IntoIterator<Item = &'keys [u8], IntoIter = KeysIter>,
+        KeysIter: Iterator<Item = &'keys [u8]> + ExactSizeIterator,
+    {
+        let keys = keys.into_iter();
+        let mut buffers = Vec::with_capacity(keys.len());
+        self.file.execute(DocumentMapGetter {
+            from_transaction: in_transaction,
+            state: &self.state,
+            vault: self.vault.as_deref(),
+            cache: self.cache.as_ref(),
+            keys: KeyRange::new(keys),
+            key_reader: |key, value, _| {
+                buffers.push(KeyValue { key, value });
+                Ok(())
+            },
+            key_evaluator: |_, _| ScanEvaluation::ReadData,
+        })?;
+        Ok(buffers)
+    }
+}
+
+struct DocumentMapGetter<
+    'a,
+    'keys,
+    KeyEvaluator: FnMut(
+        &ArcBytes<'static>,
+        &UnversionedByIdIndex<(), HashSet<ArcBytes<'static>>>,
+    ) -> ScanEvaluation,
+    KeyReader: FnMut(
+        ArcBytes<'static>,
+        HashSet<ArcBytes<'static>>,
+        UnversionedByIdIndex<(), HashSet<ArcBytes<'static>>>,
+    ) -> Result<(), nebari::Error>,
+    Keys: Iterator<Item = &'keys [u8]>,
+> {
+    from_transaction: bool,
+    state: &'a State<ViewEntries>,
+    vault: Option<&'a dyn AnyVault>,
+    cache: Option<&'a ChunkCache>,
+    keys: Keys,
+    key_evaluator: KeyEvaluator,
+    key_reader: KeyReader,
+}
+
+impl<'a, 'keys, KeyEvaluator, KeyReader, Keys> FileOp<Result<(), nebari::Error>>
+    for DocumentMapGetter<'a, 'keys, KeyEvaluator, KeyReader, Keys>
+where
+    KeyEvaluator: FnMut(
+        &ArcBytes<'static>,
+        &UnversionedByIdIndex<(), HashSet<ArcBytes<'static>>>,
+    ) -> ScanEvaluation,
+    KeyReader: FnMut(
+        ArcBytes<'static>,
+        HashSet<ArcBytes<'static>>,
+        UnversionedByIdIndex<(), HashSet<ArcBytes<'static>>>,
+    ) -> Result<(), nebari::Error>,
+    Keys: Iterator<Item = &'keys [u8]>,
+{
+    fn execute(mut self, file: &mut dyn File) -> Result<(), nebari::Error> {
+        if self.from_transaction {
+            let state = self.state.lock();
+            if state.file_id != file.id().id() {
+                return Err(nebari::Error::from(nebari::ErrorKind::TreeCompacted));
+            }
+
+            state.root.get_multiple_document_maps(
+                &mut self.keys,
+                &mut self.key_evaluator,
+                &mut self.key_reader,
+                file,
+                self.vault,
+                self.cache,
+            )
+        } else {
+            let state = self.state.read();
+            if state.file_id != file.id().id() {
+                return Err(nebari::Error::from(nebari::ErrorKind::TreeCompacted));
+            }
+
+            state.root.get_multiple_document_maps(
+                &mut self.keys,
+                &mut self.key_evaluator,
+                &mut self.key_reader,
+                file,
+                self.vault,
+                self.cache,
+            )
+        }
+    }
+}
+
+impl ViewEntries {
+    fn get_multiple_document_maps<'keys, KeyEvaluator, KeyReader, Keys>(
+        &self,
+        keys: &mut Keys,
+        key_evaluator: &mut KeyEvaluator,
+        key_reader: &mut KeyReader,
+        file: &mut dyn File,
+        vault: Option<&dyn AnyVault>,
+        cache: Option<&ChunkCache>,
+    ) -> Result<(), nebari::Error>
+    where
+        KeyEvaluator: FnMut(
+            &ArcBytes<'static>,
+            &UnversionedByIdIndex<(), HashSet<ArcBytes<'static>>>,
+        ) -> ScanEvaluation,
+        KeyReader: FnMut(
+            ArcBytes<'static>,
+            HashSet<ArcBytes<'static>>,
+            UnversionedByIdIndex<(), HashSet<ArcBytes<'static>>>,
+        ) -> Result<(), nebari::Error>,
+        Keys: Iterator<Item = &'keys [u8]>,
+    {
+        self.by_source_root.get_multiple(
+            keys,
+            key_evaluator,
+            |key, value, index| {
+                let entries = Self::deserialize_document_map_entries(value)?;
+                key_reader(key, entries, index)
+            },
+            file,
+            vault,
+            cache,
+        )
     }
 }
 
 pub mod integrity_scanner;
 pub mod mapper;
 
-pub fn view_entries_tree_name(view_name: &impl Display) -> String {
+pub fn view_entries_tree_name(view_name: &ViewName) -> String {
     format!("view.{:#}", view_name)
-}
-
-/// Used to store Document ID -> Key mappings, so that when a document is updated, we can remove the old entry.
-pub fn view_document_map_tree_name(view_name: &impl Display) -> String {
-    format!("view.{:#}.document-map", view_name)
 }
 
 pub fn view_versions_tree_name(collection: &CollectionName) -> String {

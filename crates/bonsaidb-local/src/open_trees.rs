@@ -3,14 +3,14 @@ use std::collections::HashMap;
 use bonsaidb_core::schema::{CollectionName, Schematic};
 use nebari::{
     io::any::AnyFile,
-    tree::{AnyTreeRoot, ByIdIndexer, Root, Unversioned},
+    tree::{AnyTreeRoot, ByIdIndexer, Root},
 };
 
 #[cfg(any(feature = "encryption", feature = "compression"))]
 use crate::storage::TreeVault;
 use crate::{
     database::{document_tree_name, DocumentsTree},
-    views::{view_document_map_tree_name, view_entries_tree_name, ViewEntries, ViewIndexer},
+    views::{view_entries_tree_name, ViewEntries, ViewIndexer},
 };
 
 #[derive(Default)]
@@ -76,11 +76,6 @@ impl OpenTrees {
             for view in views {
                 let view_name = view.view_name();
                 if view.eager() {
-                    self.open_tree::<Unversioned>(
-                        &view_document_map_tree_name(&view_name),
-                        #[cfg(any(feature = "encryption", feature = "compression"))]
-                        vault.clone(),
-                    );
                     self.open_tree_with_reducer::<ViewEntries>(
                         &view_entries_tree_name(&view_name),
                         ByIdIndexer(ViewIndexer::new(view.clone())),

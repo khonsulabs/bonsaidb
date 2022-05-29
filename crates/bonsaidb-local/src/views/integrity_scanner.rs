@@ -1,7 +1,14 @@
 use std::{borrow::Cow, hash::Hash, sync::Arc};
 
-use bonsaidb_core::schema::{CollectionName, ViewName};
-use nebari::{io::any::AnyFile, tree::Unversioned, Roots};
+use bonsaidb_core::{
+    connection::Connection,
+    schema::{CollectionName, ViewName},
+};
+use nebari::{
+    io::any::AnyFile,
+    tree::{ByIdIndexer, SequenceId, Unversioned},
+    Roots,
+};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +19,7 @@ use super::{
 use crate::{
     database::Database,
     tasks::{handle::Handle, Job, Keyed, Task},
-    views::{view_document_map_tree_name, view_entries_tree_name},
+    views::{view_entries_tree_name, ViewEntries, ViewIndexer},
     Error,
 };
 
@@ -30,7 +37,7 @@ pub struct IntegrityScan {
     pub view_name: ViewName,
 }
 
-pub type OptionalViewMapHandle = Option<Arc<Mutex<Option<Handle<u64, Error>>>>>;
+pub type OptionalViewMapHandle = Option<Arc<Mutex<Option<Handle<Option<SequenceId>, Error>>>>>;
 
 impl Job for IntegrityScanner {
     type Output = OptionalViewMapHandle;
@@ -57,13 +64,40 @@ impl Job for IntegrityScanner {
         version.cleanup(&roots, &view_name)?;
 
         let task = if version.is_current(view_version) {
+            let view = self
+                .database
+                .schematic()
+                .view_by_name(&view_name)
+                .unwrap()
+                .clone();
+            let view_entries_tree = self
+                .database
+                .collection_tree_with_reducer::<ViewEntries, _>(
+                    &self.scan.collection,
+                    view_entries_tree_name(&view_name),
+                    ByIdIndexer(ViewIndexer::new(view)),
+                )?;
+            let view_entries = self.database.roots().tree(view_entries_tree)?;
+            let latest_seqeunce = match view_entries.open_for_read() {
+                Ok(mut view_entries) => view_entries
+                    .reduce(&(..), false)?
+                    .map(|stats| stats.embedded.latest_sequence),
+                Err(err) if err.kind.is_file_not_found() => None,
+                Err(other) => return Err(Error::from(other)),
+            };
+            if let Some(sequence_id) = latest_seqeunce {
+                self.database.storage.instance.tasks().mark_view_updated(
+                    self.scan.database.clone(),
+                    view_name.clone(),
+                    sequence_id,
+                );
+            }
             None
         } else {
             // When a version is updated, we can make no guarantees about
             // existing keys. The best we can do is delete the existing files so
             // that the view starts fresh.
             roots.delete_tree(view_entries_tree_name(&self.scan.view_name))?;
-            roots.delete_tree(view_document_map_tree_name(&self.scan.view_name))?;
 
             let transaction = roots.transaction(&[view_versions_tree])?;
             {
@@ -74,6 +108,11 @@ impl Job for IntegrityScanner {
                 )?;
             }
             transaction.commit()?;
+            self.database.storage.instance.tasks().mark_view_updated(
+                self.database.data.name.clone(),
+                self.scan.view_name.clone(),
+                SequenceId::default(),
+            );
 
             Some(Arc::new(Mutex::new(Some(
                 self.database
@@ -98,7 +137,6 @@ impl Job for IntegrityScanner {
             .tasks()
             .mark_integrity_check_complete(
                 self.database.data.name.clone(),
-                self.scan.collection.clone(),
                 self.scan.view_name.clone(),
             );
 
@@ -151,8 +189,9 @@ impl ViewVersion {
             roots.delete_tree(format!("view.{:#}.omitted", view))?;
         }
         if self.internal_version < 4 {
-            // omitted entries was removed
+            // invalidated and document map were removed.
             roots.delete_tree(format!("view.{:#}.invalidated", view))?;
+            roots.delete_tree(format!("view.{:#}.document-map", view))?;
         }
         Ok(())
     }

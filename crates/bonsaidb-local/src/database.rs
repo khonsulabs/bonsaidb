@@ -43,8 +43,8 @@ use nebari::{
     tree::{
         btree::{Indexer, Reducer},
         AnyTreeRoot, BorrowByteRange, BorrowedRange, ByIdIndexer, CompareSwap, EmbeddedIndex,
-        Entry, Root, ScanEvaluation, SequenceId, Serializable, TreeRoot, ValueIndex,
-        VersionedByIdIndex, VersionedTreeRoot,
+        Entry, PersistenceMode, Root, ScanEvaluation, SequenceId, Serializable, TreeRoot,
+        ValueIndex, VersionedByIdIndex, VersionedTreeRoot,
     },
     AbortError, ExecutingTransaction, Roots, Tree,
 };
@@ -60,10 +60,7 @@ use crate::{
     error::Error,
     open_trees::OpenTrees,
     storage::StorageLock,
-    views::{
-        mapper, view_document_map_tree_name, view_entries_tree_name, ViewEntries, ViewEntry,
-        ViewIndexer,
-    },
+    views::{mapper, view_entries_tree_name, ViewEntries, ViewEntry, ViewIndexer},
     Storage,
 };
 
@@ -207,6 +204,10 @@ impl Database {
 
     pub(crate) fn roots(&self) -> &'_ nebari::Roots<AnyFile> {
         &self.data.context.roots
+    }
+
+    pub(crate) fn context(&self) -> &Context {
+        &self.data.context
     }
 
     fn access_view<
@@ -496,7 +497,12 @@ impl Database {
             )))
         } else if let Some(result) = results.into_iter().next() {
             let index = result.index.expect("no removal possible");
-            self.update_eager_views(index.sequence_id, operation, transaction, tree_index_map)?;
+            self.update_collection_for_sequence(
+                index.sequence_id,
+                operation,
+                transaction,
+                tree_index_map,
+            )?;
             Ok(OperationResult::DocumentUpdated {
                 collection: operation.collection.clone(),
                 header: Header {
@@ -576,7 +582,12 @@ impl Database {
             ))),
             (None, index) => {
                 drop(documents);
-                self.update_eager_views(index.sequence_id, operation, transaction, tree_index_map)?;
+                self.update_collection_for_sequence(
+                    index.sequence_id,
+                    operation,
+                    transaction,
+                    tree_index_map,
+                )?;
 
                 Ok(OperationResult::DocumentUpdated {
                     collection: operation.collection.clone(),
@@ -619,7 +630,12 @@ impl Database {
                 sha256: index.embedded.hash,
             };
             if removed_revision == header.revision {
-                self.update_eager_views(update_sequence, operation, transaction, tree_index_map)?;
+                self.update_collection_for_sequence(
+                    update_sequence,
+                    operation,
+                    transaction,
+                    tree_index_map,
+                )?;
 
                 Ok(OperationResult::DocumentDeleted {
                     collection: operation.collection.clone(),
@@ -651,13 +667,16 @@ impl Database {
             collection.authority = operation.collection.authority.as_ref()
         )
     ))]
-    fn update_eager_views(
+    fn update_collection_for_sequence(
         &self,
         sequence_id: SequenceId,
         operation: &Operation,
         transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
     ) -> Result<(), Error> {
+        self.data
+            .context
+            .update_collection_sequence(operation.collection.clone(), sequence_id);
         if let Some(eager_views) = self
             .data
             .schema
@@ -668,9 +687,6 @@ impl Database {
                 .unwrap();
             for view in eager_views {
                 let name = view.view_name();
-                let document_map = transaction
-                    .unlocked_tree(tree_index_map[&view_document_map_tree_name(&name)])
-                    .unwrap();
                 let view_entries = transaction
                     .unlocked_tree(tree_index_map[&view_entries_tree_name(&name)])
                     .unwrap();
@@ -682,10 +698,10 @@ impl Database {
                         collection: operation.collection.clone(),
                         view_name: name.clone(),
                     },
-                    document_map,
-                    documents,
-                    view_entries,
+                    documents: &mut documents.lock().tree,
+                    view_entries: &mut view_entries.lock().tree,
                     view,
+                    persistence_mode: PersistenceMode::Transactional(transaction.entry().id),
                 }
                 .map()?;
             }
@@ -1699,6 +1715,7 @@ impl Deref for Context {
 pub(crate) struct ContextData {
     pub(crate) roots: Roots<AnyFile>,
     key_value_state: Arc<Mutex<keyvalue::KeyValueState>>,
+    collection_sequences: Mutex<HashMap<CollectionName, SequenceId>>,
 }
 
 impl Borrow<Roots<AnyFile>> for Context {
@@ -1725,6 +1742,7 @@ impl Context {
             data: Arc::new(ContextData {
                 roots,
                 key_value_state,
+                collection_sequences: Mutex::default(),
             }),
         };
         std::thread::Builder::new()
@@ -1738,6 +1756,34 @@ impl Context {
             })
             .unwrap();
         context
+    }
+
+    pub(crate) fn current_collection_sequence(
+        &self,
+        collection_name: &CollectionName,
+    ) -> Option<SequenceId> {
+        let mut sequences = self.data.collection_sequences.lock();
+        if let Some(sequence) = sequences.get(collection_name) {
+            Some(*sequence)
+        } else {
+            let tree = self
+                .data
+                .roots
+                .tree(DocumentsTree::tree(document_tree_name(collection_name)))
+                .ok()?;
+            let sequence = dbg!(tree.current_sequence_id());
+            sequences.insert(collection_name.clone(), sequence);
+            Some(sequence)
+        }
+    }
+
+    pub(crate) fn update_collection_sequence(
+        &self,
+        collection_name: CollectionName,
+        new_sequence: SequenceId,
+    ) {
+        let mut sequences = self.data.collection_sequences.lock();
+        sequences.insert(collection_name, new_sequence);
     }
 
     pub(crate) fn perform_kv_operation(
