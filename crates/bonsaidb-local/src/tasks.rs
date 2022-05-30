@@ -5,7 +5,6 @@ use std::{
 };
 
 use bonsaidb_core::{
-    connection::Connection,
     keyvalue::Timestamp,
     schema::{view, CollectionName, ViewName},
 };
@@ -19,7 +18,7 @@ use crate::{
         integrity_scanner::{IntegrityScan, IntegrityScanner, OptionalViewMapHandle},
         mapper::{Map, Mapper},
     },
-    DatabaseNonBlocking, Error,
+    Error,
 };
 
 /// Types related to defining [`Job`]s.

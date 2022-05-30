@@ -7,7 +7,6 @@ use std::{
 
 use bonsaidb_core::{
     arc_bytes::{serde::CowBytes, ArcBytes},
-    connection::Connection,
     document::{BorrowedDocument, DocumentId, Header, Revision},
     schema::{
         view::{map, Serialized},
@@ -174,9 +173,6 @@ pub struct DocumentRequest<'a> {
     pub view: &'a Arc<dyn Serialized>,
     pub persistence_mode: PersistenceMode,
 }
-
-type DocumentIdPayload = (ArcBytes<'static>, Revision, Option<ArcBytes<'static>>);
-type BatchPayload = flume::Receiver<DocumentIdPayload>;
 
 impl<'a> DocumentRequest<'a> {
     fn generate_batches(

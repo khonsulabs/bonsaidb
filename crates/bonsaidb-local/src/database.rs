@@ -334,10 +334,12 @@ impl Database {
         let mut changed_documents = Vec::new();
         let mut collection_indexes = HashMap::new();
         let mut collections = Vec::new();
+        let mut collection_sequences = HashMap::new();
         for op in &transaction.operations {
             let result = self.execute_operation(
                 op,
                 &mut roots_transaction,
+                &mut collection_sequences,
                 &open_trees.trees_index_by_name,
             )?;
 
@@ -382,6 +384,10 @@ impl Database {
 
         roots_transaction.commit()?;
 
+        self.data
+            .context
+            .update_collection_sequences(collection_sequences);
+
         Ok(results)
     }
 
@@ -389,26 +395,43 @@ impl Database {
         &self,
         operation: &Operation,
         transaction: &mut ExecutingTransaction<AnyFile>,
+        collection_sequences: &mut HashMap<CollectionName, SequenceId>,
         tree_index_map: &HashMap<String, usize>,
     ) -> Result<OperationResult, Error> {
         match &operation.command {
-            Command::Insert { id, contents } => {
-                self.execute_insert(operation, transaction, tree_index_map, id.clone(), contents)
-            }
+            Command::Insert { id, contents } => self.execute_insert(
+                operation,
+                transaction,
+                collection_sequences,
+                tree_index_map,
+                id.clone(),
+                contents,
+            ),
             Command::Update { header, contents } => self.execute_update(
                 operation,
                 transaction,
+                collection_sequences,
                 tree_index_map,
                 &header.id,
                 Some(&header.revision),
                 contents,
             ),
-            Command::Overwrite { id, contents } => {
-                self.execute_update(operation, transaction, tree_index_map, id, None, contents)
-            }
-            Command::Delete { header } => {
-                self.execute_delete(operation, transaction, tree_index_map, header)
-            }
+            Command::Overwrite { id, contents } => self.execute_update(
+                operation,
+                transaction,
+                collection_sequences,
+                tree_index_map,
+                id,
+                None,
+                contents,
+            ),
+            Command::Delete { header } => self.execute_delete(
+                operation,
+                transaction,
+                collection_sequences,
+                tree_index_map,
+                header,
+            ),
             Command::Check { id, revision } => Self::execute_check(
                 operation,
                 transaction,
@@ -435,6 +458,7 @@ impl Database {
         &self,
         operation: &Operation,
         transaction: &mut ExecutingTransaction<AnyFile>,
+        collection_sequences: &mut HashMap<CollectionName, SequenceId>,
         tree_index_map: &HashMap<String, usize>,
         id: &DocumentId,
         check_revision: Option<&Revision>,
@@ -502,6 +526,7 @@ impl Database {
                 operation,
                 transaction,
                 tree_index_map,
+                collection_sequences,
             )?;
             Ok(OperationResult::DocumentUpdated {
                 collection: operation.collection.clone(),
@@ -548,6 +573,7 @@ impl Database {
         &self,
         operation: &Operation,
         transaction: &mut ExecutingTransaction<AnyFile>,
+        collection_sequences: &mut HashMap<CollectionName, SequenceId>,
         tree_index_map: &HashMap<String, usize>,
         id: Option<DocumentId>,
         contents: &[u8],
@@ -587,6 +613,7 @@ impl Database {
                     operation,
                     transaction,
                     tree_index_map,
+                    collection_sequences,
                 )?;
 
                 Ok(OperationResult::DocumentUpdated {
@@ -616,6 +643,7 @@ impl Database {
         &self,
         operation: &Operation,
         transaction: &mut ExecutingTransaction<AnyFile>,
+        collection_sequences: &mut HashMap<CollectionName, SequenceId>,
         tree_index_map: &HashMap<String, usize>,
         header: &Header,
     ) -> Result<OperationResult, Error> {
@@ -635,6 +663,7 @@ impl Database {
                     operation,
                     transaction,
                     tree_index_map,
+                    collection_sequences,
                 )?;
 
                 Ok(OperationResult::DocumentDeleted {
@@ -673,10 +702,9 @@ impl Database {
         operation: &Operation,
         transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
+        collection_sequences: &mut HashMap<CollectionName, SequenceId>,
     ) -> Result<(), Error> {
-        self.data
-            .context
-            .update_collection_sequence(operation.collection.clone(), sequence_id);
+        collection_sequences.insert(operation.collection.clone(), sequence_id);
         if let Some(eager_views) = self
             .data
             .schema
@@ -1771,19 +1799,18 @@ impl Context {
                 .roots
                 .tree(DocumentsTree::tree(document_tree_name(collection_name)))
                 .ok()?;
-            let sequence = dbg!(tree.current_sequence_id());
+            let sequence = tree.current_sequence_id();
             sequences.insert(collection_name.clone(), sequence);
             Some(sequence)
         }
     }
 
-    pub(crate) fn update_collection_sequence(
+    pub(crate) fn update_collection_sequences(
         &self,
-        collection_name: CollectionName,
-        new_sequence: SequenceId,
+        new_sequences: HashMap<CollectionName, SequenceId>,
     ) {
         let mut sequences = self.data.collection_sequences.lock();
-        sequences.insert(collection_name, new_sequence);
+        sequences.extend(new_sequences);
     }
 
     pub(crate) fn perform_kv_operation(

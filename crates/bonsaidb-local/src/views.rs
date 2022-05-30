@@ -241,7 +241,7 @@ impl ViewEntries {
             EntryMappings,
             UnversionedByIdIndex<EntryIndex, EntryMappings>,
         >,
-        writer: &'a mut PagedWriter<'w>,
+        writer: &'a mut PagedWriter<'w, '_>,
         max_order: Option<usize>,
     ) -> Result<
         (
@@ -273,7 +273,7 @@ impl ViewEntries {
                     |key: &ArcBytes<'_>,
                      value: Option<&EntryMappings>,
                      _existing_index,
-                     writer: &mut PagedWriter<'_>| {
+                     writer: &mut PagedWriter<'_, '_>| {
                         if let Some(value) = value {
                             for (document_id, presence) in &value.documents {
                                 let key_changes = document_map_changes
@@ -348,7 +348,7 @@ impl ViewEntries {
     fn modify_document_map<'a, 'w>(
         &'a mut self,
         mut document_map_changes: BTreeMap<ArcBytes<'static>, HashMap<ArcBytes<'static>, bool>>,
-        writer: &'a mut PagedWriter<'w>,
+        writer: &'a mut PagedWriter<'w, '_>,
         max_order: Option<usize>,
         persistence_mode: PersistenceMode,
     ) -> Result<(), nebari::Error> {
@@ -399,7 +399,7 @@ impl ViewEntries {
                     |_key: &ArcBytes<'_>,
                      value: Option<&HashSet<ArcBytes<'static>>>,
                      _existing_index,
-                     writer: &mut PagedWriter<'_>| {
+                     writer: &mut PagedWriter<'_, '_>| {
                         if let Some(value) = value {
                             if !value.is_empty() {
                                 let serialized = Self::serialize_document_map_entries(value);
@@ -523,7 +523,7 @@ impl Root for ViewEntries {
 
     fn serialize(
         &mut self,
-        paged_writer: &mut nebari::tree::PagedWriter<'_>,
+        paged_writer: &mut nebari::tree::PagedWriter<'_, '_>,
         output: &mut Vec<u8>,
     ) -> Result<(), nebari::Error> {
         output.reserve(PAGE_SIZE);
@@ -577,13 +577,13 @@ impl Root for ViewEntries {
     }
 
     fn transaction_id(&self) -> nebari::transaction::TransactionId {
-        self.transaction_id.unwrap()
+        self.transaction_id.unwrap_or_default()
     }
 
     fn modify<'a, 'w>(
         &'a mut self,
         modification: nebari::tree::Modification<'_, Self::Value, Self::Index>,
-        writer: &'a mut nebari::tree::PagedWriter<'w>,
+        writer: &'a mut nebari::tree::PagedWriter<'w, '_>,
         max_order: Option<usize>,
     ) -> Result<Vec<nebari::tree::ModificationResult<Self::Index>>, nebari::Error> {
         let transaction_id = modification.persistence_mode.transaction_id();
@@ -699,7 +699,7 @@ impl Root for ViewEntries {
         include_nodes: bool,
         file: &mut dyn nebari::io::File,
         copied_chunks: &mut std::collections::HashMap<u64, u64>,
-        writer: &mut nebari::tree::PagedWriter<'_>,
+        writer: &mut nebari::tree::PagedWriter<'_, '_>,
         vault: Option<&dyn nebari::AnyVault>,
     ) -> Result<(), nebari::Error> {
         let mut scratch = Vec::new();

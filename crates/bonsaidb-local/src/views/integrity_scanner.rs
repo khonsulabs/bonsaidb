@@ -1,9 +1,6 @@
 use std::{borrow::Cow, hash::Hash, sync::Arc};
 
-use bonsaidb_core::{
-    connection::Connection,
-    schema::{CollectionName, ViewName},
-};
+use bonsaidb_core::schema::{CollectionName, ViewName};
 use nebari::{
     io::any::AnyFile,
     tree::{ByIdIndexer, SequenceId, Unversioned},
