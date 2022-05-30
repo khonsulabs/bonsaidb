@@ -325,19 +325,24 @@ impl Operator<Checkout, u32> for BonsaiOperator {
         };
 
         let measurement = measurements.begin(self.label, Metric::Checkout);
-        // TODO make this a transaction
+
         let cart = Cart::get_async(&cart, &self.database)
             .await
             .unwrap()
             .unwrap();
-        cart.delete_async(&self.database).await.unwrap();
-        Order {
-            customer_id: operation.customer_id,
-            product_ids: cart.contents.product_ids,
-        }
-        .push_into_async(&self.database)
-        .await
-        .unwrap();
+        let mut tx = Transaction::default();
+        tx.push(transaction::Operation::delete(
+            Cart::collection_name(),
+            cart.header.try_into().unwrap(),
+        ));
+        tx.push(
+            transaction::Operation::push_serialized::<Order>(&Order {
+                customer_id: operation.customer_id,
+                product_ids: cart.contents.product_ids,
+            })
+            .unwrap(),
+        );
+        tx.apply_async(&self.database).await.unwrap();
         measurement.finish();
 
         OperationResult::Ok
