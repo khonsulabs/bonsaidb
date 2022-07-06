@@ -58,6 +58,8 @@ use bonsaidb_core::{
 use derive_where::derive_where;
 use serde::{de::DeserializeOwned, Serialize};
 
+pub use bonsaidb_macros::FileConfig;
+
 mod schema;
 
 /// Types for accessing files directly from a connection to a database. These

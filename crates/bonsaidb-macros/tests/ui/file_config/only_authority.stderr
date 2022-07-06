@@ -1,0 +1,7 @@
+error: if `authority` is specified, `files_name` and `blocks_name need to be provided as well
+ --> tests/ui/file_config/only_authority.rs:3:10
+  |
+3 | #[derive(FileConfig)]
+  |          ^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `FileConfig` (in Nightly builds, run with -Z macro-backtrace for more info)
