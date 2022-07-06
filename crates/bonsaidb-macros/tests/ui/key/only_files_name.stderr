@@ -1,0 +1,7 @@
+error: if `files_name` is specified, `blocks_name` needs to be provided as well
+ --> tests/ui/key/only_files_name.rs:3:10
+  |
+3 | #[derive(FileConfig)]
+  |          ^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `FileConfig` (in Nightly builds, run with -Z macro-backtrace for more info)

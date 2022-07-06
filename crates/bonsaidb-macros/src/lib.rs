@@ -24,6 +24,10 @@ use syn::{
     Path, Token, Type, TypePath, TypeTuple, Variant,
 };
 
+// -----------------------------------------------------------------------------
+//     - Core Macros -
+// -----------------------------------------------------------------------------
+
 fn core_path() -> Path {
     match crate_name("bonsaidb")
         .or_else(|_| crate_name("bonsaidb_server"))
@@ -662,7 +666,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 #[derive(Attribute)]
 #[attribute(ident = "api")]
 #[attribute(
-    invalid_field = r#"Only `name = "name"`, `authority = "authority"`, `response = ResponseType`, `response = ErrorType` and `core = bonsaidb::core` are supported attributes"#
+    invalid_field = r#"Only `name = "name"`, `authority = "authority"`, `response = ResponseType`, `error = ErrorType` and `core = bonsaidb::core` are supported attributes"#
 )]
 struct ApiAttribute {
     #[attribute(missing = r#"You need to specify the api name via `#[api(name = "name")]`"#)]
@@ -678,7 +682,7 @@ struct ApiAttribute {
 
 /// Derives the `bonsaidb::core::api::Api` trait.
 #[proc_macro_error]
-/// `#[api(name = "Name", authority = "Authority", response = ResponseType, error = ErrorType, core = bonsaidb::core]`
+/// `#[api(name = "Name", authority = "Authority", response = ResponseType, error = ErrorType, core = bonsaidb::core)]`
 /// `authority`, `response`, `error` and `core` are optional
 #[proc_macro_derive(Api, attributes(api))]
 pub fn api_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -717,6 +721,128 @@ pub fn api_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             fn name() -> ApiName {
                 #name
+            }
+        }
+    }
+    .into()
+}
+
+// -----------------------------------------------------------------------------
+//     - File Macros -
+// -----------------------------------------------------------------------------
+
+fn files_path() -> Path {
+    match crate_name("bonsaidb") {
+        Ok(FoundCrate::Name(name)) => {
+            let ident = Ident::new(&name, Span::call_site());
+            parse_quote!(::#ident::files)
+        }
+        Ok(FoundCrate::Itself) => parse_quote!(crate::files),
+        Err(_) => match crate_name("bonsaidb_files") {
+            Ok(FoundCrate::Name(name)) => {
+                let ident = Ident::new(&name, Span::call_site());
+                parse_quote!(::#ident)
+            }
+            Ok(FoundCrate::Itself) => parse_quote!(crate),
+            Err(_) if cfg!(feature = "omnibus-path") => parse_quote!(::bonsaidb::files),
+            Err(_) => parse_quote!(::bonsaidb_core),
+        },
+    }
+}
+
+#[derive(Attribute)]
+#[attribute(ident = "file_config")]
+#[attribute(
+    invalid_field = r#"`metadata = MetadataType`, block_size = 65_536, `authority = "authority"`, `files_name = "files"`, `blocks_name = "blocks"`, `core = bonsaidb::core` and `files = bonsaidb::files` are supported attributes"#
+)]
+struct FileConfigAttribute {
+    #[attribute(expected = r#"Specify the metadata type like so: `metadata = MetadataType`"#)]
+    metadata: Option<Type>,
+    #[attribute(expected = r#"Specify the block size like so: `block_size = 65_536`"#)]
+    block_size: Option<usize>,
+    authority: Option<String>,
+    files_name: Option<String>,
+    blocks_name: Option<String>,
+    #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
+    core: Option<Path>,
+    #[attribute(
+        expected = r#"Specify the the path to bonsaidb `files` like so: `files = bosaidb::files`"#
+    )]
+    files: Option<Path>,
+}
+
+/// Derives the `bonsaidb::files::FileConfig` trait.
+#[proc_macro_error]
+/// `#[api(metadata = MetadataType, block_size = 65_536, authority = "authority", files_name = "files", blocks_name = "blocks", core = bonsaidb::core, files = bosaidb::files)]`
+/// all arguments are optional
+#[proc_macro_derive(FileConfig, attributes(file_config))]
+pub fn file_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let DeriveInput {
+        attrs,
+        ident,
+        generics,
+        ..
+    } = parse_macro_input!(input as DeriveInput);
+
+    let FileConfigAttribute {
+        metadata,
+        block_size,
+        authority,
+        files_name,
+        blocks_name,
+        core,
+        files,
+    } = FileConfigAttribute::from_attributes(&attrs).unwrap_or_abort();
+
+    let core = core.unwrap_or_else(core_path);
+    let files = files.unwrap_or_else(files_path);
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    let (files_name, blocks_name) = match (authority, files_name, blocks_name) {
+        (None, None, None) => (
+            quote!(#files::BonsaiFiles::files_name()),
+            quote!(#files::BonsaiFiles::blocks_name()),
+        ),
+        (Some(authority), Some(files_name), Some(blocks_name)) => (
+            quote!(#core::schema::Qualified::new(#authority, #files_name)),
+            quote!(#core::schema::Qualified::new(#authority, #blocks_name)),
+        ),
+        (None, Some(files_name), Some(blocks_name)) => (
+            quote!(#core::schema::Qualified::private(#files_name)),
+            quote!(#core::schema::Qualified::private(#blocks_name)),
+        ),
+        (Some(_), ..) => abort_call_site!(
+            "if `authority` is specified, `files_name` and `blocks_name need to be provided as well"
+        ),
+        (_, Some(_), _) => abort_call_site!(
+            "if `files_name` is specified, `blocks_name` needs to be provided as well"
+        ),
+        (_,_, Some(_)) => abort_call_site!(
+            "if `blocks_name` is specified, `files_name` needs to be provided as well"
+        ),
+    };
+
+    let metadata = metadata
+        .unwrap_or_else(|| parse_quote!(<#files::BonsaiFiles as #files::FileConfig>::Metadata));
+    let block_size = block_size.map_or_else(
+        || quote!(<#files::BonsaiFiles as #files::FileConfig>::BLOCK_SIZE),
+        |block_size| quote!(#block_size),
+    );
+
+    quote! {
+        # use #files::FileConfig;
+        # use #core::schema::CollectionName;
+
+        impl #impl_generics FileConfig for #ident #ty_generics #where_clause {
+            type Metadata = #metadata;
+            const BLOCK_SIZE: usize = #block_size;
+
+            fn files_name() -> CollectionName {
+                #files_name
+            }
+
+            fn blocks_name() -> CollectionName {
+                #blocks_name
             }
         }
     }
