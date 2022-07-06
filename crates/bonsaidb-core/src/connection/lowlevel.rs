@@ -46,13 +46,15 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     /// - [`SerializedCollection::insert_into()`]
     /// - [`self.collection::<Collection>().insert()`](super::Collection::insert)
     /// - [`self.collection::<Collection>().push()`](super::Collection::push)
-    fn insert<C: schema::Collection, PrimaryKey: Send, B: Into<Bytes> + Send>(
+    fn insert<C, PrimaryKey, B>(
         &self,
         id: Option<&PrimaryKey>,
         contents: B,
     ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + ?Sized,
+        C: schema::Collection,
+        B: Into<Bytes> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + Send + ?Sized,
     {
         let contents = contents.into();
         let results = self.apply_transaction(Transaction::insert(

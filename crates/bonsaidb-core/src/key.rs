@@ -282,7 +282,7 @@ impl<'a> KeyEncoding<'a, Self> for Vec<u8> {
 
 impl_u8_slice_key_encoding!(Vec<u8>);
 
-impl<'a, 'k> IntoPrefixRange<'a, Self> for Vec<u8> {
+impl<'a> IntoPrefixRange<'a, Self> for Vec<u8> {
     fn to_prefix_range(&'a self) -> RangeRef<'a, Self> {
         if let Some(next) = next_byte_sequence(self) {
             RangeRef {
@@ -504,7 +504,7 @@ impl<'a> KeyEncoding<'a, Self> for String {
     }
 }
 
-impl<'a, 'k> KeyEncoding<'k, String> for str {
+impl<'k> KeyEncoding<'k, String> for str {
     type Error = FromUtf8Error;
 
     const LENGTH: Option<usize> = None;
@@ -1520,7 +1520,6 @@ fn vec_key_encoding_tests() -> anyhow::Result<()> {
 }
 
 #[test]
-#[allow(clippy::use_self)] // Weird interaction with num_derive
 fn enum_derive_tests() -> anyhow::Result<()> {
     #[derive(
         Debug,

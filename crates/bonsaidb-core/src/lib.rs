@@ -5,7 +5,6 @@
     clippy::cargo,
     missing_docs,
     // clippy::missing_docs_in_private_items,
-    clippy::nursery,
     clippy::pedantic,
     future_incompatible,
     rust_2018_idioms,
@@ -14,6 +13,7 @@
     clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::option_if_let_else,
     clippy::module_name_repetitions,
+    clippy::use_self, // false positives that can't be allowed on the type declaration itself.
 )]
 
 /// Types for creating and validating permissions.

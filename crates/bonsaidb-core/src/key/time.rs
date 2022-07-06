@@ -199,7 +199,7 @@ pub mod limited {
     {
         /// Returns a new instance with the `representation` provided, which
         /// conceptually is a unit of `Resolution`.
-        pub fn new(representation: Resolution::Representation) -> Self {
+        pub const fn new(representation: Resolution::Representation) -> Self {
             Self {
                 representation,
                 _resolution: PhantomData,
@@ -207,7 +207,7 @@ pub mod limited {
         }
 
         /// Returns the internal representation of this duration.
-        pub fn representation(&self) -> Resolution::Representation {
+        pub const fn representation(&self) -> Resolution::Representation {
             self.representation
         }
     }
@@ -796,7 +796,7 @@ pub mod limited {
 
         /// Returns the internal representation of this timestamp, which is a
         /// unit of `Resolution`.
-        pub fn representation(&self) -> Resolution::Representation {
+        pub const fn representation(&self) -> Resolution::Representation {
             self.0.representation()
         }
 

@@ -32,7 +32,7 @@ where
     K: KeyValue,
     V: Serialize + Send + Sync,
 {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         kv: &'a K,
         namespace: Option<String>,
         key: String,
@@ -64,19 +64,19 @@ where
     }
 
     /// If the key already exists, do not update the currently set expiration.
-    pub fn keep_existing_expiration(mut self) -> Self {
+    pub const fn keep_existing_expiration(mut self) -> Self {
         self.keep_existing_expiration = true;
         self
     }
 
     /// Only set the value if this key already exists.
-    pub fn only_if_exists(mut self) -> Self {
+    pub const fn only_if_exists(mut self) -> Self {
         self.check = Some(KeyCheck::OnlyIfPresent);
         self
     }
 
     /// Only set the value if this key isn't present.
-    pub fn only_if_vacant(mut self) -> Self {
+    pub const fn only_if_vacant(mut self) -> Self {
         self.check = Some(KeyCheck::OnlyIfVacant);
         self
     }
@@ -175,7 +175,7 @@ where
     K: AsyncKeyValue,
     V: Serialize + Send + Sync,
 {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         kv: &'a K,
         namespace: Option<String>,
         key: String,

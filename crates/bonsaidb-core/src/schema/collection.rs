@@ -1515,7 +1515,7 @@ impl<'a, Id> Nameable<'a, Id> for &'a String {
     }
 }
 
-impl<'a, 'b, 'c, Id> From<&'b BorrowedDocument<'b>> for NamedReference<'a, Id> {
+impl<'a, 'b, Id> From<&'b BorrowedDocument<'b>> for NamedReference<'a, Id> {
     fn from(doc: &'b BorrowedDocument<'b>) -> Self {
         Self::Id(doc.header.id.clone())
     }
@@ -1703,6 +1703,7 @@ where
 
     /// If an entry with the key doesn't exist, `cb` will be executed to provide
     /// an initial document. This document will be saved before being returned.
+    #[allow(clippy::missing_const_for_fn)] // false positive, destructors
     pub fn or_insert_with<F: EntryInsert<Col> + 'a + Unpin>(
         self,
         cb: F,
@@ -1722,6 +1723,7 @@ where
     /// be saved to the database before returning. If an error occurs during
     /// update, `cb` may be invoked multiple times, up to the
     /// [`retry_limit`](Self::retry_limit()).
+    #[allow(clippy::missing_const_for_fn)] // false positive, destructors
     pub fn update_with<F: EntryUpdate<Col> + 'a + Unpin>(
         self,
         cb: F,
@@ -1738,7 +1740,7 @@ where
 
     /// The number of attempts to attempt updating the document using
     /// `update_with` before returning an error.
-    pub fn retry_limit(mut self, attempts: usize) -> Self {
+    pub const fn retry_limit(mut self, attempts: usize) -> Self {
         self.retry_limit = attempts;
         self
     }
@@ -2010,18 +2012,21 @@ where
     Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
     /// Lists documents by id in ascending order.
+    #[allow(clippy::missing_const_for_fn)] // false positive, destructors
     pub fn ascending(mut self) -> Self {
         self.0 = self.0.ascending();
         self
     }
 
     /// Lists documents by id in descending order.
+    #[allow(clippy::missing_const_for_fn)] // false positive, destructors
     pub fn descending(mut self) -> Self {
         self.0 = self.0.descending();
         self
     }
 
     /// Sets the maximum number of results to return.
+    #[allow(clippy::missing_const_for_fn)] // false positive, destructors
     pub fn limit(mut self, maximum_results: u32) -> Self {
         self.0 = self.0.limit(maximum_results);
         self

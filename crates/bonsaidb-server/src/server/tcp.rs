@@ -330,10 +330,10 @@ impl Default for StandardTcpProtocols {
 impl ApplicationProtocols for StandardTcpProtocols {
     fn alpn_name(&self) -> &'static [u8] {
         match self {
-            StandardTcpProtocols::Http1 => b"http/1.1",
+            Self::Http1 => b"http/1.1",
             #[cfg(feature = "acme")]
-            StandardTcpProtocols::Acme => async_acme::acme::ACME_TLS_ALPN_NAME,
-            StandardTcpProtocols::Other => unreachable!(),
+            Self::Acme => async_acme::acme::ACME_TLS_ALPN_NAME,
+            Self::Other => unreachable!(),
         }
     }
 }
