@@ -307,9 +307,6 @@ impl<K: for<'a> Key<'a>, V> MappedValue<K, V> {
     }
 }
 
-/// A mapped value in a [`View`].
-pub type ViewMappedValue<V> = MappedValue<<V as View>::Key, <V as View>::Value>;
-
 /// A serialized [`MappedValue`].
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct MappedSerializedValue {

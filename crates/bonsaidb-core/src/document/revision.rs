@@ -7,22 +7,16 @@ use sha2::{Digest, Sha256};
 #[derive(Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Revision {
     /// The current revision id of the document. This value is sequentially incremented on each document update.
-    pub id: u32,
+    pub id: u64,
 
     /// The SHA256 digest of the bytes contained within the `Document`.
     pub sha256: [u8; 32],
 }
 
 impl Revision {
-    /// Creates the first revision for a document with the SHA256 digest of the passed bytes.
-    #[must_use]
-    pub fn new(contents: &[u8]) -> Self {
-        Self::with_id(0, contents)
-    }
-
     /// Creates a revision with `id` for a document with the SHA256 digest of the passed bytes.
     #[must_use]
-    pub fn with_id(id: u32, contents: &[u8]) -> Self {
+    pub fn with_id(id: u64, contents: &[u8]) -> Self {
         Self {
             id,
             sha256: digest(contents),
@@ -35,16 +29,13 @@ impl Revision {
     ///
     /// Panics if `id` overflows.
     #[must_use]
-    pub fn next_revision(&self, new_contents: &[u8]) -> Option<Self> {
+    pub fn next_revision(&self, sequence_id: u64, new_contents: &[u8]) -> Option<Self> {
         let sha256 = digest(new_contents);
         if sha256 == self.sha256 {
             None
         } else {
             Some(Self {
-                id: self
-                    .id
-                    .checked_add(1)
-                    .expect("need to implement revision id wrapping or increase revision id size"),
+                id: sequence_id,
                 sha256,
             })
         }
@@ -59,7 +50,7 @@ impl Debug for Revision {
 
 impl Display for Revision {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        <u32 as Display>::fmt(&self.id, f)?;
+        Display::fmt(&self.id, f)?;
         f.write_char('-')?;
         for byte in self.sha256 {
             f.write_fmt(format_args!("{:02x}", byte))?;
@@ -77,7 +68,7 @@ fn digest(payload: &[u8]) -> [u8; 32] {
 #[test]
 fn revision_tests() {
     let original_contents = b"one";
-    let first_revision = Revision::new(original_contents);
+    let first_revision = Revision::with_id(0, original_contents);
     let original_digest =
         hex_literal::hex!("7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed");
     assert_eq!(
@@ -87,11 +78,11 @@ fn revision_tests() {
             sha256: original_digest
         }
     );
-    assert!(first_revision.next_revision(original_contents).is_none());
+    assert!(first_revision.next_revision(1, original_contents).is_none());
 
     let updated_contents = b"two";
     let next_revision = first_revision
-        .next_revision(updated_contents)
+        .next_revision(1, updated_contents)
         .expect("new contents should create a new revision");
     assert_eq!(
         next_revision,
@@ -102,10 +93,10 @@ fn revision_tests() {
             )
         }
     );
-    assert!(next_revision.next_revision(updated_contents).is_none());
+    assert!(next_revision.next_revision(2, updated_contents).is_none());
 
     assert_eq!(
-        next_revision.next_revision(original_contents),
+        next_revision.next_revision(2, original_contents),
         Some(Revision {
             id: 2,
             sha256: original_digest
@@ -116,7 +107,7 @@ fn revision_tests() {
 #[test]
 fn revision_display_test() {
     let original_contents = b"one";
-    let first_revision = Revision::new(original_contents);
+    let first_revision = Revision::with_id(0, original_contents);
     assert_eq!(
         first_revision.to_string(),
         "0-7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed"

@@ -9,8 +9,7 @@ use crate::{
     document::{BorrowedDocument, CollectionDocument},
     key::Key,
     schema::{
-        view::map::{Mappings, ViewMappedValue},
-        Collection, CollectionName, Name, SerializedCollection, ViewName,
+        view::map::Mappings, Collection, CollectionName, Name, SerializedCollection, ViewName,
     },
     AnyError,
 };
@@ -132,7 +131,7 @@ pub trait ViewSchema: Send + Sync + Debug + 'static {
     #[allow(unused_variables)]
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         rereduce: bool,
     ) -> Result<<Self::View as View>::Value, crate::Error> {
         Err(crate::Error::ReduceUnimplemented)
@@ -242,7 +241,7 @@ where
     #[allow(unused_variables)]
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Err(crate::Error::ReduceUnimplemented)
@@ -267,7 +266,7 @@ where
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         rereduce: bool,
     ) -> Result<<Self::View as View>::Value, crate::Error> {
         T::reduce(self, mappings, rereduce)
@@ -304,7 +303,7 @@ pub trait Serialized: Send + Sync + Debug {
     /// Wraps [`ViewSchema::map`]
     fn map(&self, document: &BorrowedDocument<'_>) -> Result<Vec<map::Serialized>, Error>;
     /// Wraps [`ViewSchema::reduce`]
-    fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, Error>;
+    fn reduce(&self, mappings: &[&[u8]], rereduce: bool) -> Result<Vec<u8>, Error>;
 }
 
 /// Defines an unique view named `$view_name` for `$collection` with the

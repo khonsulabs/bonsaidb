@@ -1,15 +1,15 @@
 use std::borrow::Cow;
 
-use bonsaidb_core::{connection::Connection, schema::CollectionName};
-use nebari::tree::{Root, Unversioned, Versioned};
+use bonsaidb_core::{
+    connection::Connection,
+    schema::{CollectionName, ViewName},
+};
+use nebari::tree::{ByIdIndexer, Root, Unversioned};
 
 use crate::{
-    database::{document_tree_name, keyvalue::KEY_TREE, DatabaseNonBlocking},
+    database::{document_tree_name, keyvalue::KEY_TREE, DatabaseNonBlocking, DocumentsTree},
     tasks::{Job, Keyed, Task},
-    views::{
-        view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
-        view_versions_tree_name,
-    },
+    views::{view_entries_tree_name, view_versions_tree_name, ViewEntries, ViewIndexer},
     Database, Error,
 };
 
@@ -51,7 +51,8 @@ pub struct Compaction {
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub enum Target {
-    VersionedTree(String),
+    DocumentsTree(String),
+    ViewEntriesTree { view: ViewName, tree_name: String },
     UnversionedTree(String),
     Collection(CollectionName),
     KeyValue,
@@ -62,7 +63,16 @@ impl Target {
     fn compact(self, database: &Database) -> Result<(), Error> {
         match self {
             Target::UnversionedTree(name) => compact_tree::<Unversioned, _>(database, name),
-            Target::VersionedTree(name) => compact_tree::<Versioned, _>(database, name),
+            Target::ViewEntriesTree { tree_name, view } => {
+                compact_tree_with_reducer::<ViewEntries, _>(
+                    database,
+                    tree_name,
+                    ByIdIndexer(ViewIndexer::new(
+                        database.schematic().view_by_name(&view)?.clone(),
+                    )),
+                )
+            }
+            Target::DocumentsTree(name) => compact_tree::<DocumentsTree, _>(database, name),
             Target::Collection(collection) => {
                 let mut trees = Vec::new();
                 gather_collection_trees(database, &collection, &mut trees);
@@ -103,17 +113,16 @@ fn gather_collection_trees(
     collection: &CollectionName,
     trees: &mut Vec<Target>,
 ) {
-    trees.push(Target::VersionedTree(document_tree_name(collection)));
+    trees.push(Target::DocumentsTree(document_tree_name(collection)));
     trees.push(Target::UnversionedTree(view_versions_tree_name(collection)));
 
     if let Some(views) = database.data.schema.views_in_collection(collection) {
         for view in views {
             let name = view.view_name();
-            trees.push(Target::UnversionedTree(view_entries_tree_name(&name)));
-            trees.push(Target::UnversionedTree(view_document_map_tree_name(&name)));
-            trees.push(Target::UnversionedTree(view_invalidated_docs_tree_name(
-                &name,
-            )));
+            trees.push(Target::ViewEntriesTree {
+                view: view.view_name(),
+                tree_name: view_entries_tree_name(&name),
+            });
         }
     }
 }
@@ -140,8 +149,23 @@ fn compact_trees(database: &Database, targets: Vec<Target>) -> Result<(), Error>
 fn compact_tree<R: Root, S: Into<Cow<'static, str>>>(
     database: &Database,
     name: S,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    R::Reducer: Default,
+{
     let documents = database.roots().tree(R::tree(name))?;
-    documents.compact()?;
+    todo!();
+    // documents.compact()?;
+    Ok(())
+}
+
+fn compact_tree_with_reducer<R: Root, S: Into<Cow<'static, str>>>(
+    database: &Database,
+    name: S,
+    reducer: R::Reducer,
+) -> Result<(), Error> {
+    let documents = database.roots().tree(R::tree_with_reducer(name, reducer))?;
+    todo!();
+    // documents.compact()?;
     Ok(())
 }

@@ -201,9 +201,13 @@ impl AsRef<[u8]> for OwnedDocument {
 
 impl<'a> BorrowedDocument<'a> {
     /// Returns a new instance with the id and content bytes.
-    pub fn new<Contents: Into<CowBytes<'a>>>(id: DocumentId, contents: Contents) -> Self {
+    pub fn new<Contents: Into<CowBytes<'a>>>(
+        id: DocumentId,
+        sequence_id: u64,
+        contents: Contents,
+    ) -> Self {
         let contents = contents.into();
-        let revision = Revision::new(&contents);
+        let revision = Revision::with_id(sequence_id, &contents);
         Self {
             header: Header { id, revision },
             contents,
@@ -213,6 +217,7 @@ impl<'a> BorrowedDocument<'a> {
     /// Returns a new instance with `contents`, after serializing.
     pub fn with_contents<C, PrimaryKey>(
         id: &PrimaryKey,
+        sequence_id: u64,
         contents: &C::Contents,
     ) -> Result<Self, crate::Error>
     where
@@ -220,7 +225,7 @@ impl<'a> BorrowedDocument<'a> {
         PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + ?Sized,
     {
         let contents = <C as SerializedCollection>::serialize(contents)?;
-        Ok(Self::new(DocumentId::new(id)?, contents))
+        Ok(Self::new(DocumentId::new(id)?, sequence_id, contents))
     }
 
     /// Converts this document to an owned document.

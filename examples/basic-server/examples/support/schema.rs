@@ -1,8 +1,6 @@
 use bonsaidb::core::{
     document::{CollectionDocument, Emit},
-    schema::{
-        view::CollectionViewSchema, Collection, ReduceResult, View, ViewMapResult, ViewMappedValue,
-    },
+    schema::{view::CollectionViewSchema, Collection, ReduceResult, View, ViewMapResult},
 };
 use serde::{Deserialize, Serialize};
 
@@ -36,9 +34,9 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
-        Ok(mappings.iter().map(|m| m.value).sum())
+        Ok(mappings.iter().sum())
     }
 }

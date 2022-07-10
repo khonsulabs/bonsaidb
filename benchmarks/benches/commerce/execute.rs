@@ -201,7 +201,8 @@ async fn agent<B: Backend>(
     while let Ok(plan) = plan_receiver.recv_async().await {
         let mut results = Vec::with_capacity(plan.operations.len());
         for step in &plan.operations {
-            results.push(operator.operate(step, &results, &measurements).await)
+            let result = operator.operate(step, &results, &measurements).await;
+            results.push(result)
         }
     }
 }

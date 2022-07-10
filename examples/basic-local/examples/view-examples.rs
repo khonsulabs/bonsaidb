@@ -3,7 +3,7 @@ use bonsaidb::{
         document::{CollectionDocument, Emit},
         schema::{
             view::CollectionViewSchema, Collection, ReduceResult, SerializedCollection,
-            SerializedView, View, ViewMapResult, ViewMappedValue,
+            SerializedView, View, ViewMapResult,
         },
     },
     local::{
@@ -35,10 +35,10 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
-        Ok(mappings.iter().map(|m| m.value).sum())
+        Ok(mappings.iter().sum())
     }
 }
 // end rustme snippet

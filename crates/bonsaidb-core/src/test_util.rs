@@ -32,10 +32,7 @@ use crate::{
     keyvalue::{AsyncKeyValue, KeyValue},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
-        view::{
-            map::{Mappings, ViewMappedValue},
-            ReduceResult, ViewSchema,
-        },
+        view::{map::Mappings, ReduceResult, ViewSchema},
         Collection, CollectionName, MappedValue, NamedCollection, Qualified, Schema, SchemaName,
         Schematic, SerializedCollection, View, ViewMapResult,
     },
@@ -94,10 +91,10 @@ impl ViewSchema for BasicCount {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
-        Ok(mappings.iter().map(|map| map.value).sum())
+        Ok(mappings.iter().sum())
     }
 }
 
@@ -119,10 +116,10 @@ impl ViewSchema for BasicByParentId {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
-        Ok(mappings.iter().map(|map| map.value).sum())
+        Ok(mappings.iter().sum())
     }
 }
 
@@ -148,10 +145,10 @@ impl ViewSchema for BasicByParentIdEager {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
-        Ok(mappings.iter().map(|map| map.value).sum())
+        Ok(mappings.iter().sum())
     }
 }
 
@@ -175,10 +172,10 @@ impl ViewSchema for BasicByCategory {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
-        Ok(mappings.iter().map(|map| map.value).sum())
+        Ok(mappings.iter().sum())
     }
 }
 
@@ -200,10 +197,10 @@ impl ViewSchema for BasicByTag {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
-        Ok(mappings.iter().map(|map| map.value).sum())
+        Ok(mappings.iter().sum())
     }
 }
 
@@ -262,10 +259,10 @@ impl ViewSchema for EncryptedBasicCount {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
-        Ok(mappings.iter().map(|map| map.value).sum())
+        Ok(mappings.iter().sum())
     }
 }
 
@@ -283,10 +280,10 @@ impl ViewSchema for EncryptedBasicByParentId {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
-        Ok(mappings.iter().map(|map| map.value).sum())
+        Ok(mappings.iter().sum())
     }
 }
 
@@ -310,10 +307,10 @@ impl ViewSchema for EncryptedBasicByCategory {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
-        Ok(mappings.iter().map(|map| map.value).sum())
+        Ok(mappings.iter().sum())
     }
 }
 
@@ -1040,18 +1037,15 @@ pub async fn store_retrieve_update_delete_tests<C: AsyncConnection>(db: &C) -> a
     assert_eq!(doc.contents, reloaded.contents);
 
     // Test Connection::insert with a specified id
-    let doc = BorrowedDocument::with_contents::<Basic, _>(&42, &Basic::new("42"))?;
-    let document_42 = db
-        .insert::<Basic, _, _>(Some(&doc.header.id), doc.contents.into_vec())
-        .await?;
-    assert_eq!(document_42.id, 42);
+    let document_42 = Basic::new("42").insert_into_async(&42, db).await?;
+    assert_eq!(document_42.header.id, 42);
     let document_43 = Basic::new("43").insert_into_async(&43, db).await?;
     assert_eq!(document_43.header.id, 43);
 
     // Test that inserting a document with the same ID results in a conflict:
     let conflict_err = Basic::new("43")
-        .with_parent_id(document_42.id)
-        .insert_into_async(&doc.header.id, db)
+        .with_parent_id(document_42.header.id)
+        .insert_into_async(&document_42.header.id, db)
         .await
         .unwrap_err();
     assert!(matches!(conflict_err.error, Error::DocumentConflict(..)));
@@ -1133,15 +1127,15 @@ pub fn blocking_store_retrieve_update_delete_tests<C: Connection>(db: &C) -> any
     assert_eq!(doc.contents, reloaded.contents);
 
     // Test Connection::insert with a specified id
-    let doc = BorrowedDocument::with_contents::<Basic, _>(&42, &Basic::new("42"))?;
-    let document_42 = db.insert::<Basic, _, _>(Some(&doc.header.id), doc.contents.into_vec())?;
-    assert_eq!(document_42.id, 42);
+
+    let document_42 = Basic::new("42").insert_into(&42, db)?;
+    assert_eq!(document_42.header.id, 42);
     let document_43 = Basic::new("43").insert_into(&43, db)?;
     assert_eq!(document_43.header.id, 43);
 
     // Test that inserting a document with the same ID results in a conflict:
     let conflict_err = Basic::new("43")
-        .insert_into(&doc.header.id, db)
+        .insert_into(&document_42.header.id, db)
         .unwrap_err();
     assert!(matches!(conflict_err.error, Error::DocumentConflict(..)));
 
@@ -1155,25 +1149,22 @@ pub fn blocking_store_retrieve_update_delete_tests<C: Connection>(db: &C) -> any
 
 pub async fn overwrite_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     // Test Connection::insert with a specified id
-    let doc = BorrowedDocument::with_contents::<Basic, _>(&42, &Basic::new("42"))?;
-    let document_42 = db
-        .insert::<Basic, _, _>(Some(&doc.header.id), doc.contents.into_vec())
-        .await?;
-    assert_eq!(document_42.id, 42);
+    let document_42 = Basic::new("42").insert_into_async(&42, db).await?;
+    assert_eq!(document_42.header.id, 42);
     let document_43 = Basic::new("43").insert_into_async(&43, db).await?;
     assert_eq!(document_43.header.id, 43);
 
     // Test that overwriting works
     let overwritten = Basic::new("43")
-        .with_parent_id(document_42.id)
-        .overwrite_into_async(&doc.header.id, db)
+        .with_parent_id(document_42.header.id)
+        .overwrite_into_async(&document_42.header.id, db)
         .await
         .unwrap();
-    assert!(overwritten.header.revision.id > doc.header.revision.id);
+    assert!(overwritten.header.revision.id > document_42.header.revision.id);
     let children = db
         .view::<BasicByParentIdEager>()
         .with_access_policy(AccessPolicy::NoUpdate)
-        .with_key(&Some(document_42.id))
+        .with_key(&Some(document_42.header.id))
         .query()
         .await?;
     assert_eq!(children[0].source.revision, overwritten.header.revision);
@@ -1200,22 +1191,22 @@ pub async fn overwrite_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
 
 pub fn blocking_overwrite_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     // Test Connection::insert with a specified id
-    let doc = BorrowedDocument::with_contents::<Basic, _>(&42, &Basic::new("42"))?;
-    let document_42 = db.insert::<Basic, _, _>(Some(&doc.header.id), doc.contents.into_vec())?;
-    assert_eq!(document_42.id, 42);
+
+    let document_42 = Basic::new("42").insert_into(&42, db)?;
+    assert_eq!(document_42.header.id, 42);
     let document_43 = Basic::new("43").insert_into(&43, db)?;
     assert_eq!(document_43.header.id, 43);
 
     // Test that overwriting works
     let overwritten = Basic::new("43")
-        .with_parent_id(document_42.id)
-        .overwrite_into(&doc.header.id, db)
+        .with_parent_id(document_42.header.id)
+        .overwrite_into(&document_42.header.id, db)
         .unwrap();
-    assert!(overwritten.header.revision.id > doc.header.revision.id);
+    assert!(overwritten.header.revision.id > document_42.header.revision.id);
     let children = db
         .view::<BasicByParentIdEager>()
         .with_access_policy(AccessPolicy::NoUpdate)
-        .with_key(&Some(document_42.id))
+        .with_key(&Some(document_42.header.id))
         .query()?;
     assert_eq!(children[0].source.revision, overwritten.header.revision);
 
@@ -1335,7 +1326,7 @@ pub fn blocking_conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 }
 
 pub async fn bad_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
-    let mut doc = BorrowedDocument::with_contents::<Basic, _>(&1, &Basic::default())?;
+    let mut doc = BorrowedDocument::with_contents::<Basic, _>(&1, 0, &Basic::default())?;
     match db.update::<Basic, _>(&mut doc).await {
         Err(Error::DocumentNotFound(collection, id)) => {
             assert_eq!(collection, Basic::collection_name());
@@ -1347,7 +1338,7 @@ pub async fn bad_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> 
 }
 
 pub fn blocking_bad_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
-    let mut doc = BorrowedDocument::with_contents::<Basic, _>(&1, &Basic::default())?;
+    let mut doc = BorrowedDocument::with_contents::<Basic, _>(&1, 0, &Basic::default())?;
     match db.update::<Basic, _>(&mut doc) {
         Err(Error::DocumentNotFound(collection, id)) => {
             assert_eq!(collection, Basic::collection_name());

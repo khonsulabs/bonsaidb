@@ -2,10 +2,7 @@ use bonsaidb::{
     core::{
         connection::Connection,
         document::{BorrowedDocument, Emit},
-        schema::{
-            view::map::ViewMappedValue, Collection, ReduceResult, SerializedCollection, View,
-            ViewMapResult, ViewSchema,
-        },
+        schema::{Collection, ReduceResult, SerializedCollection, View, ViewMapResult, ViewSchema},
         Error,
     },
     local::{
@@ -40,10 +37,10 @@ impl ViewSchema for BlogPostsByCategory {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
-        Ok(mappings.iter().map(|mapping| mapping.value).sum())
+        Ok(mappings.iter().sum())
     }
 }
 // ANCHOR_END: view

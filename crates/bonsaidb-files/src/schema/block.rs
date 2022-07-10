@@ -6,7 +6,7 @@ use bonsaidb_core::{
     connection::Connection,
     document::{BorrowedDocument, Emit},
     key::{time::TimestampAsNanoseconds, KeyEncoding},
-    schema::{Collection, CollectionName, View, ViewMapResult, ViewMappedValue, ViewSchema},
+    schema::{Collection, CollectionName, View, ViewMapResult, ViewSchema},
     transaction::{Operation, Transaction},
 };
 use derive_where::derive_where;
@@ -313,15 +313,12 @@ where
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> Result<<Self::View as View>::Value, bonsaidb_core::Error> {
         Ok(BlockAppendInfo {
-            length: mappings.iter().map(|info| info.value.length).sum(),
-            timestamp: mappings
-                .iter()
-                .filter_map(|info| info.value.timestamp)
-                .max(),
+            length: mappings.iter().map(|info| info.length).sum(),
+            timestamp: mappings.iter().filter_map(|info| info.timestamp).max(),
         })
     }
 }
