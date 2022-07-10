@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use bonsaidb_core::schema::{CollectionName, Schematic};
 use nebari::{
-    io::any::AnyFile,
+    sediment::io::any::AnyFileManager,
     tree::{AnyTreeRoot, ByIdIndexer, Root},
 };
 
@@ -15,7 +15,7 @@ use crate::{
 
 #[derive(Default)]
 pub(crate) struct OpenTrees {
-    pub trees: Vec<Box<dyn AnyTreeRoot<AnyFile>>>,
+    pub trees: Vec<Box<dyn AnyTreeRoot<AnyFileManager>>>,
     pub trees_index_by_name: HashMap<String, usize>,
 }
 

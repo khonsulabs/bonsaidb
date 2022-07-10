@@ -154,7 +154,8 @@ where
     R::Reducer: Default,
 {
     let documents = database.roots().tree(R::tree(name))?;
-    documents.compact()?;
+    todo!();
+    // documents.compact()?;
     Ok(())
 }
 
@@ -164,6 +165,7 @@ fn compact_tree_with_reducer<R: Root, S: Into<Cow<'static, str>>>(
     reducer: R::Reducer,
 ) -> Result<(), Error> {
     let documents = database.roots().tree(R::tree_with_reducer(name, reducer))?;
-    documents.compact()?;
+    todo!();
+    // documents.compact()?;
     Ok(())
 }

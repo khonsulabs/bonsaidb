@@ -14,7 +14,7 @@ use bonsaidb_core::{
     },
 };
 use nebari::{
-    io::any::AnyFile,
+    sediment::io::any::AnyFileManager,
     tree::{
         btree::KeyOperation, AnyTreeRoot, ByIdIndexer, CompareSwap, KeyValue, Modification,
         Operation, PersistenceMode, ScanEvaluation, SequenceId,
@@ -82,8 +82,8 @@ impl Job for Mapper {
 }
 
 fn map_view(
-    documents: &Tree<DocumentsTree, AnyFile>,
-    view_entries: &Tree<ViewEntries, AnyFile>,
+    documents: &Tree<DocumentsTree, AnyFileManager>,
+    view_entries: &Tree<ViewEntries, AnyFileManager>,
     database: &Database,
     map_request: &Map,
 ) -> Result<Option<SequenceId>, Error> {
@@ -131,8 +131,8 @@ fn map_view(
         if view.eager() {
             let tx = database
                 .roots()
-                .transaction::<_, dyn AnyTreeRoot<AnyFile>>(&[
-                    Box::new(view_entries.clone()) as Box<dyn AnyTreeRoot<AnyFile>>
+                .transaction::<_, dyn AnyTreeRoot<AnyFileManager>>(&[
+                    Box::new(view_entries.clone()) as Box<dyn AnyTreeRoot<AnyFileManager>>,
                 ])?;
             let mut view_entries = tx.tree(0).unwrap();
             DocumentRequest {
@@ -168,8 +168,8 @@ pub struct DocumentRequest<'a> {
     pub map_request: &'a Map,
     pub database: &'a Database,
 
-    pub documents: &'a mut nebari::tree::TreeFile<DocumentsTree, AnyFile>,
-    pub view_entries: &'a mut nebari::tree::TreeFile<ViewEntries, AnyFile>,
+    pub documents: &'a mut nebari::tree::TreeFile<DocumentsTree, AnyFileManager>,
+    pub view_entries: &'a mut nebari::tree::TreeFile<ViewEntries, AnyFileManager>,
     pub view: &'a Arc<dyn Serialized>,
     pub persistence_mode: PersistenceMode,
 }
@@ -177,7 +177,7 @@ pub struct DocumentRequest<'a> {
 impl<'a> DocumentRequest<'a> {
     fn generate_batches(
         document_ids: &[SequenceId],
-        documents: &mut nebari::tree::TreeFile<DocumentsTree, AnyFile>,
+        documents: &mut nebari::tree::TreeFile<DocumentsTree, AnyFileManager>,
         persistence_mode: PersistenceMode,
         mapped_sender: flume::Sender<Batch>,
         view: &Arc<dyn Serialized>,
@@ -249,7 +249,7 @@ impl<'a> DocumentRequest<'a> {
 
     fn find_entries_to_clean(
         document_ids: &[ArcBytes<'static>],
-        view_entries: &mut nebari::tree::TreeFile<ViewEntries, AnyFile>,
+        view_entries: &mut nebari::tree::TreeFile<ViewEntries, AnyFileManager>,
         mut document_keys: BTreeMap<ArcBytes<'static>, HashSet<ArcBytes<'static>>>,
         all_keys: &mut BTreeSet<ArcBytes<'static>>,
     ) -> Result<BTreeMap<ArcBytes<'static>, HashSet<ArcBytes<'static>>>, Error> {
@@ -275,7 +275,7 @@ impl<'a> DocumentRequest<'a> {
     fn update_view_entries(
         view: &Arc<dyn Serialized>,
         map_request: &Map,
-        view_entries: &mut nebari::tree::TreeFile<ViewEntries, AnyFile>,
+        view_entries: &mut nebari::tree::TreeFile<ViewEntries, AnyFileManager>,
         all_keys: BTreeSet<ArcBytes<'static>>,
         view_entries_to_clean: BTreeMap<ArcBytes<'static>, HashSet<ArcBytes<'static>>>,
         new_mappings: BTreeMap<ArcBytes<'static>, Vec<map::Serialized>>,
@@ -304,7 +304,7 @@ impl<'a> DocumentRequest<'a> {
         mapped_receiver: &flume::Receiver<Batch>,
         view: &Arc<dyn Serialized>,
         map_request: &Map,
-        view_entries: &mut nebari::tree::TreeFile<ViewEntries, AnyFile>,
+        view_entries: &mut nebari::tree::TreeFile<ViewEntries, AnyFileManager>,
         persistence_mode: PersistenceMode,
     ) -> Result<Option<SequenceId>, Error> {
         let mut sequence = None;

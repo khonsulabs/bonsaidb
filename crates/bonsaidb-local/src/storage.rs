@@ -37,10 +37,7 @@ use bonsaidb_core::{
 use fs2::FileExt;
 use itertools::Itertools;
 use nebari::{
-    io::{
-        any::{AnyFile, AnyFileManager},
-        FileManager,
-    },
+    sediment::io::{any::AnyFileManager, FileManager},
     ChunkCache, ThreadPool,
 };
 use parking_lot::{Mutex, RwLock};
@@ -252,7 +249,7 @@ impl From<StorageInstance> for Storage {
 struct Data {
     lock: StorageLock,
     path: PathBuf,
-    threadpool: ThreadPool<AnyFile>,
+    threadpool: ThreadPool<AnyFileManager>,
     file_manager: AnyFileManager,
     pub(crate) tasks: TaskManager,
     schemas: RwLock<HashMap<SchemaName, Arc<dyn DatabaseOpener>>>,
@@ -284,9 +281,9 @@ impl Storage {
             .clone()
             .unwrap_or_else(|| PathBuf::from("db.bonsaidb"));
         let file_manager = if configuration.memory_only {
-            AnyFileManager::memory()
+            AnyFileManager::new_memory()
         } else {
-            AnyFileManager::std()
+            AnyFileManager::new_file()
         };
 
         let manager = Manager::default();
@@ -993,7 +990,7 @@ impl StorageConnection for StorageInstance {
             let file_manager = self.data.file_manager.clone();
             file_manager
                 .delete_directory(&database_folder)
-                .map_err(Error::Nebari)?;
+                .map_err(Error::Io)?;
         }
 
         if let Some(entry) = admin

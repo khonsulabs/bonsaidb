@@ -2,7 +2,7 @@ use std::{borrow::Cow, hash::Hash, sync::Arc};
 
 use bonsaidb_core::schema::{CollectionName, ViewName};
 use nebari::{
-    io::any::AnyFile,
+    sediment::io::any::AnyFileManager,
     tree::{ByIdIndexer, SequenceId, Unversioned},
     Roots,
 };
@@ -180,7 +180,11 @@ impl ViewVersion {
         self.internal_version == Self::CURRENT_VERSION && self.schema_version == schema_version
     }
 
-    pub fn cleanup(&self, roots: &Roots<AnyFile>, view: &ViewName) -> Result<(), crate::Error> {
+    pub fn cleanup(
+        &self,
+        roots: &Roots<AnyFileManager>,
+        view: &ViewName,
+    ) -> Result<(), crate::Error> {
         if self.internal_version < 2 {
             // omitted entries was removed
             roots.delete_tree(format!("view.{:#}.omitted", view))?;

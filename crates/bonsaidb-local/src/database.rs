@@ -38,15 +38,14 @@ use bonsaidb_core::{
     },
 };
 use nebari::{
-    io::any::AnyFile,
-    transaction::TransactionId,
+    sediment::io::any::AnyFileManager,
     tree::{
         btree::{Indexer, Reducer},
         AnyTreeRoot, BorrowByteRange, BorrowedRange, ByIdIndexer, CompareSwap, EmbeddedIndex,
         Entry, PersistenceMode, Root, ScanEvaluation, SequenceId, Serializable, TreeRoot,
         ValueIndex, VersionedByIdIndex, VersionedTreeRoot,
     },
-    AbortError, ExecutingTransaction, Roots, Tree,
+    AbortError, ExecutingTransaction, Roots, TransactionId, Tree,
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -202,7 +201,7 @@ impl Database {
         &self.data.schema
     }
 
-    pub(crate) fn roots(&self) -> &'_ nebari::Roots<AnyFile> {
+    pub(crate) fn roots(&self) -> &'_ nebari::Roots<AnyFileManager> {
         &self.data.context.roots
     }
 
@@ -211,7 +210,9 @@ impl Database {
     }
 
     fn access_view<
-        F: FnOnce(&Tree<ViewEntries, AnyFile>) -> Result<(), bonsaidb_core::Error> + Send + Sync,
+        F: FnOnce(&Tree<ViewEntries, AnyFileManager>) -> Result<(), bonsaidb_core::Error>
+            + Send
+            + Sync,
     >(
         &self,
         view: &Arc<dyn view::Serialized>,
@@ -328,7 +329,7 @@ impl Database {
             .data
             .context
             .roots
-            .transaction::<_, dyn AnyTreeRoot<AnyFile>>(&open_trees.trees)?;
+            .transaction::<_, dyn AnyTreeRoot<AnyFileManager>>(&open_trees.trees)?;
 
         let mut results = Vec::new();
         let mut changed_documents = Vec::new();
@@ -394,7 +395,7 @@ impl Database {
     fn execute_operation(
         &self,
         operation: &Operation,
-        transaction: &mut ExecutingTransaction<AnyFile>,
+        transaction: &mut ExecutingTransaction<AnyFileManager>,
         collection_sequences: &mut HashMap<CollectionName, SequenceId>,
         tree_index_map: &HashMap<String, usize>,
     ) -> Result<OperationResult, Error> {
@@ -457,7 +458,7 @@ impl Database {
     fn execute_update(
         &self,
         operation: &Operation,
-        transaction: &mut ExecutingTransaction<AnyFile>,
+        transaction: &mut ExecutingTransaction<AnyFileManager>,
         collection_sequences: &mut HashMap<CollectionName, SequenceId>,
         tree_index_map: &HashMap<String, usize>,
         id: &DocumentId,
@@ -572,7 +573,7 @@ impl Database {
     fn execute_insert(
         &self,
         operation: &Operation,
-        transaction: &mut ExecutingTransaction<AnyFile>,
+        transaction: &mut ExecutingTransaction<AnyFileManager>,
         collection_sequences: &mut HashMap<CollectionName, SequenceId>,
         tree_index_map: &HashMap<String, usize>,
         id: Option<DocumentId>,
@@ -642,7 +643,7 @@ impl Database {
     fn execute_delete(
         &self,
         operation: &Operation,
-        transaction: &mut ExecutingTransaction<AnyFile>,
+        transaction: &mut ExecutingTransaction<AnyFileManager>,
         collection_sequences: &mut HashMap<CollectionName, SequenceId>,
         tree_index_map: &HashMap<String, usize>,
         header: &Header,
@@ -700,7 +701,7 @@ impl Database {
         &self,
         sequence_id: SequenceId,
         operation: &Operation,
-        transaction: &mut ExecutingTransaction<AnyFile>,
+        transaction: &mut ExecutingTransaction<AnyFileManager>,
         tree_index_map: &HashMap<String, usize>,
         collection_sequences: &mut HashMap<CollectionName, SequenceId>,
     ) -> Result<(), Error> {
@@ -748,7 +749,7 @@ impl Database {
     ))]
     fn execute_check(
         operation: &Operation,
-        transaction: &mut ExecutingTransaction<AnyFile>,
+        transaction: &mut ExecutingTransaction<AnyFileManager>,
         tree_index_map: &HashMap<String, usize>,
         id: DocumentId,
         revision: Option<Revision>,
@@ -782,7 +783,7 @@ impl Database {
     }
 
     fn create_view_iterator(
-        view_entries: &Tree<ViewEntries, AnyFile>,
+        view_entries: &Tree<ViewEntries, AnyFileManager>,
         key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
@@ -873,7 +874,7 @@ impl Database {
         &self,
         collection: &CollectionName,
         name: S,
-    ) -> Result<TreeRoot<R, AnyFile>, Error>
+    ) -> Result<TreeRoot<R, AnyFileManager>, Error>
     where
         R::Reducer: Default,
     {
@@ -895,7 +896,7 @@ impl Database {
         collection: &CollectionName,
         name: S,
         reducer: R::Reducer,
-    ) -> Result<TreeRoot<R, AnyFile>, Error> {
+    ) -> Result<TreeRoot<R, AnyFileManager>, Error> {
         let mut tree = R::tree_with_reducer(name, reducer);
 
         #[cfg(any(feature = "encryption", feature = "compression"))]
@@ -1741,20 +1742,20 @@ impl Deref for Context {
 
 #[derive(Debug)]
 pub(crate) struct ContextData {
-    pub(crate) roots: Roots<AnyFile>,
+    pub(crate) roots: Roots<AnyFileManager>,
     key_value_state: Arc<Mutex<keyvalue::KeyValueState>>,
     collection_sequences: Mutex<HashMap<CollectionName, SequenceId>>,
 }
 
-impl Borrow<Roots<AnyFile>> for Context {
-    fn borrow(&self) -> &Roots<AnyFile> {
+impl Borrow<Roots<AnyFileManager>> for Context {
+    fn borrow(&self) -> &Roots<AnyFileManager> {
         &self.data.roots
     }
 }
 
 impl Context {
     pub(crate) fn new(
-        roots: Roots<AnyFile>,
+        roots: Roots<AnyFileManager>,
         key_value_persistence: KeyValuePersistence,
         storage_lock: Option<StorageLock>,
     ) -> Self {

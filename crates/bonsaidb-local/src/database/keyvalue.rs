@@ -17,7 +17,7 @@ use bonsaidb_core::{
     transaction::{ChangedKey, Changes},
 };
 use nebari::{
-    io::any::AnyFile,
+    sediment::io::any::AnyFileManager,
     tree::{CompareSwap, Operation, Root, ScanEvaluation, Unversioned},
     AbortError, ArcBytes, Roots,
 };
@@ -214,7 +214,7 @@ fn decrement(existing: &Numeric, amount: &Numeric, saturating: bool) -> Numeric 
 
 #[derive(Debug)]
 pub struct KeyValueState {
-    roots: Roots<AnyFile>,
+    roots: Roots<AnyFileManager>,
     persistence: KeyValuePersistence,
     last_commit: Timestamp,
     background_worker_target: Watchable<BackgroundWorkerProcessTarget>,
@@ -229,7 +229,7 @@ pub struct KeyValueState {
 impl KeyValueState {
     pub fn new(
         persistence: KeyValuePersistence,
-        roots: Roots<AnyFile>,
+        roots: Roots<AnyFileManager>,
         background_worker_target: Watchable<BackgroundWorkerProcessTarget>,
     ) -> Self {
         Self {
@@ -590,7 +590,7 @@ impl KeyValueState {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(roots)))]
     fn retrieve_key_from_disk(
-        roots: &Roots<AnyFile>,
+        roots: &Roots<AnyFileManager>,
         key: &str,
     ) -> Result<Option<Entry>, nebari::Error> {
         roots
@@ -691,7 +691,7 @@ impl KeyValueState {
     #[cfg_attr(feature = "instrument", tracing::instrument(level = "trace", skip_all))]
     fn persist_keys(
         key_value_state: &Arc<Mutex<KeyValueState>>,
-        roots: &Roots<AnyFile>,
+        roots: &Roots<AnyFileManager>,
         keys: &BTreeMap<String, Option<Entry>>,
     ) -> Result<(), bonsaidb_core::Error> {
         let mut transaction = roots
@@ -889,13 +889,13 @@ mod tests {
         arc_bytes::serde::Bytes,
         test_util::{TestDirectory, TimingTest},
     };
-    use nebari::io::any::{AnyFile, AnyFileManager};
+    use nebari::sediment::io::any::AnyFileManager;
 
     use super::*;
     use crate::{config::PersistenceThreshold, database::Context};
 
     fn run_test_with_persistence<
-        F: Fn(Context, nebari::Roots<AnyFile>) -> anyhow::Result<()> + Send,
+        F: Fn(Context, nebari::Roots<AnyFileManager>) -> anyhow::Result<()> + Send,
     >(
         name: &str,
         persistence: KeyValuePersistence,
@@ -903,7 +903,7 @@ mod tests {
     ) -> anyhow::Result<()> {
         let dir = TestDirectory::new(name);
         let sled = nebari::Config::new(&dir)
-            .file_manager(AnyFileManager::std())
+            .file_manager(AnyFileManager::new_file())
             .open()?;
 
         let context = Context::new(sled.clone(), persistence, None);
@@ -913,7 +913,7 @@ mod tests {
         Ok(())
     }
 
-    fn run_test<F: Fn(Context, nebari::Roots<AnyFile>) -> anyhow::Result<()> + Send>(
+    fn run_test<F: Fn(Context, nebari::Roots<AnyFileManager>) -> anyhow::Result<()> + Send>(
         name: &str,
         test_contents: F,
     ) -> anyhow::Result<()> {
@@ -1190,7 +1190,7 @@ mod tests {
     fn saves_on_drop() -> anyhow::Result<()> {
         let dir = TestDirectory::new("saves-on-drop.bonsaidb");
         let sled = nebari::Config::new(&dir)
-            .file_manager(AnyFileManager::std())
+            .file_manager(AnyFileManager::new_file())
             .open()?;
         let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
 

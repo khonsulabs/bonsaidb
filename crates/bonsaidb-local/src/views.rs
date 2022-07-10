@@ -16,7 +16,8 @@ use bonsaidb_core::{
 };
 use byteorder::{BigEndian, ReadBytesExt};
 use nebari::{
-    io::{File, FileOp, ManagedFile, OperableFile},
+    sediment::format::GrainId,
+    storage::BlobStorage,
     transaction::TransactionId,
     tree::{
         btree::{
@@ -26,7 +27,7 @@ use nebari::{
         dynamic_order, BinarySerialization, ByIdIndexer, ByIdStats, ChangeResult, CompareSwap,
         EmbeddedIndex, KeyRange, KeyValue, Modification, ModificationResult, Operation,
         PagedWriter, PersistenceMode, Root, ScanEvaluation, SequenceId, Serializable, State,
-        TreeFile, UnversionedByIdIndex, PAGE_SIZE,
+        TreeFile, UnversionedByIdIndex,
     },
     AnyVault, ArcBytes, CacheEntry, ChunkCache,
 };
@@ -526,7 +527,7 @@ impl Root for ViewEntries {
         paged_writer: &mut nebari::tree::PagedWriter<'_, '_>,
         output: &mut Vec<u8>,
     ) -> Result<(), nebari::Error> {
-        output.reserve(PAGE_SIZE);
+        output.reserve(4096);
         output.write_all(&self.transaction_id.unwrap_or_default().0.to_be_bytes())?;
         // Reserve space for by_source and by_id sizes (2xu32).
         output.write_all(&[0; 8])?;
@@ -607,7 +608,7 @@ impl Root for ViewEntries {
         keys: &mut Keys,
         key_evaluator: &mut KeyEvaluator,
         key_reader: &mut KeyReader,
-        file: &mut dyn nebari::io::File,
+        file: &mut dyn nebari::storage::BlobStorage,
         vault: Option<&dyn nebari::AnyVault>,
         cache: Option<&nebari::ChunkCache>,
     ) -> Result<(), nebari::Error>
@@ -656,7 +657,7 @@ impl Root for ViewEntries {
             KeyEvaluator,
             ScanDataCallback,
         >,
-        file: &mut dyn nebari::io::File,
+        file: &mut dyn nebari::storage::BlobStorage,
         vault: Option<&dyn nebari::AnyVault>,
         cache: Option<&nebari::ChunkCache>,
     ) -> Result<bool, nebari::AbortError<CallerError>>
@@ -697,8 +698,8 @@ impl Root for ViewEntries {
     fn copy_data_to(
         &mut self,
         include_nodes: bool,
-        file: &mut dyn nebari::io::File,
-        copied_chunks: &mut std::collections::HashMap<u64, u64>,
+        file: &mut dyn nebari::storage::BlobStorage,
+        copied_chunks: &mut std::collections::HashMap<GrainId, GrainId>,
         writer: &mut nebari::tree::PagedWriter<'_, '_>,
         vault: Option<&dyn nebari::AnyVault>,
     ) -> Result<(), nebari::Error> {
@@ -779,7 +780,7 @@ pub trait ViewEntriesTree {
 
 impl<File> ViewEntriesTree for TreeFile<ViewEntries, File>
 where
-    File: ManagedFile,
+    File: nebari::sediment::io::FileManager,
 {
     fn keys_for_documents<'keys, KeysIntoIter, KeysIter>(
         &mut self,
@@ -792,7 +793,7 @@ where
     {
         let keys = keys.into_iter();
         let mut buffers = Vec::with_capacity(keys.len());
-        self.file.execute(DocumentMapGetter {
+        DocumentMapGetter {
             from_transaction: in_transaction,
             state: &self.state,
             vault: self.vault.as_deref(),
@@ -803,7 +804,8 @@ where
                 Ok(())
             },
             key_evaluator: |_, _| ScanEvaluation::ReadData,
-        })?;
+        }
+        .execute(&mut self.file)?;
         Ok(buffers)
     }
 }
@@ -831,8 +833,8 @@ struct DocumentMapGetter<
     key_reader: KeyReader,
 }
 
-impl<'a, 'keys, KeyEvaluator, KeyReader, Keys> FileOp<Result<(), nebari::Error>>
-    for DocumentMapGetter<'a, 'keys, KeyEvaluator, KeyReader, Keys>
+impl<'a, 'keys, KeyEvaluator, KeyReader, Keys>
+    DocumentMapGetter<'a, 'keys, KeyEvaluator, KeyReader, Keys>
 where
     KeyEvaluator: FnMut(
         &ArcBytes<'static>,
@@ -845,10 +847,10 @@ where
     ) -> Result<(), nebari::Error>,
     Keys: Iterator<Item = &'keys [u8]>,
 {
-    fn execute(mut self, file: &mut dyn File) -> Result<(), nebari::Error> {
+    fn execute(mut self, file: &mut dyn BlobStorage) -> Result<(), nebari::Error> {
         if self.from_transaction {
             let state = self.state.lock();
-            if state.file_id != file.id().id() {
+            if state.file_id != Some(file.unique_id().id) {
                 return Err(nebari::Error::from(nebari::ErrorKind::TreeCompacted));
             }
 
@@ -862,7 +864,7 @@ where
             )
         } else {
             let state = self.state.read();
-            if state.file_id != file.id().id() {
+            if state.file_id != Some(file.unique_id().id) {
                 return Err(nebari::Error::from(nebari::ErrorKind::TreeCompacted));
             }
 
@@ -884,7 +886,7 @@ impl ViewEntries {
         keys: &mut Keys,
         key_evaluator: &mut KeyEvaluator,
         key_reader: &mut KeyReader,
-        file: &mut dyn File,
+        file: &mut dyn nebari::storage::BlobStorage,
         vault: Option<&dyn AnyVault>,
         cache: Option<&ChunkCache>,
     ) -> Result<(), nebari::Error>
