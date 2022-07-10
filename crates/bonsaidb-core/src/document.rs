@@ -142,7 +142,7 @@ where
     }
 }
 
-impl<'a, C> Document<C> for OwnedDocument
+impl<C> Document<C> for OwnedDocument
 where
     C: Collection,
 {

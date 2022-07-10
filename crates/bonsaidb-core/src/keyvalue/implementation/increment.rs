@@ -25,7 +25,7 @@ where
     K: KeyValue,
     V: TryFrom<Numeric, Error = IncompatibleTypeError>,
 {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         kv: &'a K,
         namespace: Option<String>,
         increment: bool,
@@ -44,7 +44,7 @@ where
     }
 
     /// Allows overflowing the value.
-    pub fn allow_overflow(mut self) -> Self {
+    pub const fn allow_overflow(mut self) -> Self {
         self.saturating = false;
         self
     }
@@ -96,7 +96,7 @@ impl<'a, K, V> AsyncBuilder<'a, K, V>
 where
     K: AsyncKeyValue,
 {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         kv: &'a K,
         namespace: Option<String>,
         increment: bool,

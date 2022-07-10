@@ -489,7 +489,7 @@ where
     PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + 'a + ?Sized,
     Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         collection: MaybeOwned<'a, Collection<'a, Cn, Cl>>,
         range: RangeRef<'a, Cl::PrimaryKey, PrimaryKey>,
     ) -> Self {
@@ -502,19 +502,19 @@ where
     }
 
     /// Lists documents by id in ascending order.
-    pub fn ascending(mut self) -> Self {
+    pub const fn ascending(mut self) -> Self {
         self.sort = Sort::Ascending;
         self
     }
 
     /// Lists documents by id in descending order.
-    pub fn descending(mut self) -> Self {
+    pub const fn descending(mut self) -> Self {
         self.sort = Sort::Descending;
         self
     }
 
     /// Sets the maximum number of results to return.
-    pub fn limit(mut self, maximum_results: u32) -> Self {
+    pub const fn limit(mut self, maximum_results: u32) -> Self {
         self.limit = Some(maximum_results);
         self
     }
@@ -679,7 +679,7 @@ where
     Cn: Connection,
     Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
 {
-    fn new(connection: &'a Cn) -> Self {
+    const fn new(connection: &'a Cn) -> Self {
         Self {
             connection,
             key: None,
@@ -704,9 +704,10 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_key<K: for<'k> KeyEncoding<'k, V::Key>>(self, key: &'a K) -> View<'a, Cn, V, K>
+    #[allow(clippy::missing_const_for_fn)] // false positive, destructors
+    pub fn with_key<K>(self, key: &'a K) -> View<'a, Cn, V, K>
     where
-        K: PartialEq + ?Sized,
+        K: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<K> + PartialEq<K>,
     {
         View {
@@ -801,12 +802,9 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_key_prefix<K: for<'k> KeyEncoding<'k, V::Key> + ?Sized>(
-        self,
-        prefix: &'a K,
-    ) -> View<'a, Cn, V, K>
+    pub fn with_key_prefix<K>(self, prefix: &'a K) -> View<'a, Cn, V, K>
     where
-        K: IntoPrefixRange<'a, V::Key> + PartialEq,
+        K: for<'k> KeyEncoding<'k, V::Key> + IntoPrefixRange<'a, V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<K> + PartialEq<K>,
     {
         View {
@@ -835,7 +833,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_access_policy(mut self, policy: AccessPolicy) -> Self {
+    pub const fn with_access_policy(mut self, policy: AccessPolicy) -> Self {
         self.access_policy = policy;
         self
     }
@@ -859,7 +857,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn ascending(mut self) -> Self {
+    pub const fn ascending(mut self) -> Self {
         self.sort = Sort::Ascending;
         self
     }
@@ -882,7 +880,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn descending(mut self) -> Self {
+    pub const fn descending(mut self) -> Self {
         self.sort = Sort::Descending;
         self
     }
@@ -899,7 +897,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn limit(mut self, maximum_results: u32) -> Self {
+    pub const fn limit(mut self, maximum_results: u32) -> Self {
         self.limit = Some(maximum_results);
         self
     }
@@ -1641,7 +1639,7 @@ where
     PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
     Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         collection: MaybeOwned<'a, AsyncCollection<'a, Cn, Cl>>,
         range: RangeRef<'a, Cl::PrimaryKey, PrimaryKey>,
     ) -> Self {
@@ -1865,7 +1863,7 @@ where
     Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
     V::Key: Borrow<Key> + PartialEq<Key>,
 {
-    fn new(connection: &'a Cn) -> Self {
+    const fn new(connection: &'a Cn) -> Self {
         Self {
             connection,
             key: None,
@@ -1896,6 +1894,7 @@ where
     /// # })
     /// # }
     /// ```
+    #[allow(clippy::missing_const_for_fn)] // false positive, destructors
     pub fn with_key<K>(self, key: &'a K) -> AsyncView<'a, Cn, V, K>
     where
         K: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
@@ -2013,12 +2012,9 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn with_key_prefix<K: for<'k> KeyEncoding<'k, V::Key>>(
-        self,
-        prefix: &'a K,
-    ) -> AsyncView<'a, Cn, V, K>
+    pub fn with_key_prefix<K>(self, prefix: &'a K) -> AsyncView<'a, Cn, V, K>
     where
-        K: IntoPrefixRange<'a, V::Key> + PartialEq + ?Sized,
+        K: for<'k> KeyEncoding<'k, V::Key> + IntoPrefixRange<'a, V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<K> + PartialEq<K>,
     {
         AsyncView {
@@ -2050,7 +2046,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn with_access_policy(mut self, policy: AccessPolicy) -> Self {
+    pub const fn with_access_policy(mut self, policy: AccessPolicy) -> Self {
         self.access_policy = policy;
         self
     }
@@ -2076,7 +2072,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn ascending(mut self) -> Self {
+    pub const fn ascending(mut self) -> Self {
         self.sort = Sort::Ascending;
         self
     }
@@ -2105,7 +2101,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn descending(mut self) -> Self {
+    pub const fn descending(mut self) -> Self {
         self.sort = Sort::Descending;
         self
     }
@@ -2124,7 +2120,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn limit(mut self, maximum_results: u32) -> Self {
+    pub const fn limit(mut self, maximum_results: u32) -> Self {
         self.limit = Some(maximum_results);
         self
     }
@@ -2299,7 +2295,6 @@ where
     Multiple(Vec<MaybeOwned<'k, KOwned, KBorrowed>>),
 }
 
-#[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
 impl<'a, KOwned, KBorrowed> QueryKey<'a, KOwned, KBorrowed>
 where
     KBorrowed: for<'k> KeyEncoding<'k, KOwned> + PartialEq + ?Sized,
@@ -2346,7 +2341,6 @@ pub enum SerializedQueryKey {
     Multiple(Vec<Bytes>),
 }
 
-#[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
 impl SerializedQueryKey {
     /// Deserializes the bytes into `K` via the [`Key`] trait.
     pub fn deserialized<K: for<'k> Key<'k> + PartialEq>(
@@ -2540,9 +2534,9 @@ impl<T> Bound<T> {
     /// Maps the contained value, if any, and returns the resulting `Bound`.
     pub fn map<U, F: Fn(T) -> U>(self, map: F) -> Bound<U> {
         match self {
-            Bound::Unbounded => Bound::Unbounded,
-            Bound::Included(value) => Bound::Included(map(value)),
-            Bound::Excluded(value) => Bound::Excluded(map(value)),
+            Self::Unbounded => Bound::Unbounded,
+            Self::Included(value) => Bound::Included(map(value)),
+            Self::Excluded(value) => Bound::Excluded(map(value)),
         }
     }
 
@@ -2550,18 +2544,18 @@ impl<T> Bound<T> {
     /// return type is a Result, unlike with `map`.
     pub fn map_result<U, E, F: Fn(T) -> Result<U, E>>(self, map: F) -> Result<Bound<U>, E> {
         Ok(match self {
-            Bound::Unbounded => Bound::Unbounded,
-            Bound::Included(value) => Bound::Included(map(value)?),
-            Bound::Excluded(value) => Bound::Excluded(map(value)?),
+            Self::Unbounded => Bound::Unbounded,
+            Self::Included(value) => Bound::Included(map(value)?),
+            Self::Excluded(value) => Bound::Excluded(map(value)?),
         })
     }
 
     /// Maps each contained value as a reference.
     pub fn map_ref<U: ?Sized, F: Fn(&T) -> &U>(&self, map: F) -> Bound<&U> {
         match self {
-            Bound::Unbounded => Bound::Unbounded,
-            Bound::Included(value) => Bound::Included(map(value)),
-            Bound::Excluded(value) => Bound::Excluded(map(value)),
+            Self::Unbounded => Bound::Unbounded,
+            Self::Included(value) => Bound::Included(map(value)),
+            Self::Excluded(value) => Bound::Excluded(map(value)),
         }
     }
 }
@@ -2595,9 +2589,9 @@ impl Bound<Bytes> {
         &self,
     ) -> Result<Bound<T>, <T as KeyEncoding<'_, T>>::Error> {
         match self {
-            Bound::Unbounded => Ok(Bound::Unbounded),
-            Bound::Included(value) => Ok(Bound::Included(T::from_ord_bytes(value.as_ref())?)),
-            Bound::Excluded(value) => Ok(Bound::Excluded(T::from_ord_bytes(value.as_ref())?)),
+            Self::Unbounded => Ok(Bound::Unbounded),
+            Self::Included(value) => Ok(Bound::Included(T::from_ord_bytes(value.as_ref())?)),
+            Self::Excluded(value) => Ok(Bound::Excluded(T::from_ord_bytes(value.as_ref())?)),
         }
     }
 }
@@ -2689,9 +2683,9 @@ impl<T> From<std::ops::RangeFull> for Range<T> {
 /// A range reference type that can be serialized.
 #[derive(Debug, Clone, PartialEq)]
 #[must_use]
-pub struct RangeRef<'a, TOwned, TBorrowed: ?Sized = TOwned>
+pub struct RangeRef<'a, TOwned, TBorrowed = TOwned>
 where
-    TBorrowed: PartialEq,
+    TBorrowed: PartialEq + ?Sized,
     TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
 {
     /// The start of the range.
@@ -2842,7 +2836,7 @@ where
     TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
 {
     /// Returns a borrowed range ref using the bounds in the range provided.
-    pub fn borrowed(range: Range<&'a TBorrowed>) -> Self {
+    pub const fn borrowed(range: Range<&'a TBorrowed>) -> Self {
         Self {
             start: BoundRef::borrowed(range.start),
             end: BoundRef::borrowed(range.end),
@@ -2922,7 +2916,7 @@ where
     TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
 {
     /// Returns a borrowed bound from the bound provided.
-    pub fn borrowed(range: Bound<&'a TBorrowed>) -> Self {
+    pub const fn borrowed(range: Bound<&'a TBorrowed>) -> Self {
         match range {
             Bound::Unbounded => Self::Unbounded,
             Bound::Included(value) => Self::Included(MaybeOwned::Borrowed(value)),
@@ -2931,6 +2925,7 @@ where
     }
 
     /// Returns an owned bound ref from the bound provided.
+    #[allow(clippy::missing_const_for_fn)] // false positive, destructors
     pub fn owned(range: Bound<TOwned>) -> Self {
         match range {
             Bound::Unbounded => Self::Unbounded,

@@ -41,7 +41,7 @@ impl<K: for<'a> Key<'a>, V> Map<K, V> {
 
 impl<K: for<'a> Key<'a>, V> Map<K, V> {
     /// Creates a new Map entry for the document with id `source`.
-    pub fn new(source: Header, key: K, value: V) -> Self {
+    pub const fn new(source: Header, key: K, value: V) -> Self {
         Self { source, key, value }
     }
 }
@@ -64,7 +64,7 @@ impl<K: for<'a> Key<'a>, V> Default for Mappings<K, V> {
 
 impl<K: for<'a> Key<'a>, V> Mappings<K, V> {
     /// Returns an empty collection of mappings.
-    pub fn none() -> Self {
+    pub const fn none() -> Self {
         Self::Simple(None)
     }
 
@@ -302,7 +302,7 @@ pub struct MappedValue<K: for<'a> Key<'a>, V> {
 
 impl<K: for<'a> Key<'a>, V> MappedValue<K, V> {
     /// Returns a new instance with the key/value pair.
-    pub fn new(key: K, value: V) -> Self {
+    pub const fn new(key: K, value: V) -> Self {
         Self { key, value }
     }
 }

@@ -19,7 +19,7 @@ impl<'a, K> Builder<'a, K>
 where
     K: KeyValue,
 {
-    pub(crate) fn new(kv: &'a K, namespace: Option<String>, key: String) -> Self {
+    pub(crate) const fn new(kv: &'a K, namespace: Option<String>, key: String) -> Self {
         Self {
             key,
             kv,
@@ -29,7 +29,7 @@ where
     }
 
     /// Delete the key after retrieving the value.
-    pub fn and_delete(mut self) -> Self {
+    pub const fn and_delete(mut self) -> Self {
         self.delete = true;
         self
     }
@@ -177,7 +177,7 @@ impl<'a, K> AsyncBuilder<'a, K>
 where
     K: AsyncKeyValue,
 {
-    pub(crate) fn new(kv: &'a K, namespace: Option<String>, key: String) -> Self {
+    pub(crate) const fn new(kv: &'a K, namespace: Option<String>, key: String) -> Self {
         Self {
             state: BuilderState::Pending(Some(Options {
                 key,

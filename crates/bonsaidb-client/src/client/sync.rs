@@ -34,14 +34,14 @@ impl StorageConnection for Client {
     type Authenticated = Self;
 
     fn admin(&self) -> Self::Database {
-        self.database::<Admin>(ADMIN_DATABASE_NAME).unwrap()
+        self.remote_database::<Admin>(ADMIN_DATABASE_NAME).unwrap()
     }
 
     fn database<DB: bonsaidb_core::schema::Schema>(
         &self,
         name: &str,
     ) -> Result<Self::Database, bonsaidb_core::Error> {
-        self.database::<DB>(name)
+        self.remote_database::<DB>(name)
     }
 
     fn create_database_with_schema(

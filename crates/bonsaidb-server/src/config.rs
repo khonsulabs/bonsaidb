@@ -52,13 +52,13 @@ impl<B: Backend> ServerConfiguration<B> {
     }
 
     /// Sets [`Self::client_simultaneous_request_limit`](Self#structfield.client_simultaneous_request_limit) to `request_limit` and returns self.
-    pub fn client_simultaneous_request_limit(mut self, request_limit: usize) -> Self {
+    pub const fn client_simultaneous_request_limit(mut self, request_limit: usize) -> Self {
         self.client_simultaneous_request_limit = request_limit;
         self
     }
 
     /// Sets [`Self::request_workers`](Self#structfield.request_workers) to `workers` and returns self.
-    pub fn request_workers(mut self, workers: usize) -> Self {
+    pub const fn request_workers(mut self, workers: usize) -> Self {
         self.request_workers = workers;
         self
     }

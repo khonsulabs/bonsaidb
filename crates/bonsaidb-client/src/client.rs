@@ -582,7 +582,7 @@ impl Client {
         subscribers.remove(&id);
     }
 
-    fn database<DB: bonsaidb_core::schema::Schema>(
+    fn remote_database<DB: bonsaidb_core::schema::Schema>(
         &self,
         name: &str,
     ) -> Result<RemoteDatabase, bonsaidb_core::Error> {
@@ -615,7 +615,7 @@ impl AsyncStorageConnection for Client {
     type Authenticated = Self;
 
     async fn admin(&self) -> Self::Database {
-        self.database::<Admin>(ADMIN_DATABASE_NAME).unwrap()
+        self.remote_database::<Admin>(ADMIN_DATABASE_NAME).unwrap()
     }
 
     async fn create_database_with_schema(
@@ -639,7 +639,7 @@ impl AsyncStorageConnection for Client {
         &self,
         name: &str,
     ) -> Result<Self::Database, bonsaidb_core::Error> {
-        self.database::<DB>(name)
+        self.remote_database::<DB>(name)
     }
 
     async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
