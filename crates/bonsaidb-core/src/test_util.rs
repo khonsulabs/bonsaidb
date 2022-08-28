@@ -2295,6 +2295,14 @@ pub fn blocking_view_multi_emit_tests<C: Connection>(db: &C) -> anyhow::Result<(
 
 pub async fn view_access_policy_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let collection = db.collection::<Basic>();
+
+    // Query the view to get it into a consistent, mapped state. If we don't
+    // query it, the integrity checker can end up spawning a mapping job. This
+    // job would run in the background and can include the next documents being
+    // inserted.
+    let all_entries = db.view::<BasicByParentId>().query().await?;
+    assert_eq!(all_entries.len(), 0);
+
     let a = collection.push(&Basic::new("A")).await?;
 
     // Test inserting a record that should match the view, but ask for it to be
@@ -2346,6 +2354,13 @@ pub async fn view_access_policy_tests<C: AsyncConnection>(db: &C) -> anyhow::Res
 }
 
 pub fn blocking_view_access_policy_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+    // Query the view to get it into a consistent, mapped state. If we don't
+    // query it, the integrity checker can end up spawning a mapping job. This
+    // job would run in the background and can include the next documents being
+    // inserted.
+    let all_entries = db.view::<BasicByParentId>().query()?;
+    assert_eq!(all_entries.len(), 0);
+
     let collection = db.collection::<Basic>();
     let a = collection.push(&Basic::new("A"))?;
 
