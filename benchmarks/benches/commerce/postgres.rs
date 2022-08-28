@@ -548,6 +548,7 @@ impl Operator<Checkout, u32> for PostgresOperator {
         args.reserve(1, 0);
         args.add(cart);
         tx.execute(statement.query_with(args)).await.unwrap();
+        tx.commit().await.unwrap();
 
         measurement.finish();
 
