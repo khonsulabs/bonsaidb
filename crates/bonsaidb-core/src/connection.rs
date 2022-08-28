@@ -2887,8 +2887,8 @@ where
     fn from(bound: &'a BoundRef<'a, TOwned, TBorrowed>) -> Self {
         match bound {
             BoundRef::Unbounded => std::ops::Bound::Unbounded,
-            BoundRef::Included(value) => std::ops::Bound::Included(&*value),
-            BoundRef::Excluded(value) => std::ops::Bound::Excluded(&*value),
+            BoundRef::Included(value) => std::ops::Bound::Included(value),
+            BoundRef::Excluded(value) => std::ops::Bound::Excluded(value),
         }
     }
 }
@@ -3359,7 +3359,7 @@ pub trait AsyncStorageConnection: HasSession + Sized + Send + Sync {
 }
 
 /// A database stored in BonsaiDb.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct Database {
     /// The name of the database.
     pub name: String,

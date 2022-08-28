@@ -236,7 +236,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         self.count_from_collection(
-            ids.into().map_result(|id| DocumentId::new(&*id))?,
+            ids.into().map_result(|id| DocumentId::new(id))?,
             &C::collection_name(),
         )
     }
@@ -812,7 +812,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
         PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + PartialEq + 'id + ?Sized,
         C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
-        let ids = ids.into().map_result(|id| DocumentId::new(&*id))?;
+        let ids = ids.into().map_result(|id| DocumentId::new(id))?;
         self.list_from_collection(ids, order, limit, &C::collection_name())
             .await
     }
@@ -839,7 +839,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
         PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + PartialEq + 'id + ?Sized,
         C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
-        let ids = ids.into().map_result(|id| DocumentId::new(&*id))?;
+        let ids = ids.into().map_result(|id| DocumentId::new(id))?;
         self.list_headers_from_collection(ids, order, limit, &C::collection_name())
             .await
     }
@@ -861,7 +861,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
         C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         self.count_from_collection(
-            ids.into().map_result(|id| DocumentId::new(&*id))?,
+            ids.into().map_result(|id| DocumentId::new(id))?,
             &C::collection_name(),
         )
         .await

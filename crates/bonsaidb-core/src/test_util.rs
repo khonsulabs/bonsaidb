@@ -43,7 +43,7 @@ use crate::{
     Error,
 };
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone, Collection)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Default, Clone, Collection)]
 // This collection purposely uses names with characters that need
 // escaping, since it's used in backup/restore.
 #[collection(name = "_basic", authority = "khonsulabs_", views = [BasicCount, BasicByParentId, BasicByParentIdEager, BasicByTag, BasicByCategory], core = crate)]
@@ -219,7 +219,7 @@ impl ViewSchema for BasicByBrokenParentId {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone, Collection)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Default, Clone, Collection)]
 #[collection(name = "encrypted-basic", authority = "khonsulabs", views = [EncryptedBasicCount, EncryptedBasicByParentId, EncryptedBasicByCategory])]
 #[collection(encryption_key = Some(KeyId::Master), encryption_optional, core = crate)]
 #[must_use]
@@ -321,7 +321,7 @@ impl ViewSchema for EncryptedBasicByCategory {
 #[schema(name = "basic", collections = [Basic, EncryptedBasic, Unique], core = crate)]
 pub struct BasicSchema;
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Default, Collection)]
+#[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq, Default, Collection)]
 #[collection(name = "unique", authority = "khonsulabs", views = [UniqueValue], core = crate)]
 pub struct Unique {
     pub value: String,

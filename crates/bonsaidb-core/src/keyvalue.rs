@@ -1,4 +1,3 @@
-
 use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
@@ -729,7 +728,7 @@ pub enum Output {
     Value(Option<Value>),
 }
 /// The status of an operation on a Key.
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub enum KeyStatus {
     /// A new key was inserted.
     Inserted,

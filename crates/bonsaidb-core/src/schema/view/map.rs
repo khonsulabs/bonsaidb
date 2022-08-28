@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// A document's entry in a View's mappings.
-#[derive(PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug)]
 pub struct Map<K: for<'a> Key<'a> = (), V = ()> {
     /// The header of the document that emitted this entry.
     pub source: Header,
@@ -47,7 +47,7 @@ impl<K: for<'a> Key<'a>, V> Map<K, V> {
 }
 
 /// A collection of [`Map`]s.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 #[must_use]
 pub enum Mappings<K: for<'a> Key<'a> = (), V = ()> {
     /// Zero or one mappings.
@@ -291,7 +291,7 @@ impl MappedSerializedDocuments {
 }
 
 /// A key value pair
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct MappedValue<K: for<'a> Key<'a>, V> {
     /// The key responsible for generating the value
     pub key: K,

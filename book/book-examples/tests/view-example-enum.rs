@@ -17,7 +17,7 @@ use bonsaidb::{
 use serde::{Deserialize, Serialize};
 
 // ANCHOR: enum
-#[derive(Serialize, Deserialize, PartialEq, Debug, Key, Clone)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Key, Clone)]
 pub enum Category {
     Rust,
     Cooking,

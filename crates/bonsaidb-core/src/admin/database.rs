@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// A database stored in BonsaiDb.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Collection)]
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize, Collection)]
 #[collection(authority = "bonsaidb", name = "databases", views = [ByName], core = crate)]
 pub struct Database {
     /// The name of the database.

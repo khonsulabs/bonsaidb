@@ -1454,7 +1454,7 @@ pub trait NamedCollection: Collection + Unpin {
 }
 
 /// A reference to a collection that has a unique name view.
-#[derive(Clone, PartialEq, Deserialize, Serialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Serialize, Debug)]
 #[must_use]
 pub enum NamedReference<'a, Id> {
     /// An entity's name.

@@ -341,9 +341,7 @@ impl Client {
                 tokio,
                 subscribers,
             )),
-            other => {
-                return Err(Error::InvalidUrl(format!("unsupported scheme {}", other)));
-            }
+            other => Err(Error::InvalidUrl(format!("unsupported scheme {}", other))),
         }
     }
 

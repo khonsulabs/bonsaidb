@@ -1234,7 +1234,7 @@ where
     Self: KeyEncoding<'a, Self, Error = <T as KeyEncoding<'a, T>>::Error>,
 {
     fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        match bytes.get(0) {
+        match bytes.first() {
             Some(&RESULT_OK) => T::from_ord_bytes(&bytes[1..]).map(Ok),
             Some(_) => E::from_ord_bytes(&bytes[1..]).map(Err),
             None => {

@@ -18,7 +18,7 @@ fn save_document(doc: &ResizableDocument, db: &Database) {
 
 #[cfg_attr(not(feature = "compression"), allow(unused_mut))]
 pub(super) fn save_documents(group: &mut BenchmarkGroup<WallTime>, doc: &ResizableDocument) {
-    let path = TestDirectory::new("benches-basics.bonsaidb");
+    let path = TestDirectory::absolute("benches-basics.bonsaidb");
     let mut configs = vec![("bonsaidb-local", StorageConfiguration::new(&path))];
     #[cfg(feature = "compression")]
     {
