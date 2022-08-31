@@ -8,7 +8,7 @@ use bonsaidb::{
         keyvalue::Timestamp,
         schema::{
             Collection, CollectionViewSchema, ReduceResult, Schema, SerializedCollection,
-            SerializedView, View, ViewMapResult, ViewMappedValue,
+            SerializedView, View, ViewMapResult,
         },
         transaction::{Operation, Transaction},
     },
@@ -178,10 +178,10 @@ impl CollectionViewSchema for EditionsByWork {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
-        Ok(mappings.iter().map(|map| map.value).sum())
+        Ok(mappings.iter().sum())
     }
 }
 
@@ -272,10 +272,10 @@ impl CollectionViewSchema for WorksByAuthor {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[<Self::View as View>::Value],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
-        Ok(mappings.iter().map(|map| map.value).sum())
+        Ok(mappings.iter().sum())
     }
 }
 

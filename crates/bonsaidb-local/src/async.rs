@@ -619,7 +619,8 @@ impl AsyncConnection for AsyncDatabase {
             .database
             .roots()
             .transactions()
-            .current_transaction_id())
+            .current_transaction_id()
+            .map(|id| id.0))
     }
 
     async fn compact(&self) -> Result<(), bonsaidb_core::Error> {

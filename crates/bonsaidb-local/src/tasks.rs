@@ -5,10 +5,10 @@ use std::{
 };
 
 use bonsaidb_core::{
-    connection::Connection,
     keyvalue::Timestamp,
     schema::{view, CollectionName, ViewName},
 };
+use nebari::tree::SequenceId;
 use parking_lot::RwLock;
 
 use crate::{
@@ -40,13 +40,13 @@ pub struct TaskManager {
     statuses: Arc<RwLock<Statuses>>,
 }
 
-type ViewKey = (Arc<Cow<'static, str>>, CollectionName, ViewName);
+type ViewKey = (Arc<Cow<'static, str>>, ViewName);
 
 #[derive(Default, Debug)]
 pub struct Statuses {
     completed_integrity_checks: HashSet<ViewKey>,
     key_value_expiration_loads: HashSet<Arc<Cow<'static, str>>>,
-    view_update_last_status: HashMap<ViewKey, u64>,
+    view_update_last_status: HashMap<ViewKey, SequenceId>,
 }
 
 impl TaskManager {
@@ -59,36 +59,43 @@ impl TaskManager {
 
     pub fn update_view_if_needed(
         &self,
-        view: &dyn view::Serialized,
+        view: &Arc<dyn view::Serialized>,
         database: &Database,
         block_until_updated: bool,
     ) -> Result<(), crate::Error> {
         let view_name = view.view_name();
-        if let Some(job) = self.spawn_integrity_check(view, database) {
-            job.receive()??;
+        if let Some(intial_mapping_job) = self.spawn_integrity_check(view, database) {
+            intial_mapping_job.receive()??;
+        }
+
+        if view.eager() {
+            return Ok(());
         }
 
         // If there is no transaction id, there is no data, so the view is "up-to-date"
-        if let Some(current_transaction_id) = database.last_transaction_id()? {
-            let needs_reindex = {
-                // When views finish updating, they store the last transaction_id
-                // they mapped. If that value is current, we don't need to go
-                // through the jobs system at all.
-                let statuses = self.statuses.read();
-                if let Some(last_transaction_indexed) = statuses.view_update_last_status.get(&(
-                    database.data.name.clone(),
-                    view.collection(),
-                    view.view_name(),
-                )) {
-                    last_transaction_indexed < &current_transaction_id
-                } else {
-                    true
-                }
-            };
+        let current_sequence = database
+            .context()
+            .current_collection_sequence(&view_name.collection)
+            .unwrap_or_default();
+        if current_sequence.0 > 1 {
+            loop {
+                let needs_reindex = {
+                    // When views finish updating, they store the last transaction_id
+                    // they mapped. If that value is current, we don't need to go
+                    // through the jobs system at all.
+                    let statuses = self.statuses.read();
+                    if let Some(last_sequence_indexed) = statuses
+                        .view_update_last_status
+                        .get(&(database.data.name.clone(), view_name.clone()))
+                    {
+                        last_sequence_indexed < &current_sequence
+                    } else {
+                        true
+                    }
+                };
 
-            if needs_reindex {
-                let wait_for_transaction = current_transaction_id;
-                loop {
+                if needs_reindex {
+                    let wait_for_sequence = current_sequence;
                     let job = self.jobs.lookup_or_enqueue(Mapper {
                         database: database.clone(),
                         map: Map {
@@ -102,10 +109,25 @@ impl TaskManager {
                         break;
                     }
 
-                    let id = job.receive()??;
-                    if wait_for_transaction <= id {
-                        break;
+                    match job.receive()?? {
+                        Some(id) => {
+                            if wait_for_sequence <= id {
+                                break;
+                            }
+                        }
+                        None => {
+                            let statuses = self.statuses.read();
+                            assert_eq!(
+                                wait_for_sequence,
+                                *statuses
+                                    .view_update_last_status
+                                    .get(&(database.data.name.clone(), view.view_name()))
+                                    .unwrap()
+                            );
+                        }
                     }
+                } else {
+                    break;
                 }
             }
         }
@@ -121,26 +143,21 @@ impl TaskManager {
     pub fn view_integrity_checked(
         &self,
         database: Arc<Cow<'static, str>>,
-        collection: CollectionName,
         view_name: ViewName,
     ) -> bool {
         let statuses = self.statuses.read();
         statuses
             .completed_integrity_checks
-            .contains(&(database, collection, view_name))
+            .contains(&(database, view_name))
     }
 
     pub fn spawn_integrity_check(
         &self,
-        view: &dyn view::Serialized,
+        view: &Arc<dyn view::Serialized>,
         database: &Database,
     ) -> Option<Handle<OptionalViewMapHandle, Error>> {
         let view_name = view.view_name();
-        if self.view_integrity_checked(
-            database.data.name.clone(),
-            view.collection(),
-            view_name.clone(),
-        ) {
+        if self.view_integrity_checked(database.data.name.clone(), view_name.clone()) {
             None
         } else {
             let job = self.jobs.lookup_or_enqueue(IntegrityScanner {
@@ -159,13 +176,12 @@ impl TaskManager {
     pub fn mark_integrity_check_complete(
         &self,
         database: Arc<Cow<'static, str>>,
-        collection: CollectionName,
         view_name: ViewName,
     ) {
         let mut statuses = self.statuses.write();
         statuses
             .completed_integrity_checks
-            .insert((database, collection, view_name));
+            .insert((database, view_name));
     }
 
     pub fn mark_key_value_expiration_loaded(&self, database: Arc<Cow<'static, str>>) {
@@ -176,14 +192,13 @@ impl TaskManager {
     pub fn mark_view_updated(
         &self,
         database: Arc<Cow<'static, str>>,
-        collection: CollectionName,
         view_name: ViewName,
-        transaction_id: u64,
+        sequence_id: SequenceId,
     ) {
         let mut statuses = self.statuses.write();
         statuses
             .view_update_last_status
-            .insert((database, collection, view_name), transaction_id);
+            .insert((database, view_name), sequence_id);
     }
 
     pub fn spawn_key_value_expiration_loader(

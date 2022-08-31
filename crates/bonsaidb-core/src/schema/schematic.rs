@@ -3,6 +3,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
     marker::PhantomData,
+    sync::Arc,
 };
 
 use derive_where::derive_where;
@@ -12,11 +13,7 @@ use crate::{
     key::Key,
     schema::{
         collection::Collection,
-        view::{
-            self,
-            map::{self, MappedValue},
-            Serialized, SerializedView, ViewSchema,
-        },
+        view::{self, map, Serialized, SerializedView, ViewSchema},
         CollectionName, Schema, SchemaName, View, ViewName,
     },
     Error,
@@ -31,7 +28,7 @@ pub struct Schematic {
     collections_by_type_id: HashMap<TypeId, CollectionName>,
     collection_encryption_keys: HashMap<CollectionName, KeyId>,
     collection_id_generators: HashMap<CollectionName, Box<dyn IdGenerator>>,
-    views: HashMap<TypeId, Box<dyn view::Serialized>>,
+    views: HashMap<TypeId, Arc<dyn view::Serialized>>,
     views_by_name: HashMap<ViewName, TypeId>,
     views_by_collection: HashMap<CollectionName, Vec<TypeId>>,
     eager_views_by_collection: HashMap<CollectionName, Vec<TypeId>>,
@@ -98,7 +95,7 @@ impl Schematic {
 
         let collection = instance.collection();
         let eager = instance.eager();
-        self.views.insert(TypeId::of::<V>(), Box::new(instance));
+        self.views.insert(TypeId::of::<V>(), Arc::new(instance));
         self.views_by_name.insert(name, TypeId::of::<V>());
 
         if eager {
@@ -144,25 +141,23 @@ impl Schematic {
     }
 
     /// Looks up a [`view::Serialized`] by name.
-    pub fn view_by_name(&self, name: &ViewName) -> Result<&'_ dyn view::Serialized, Error> {
+    pub fn view_by_name(&self, name: &ViewName) -> Result<&'_ Arc<dyn view::Serialized>, Error> {
         self.views_by_name
             .get(name)
             .and_then(|type_id| self.views.get(type_id))
-            .map(AsRef::as_ref)
             .ok_or(Error::ViewNotFound)
     }
 
     /// Looks up a [`view::Serialized`] through the the type `V`.
-    pub fn view<V: View + 'static>(&self) -> Result<&'_ dyn view::Serialized, Error> {
+    pub fn view<V: View + 'static>(&self) -> Result<&'_ Arc<dyn view::Serialized>, Error> {
         self.views
             .get(&TypeId::of::<V>())
-            .map(AsRef::as_ref)
             .ok_or(Error::ViewNotFound)
     }
 
     /// Iterates over all registered views.
-    pub fn views(&self) -> impl Iterator<Item = &'_ dyn view::Serialized> {
-        self.views.values().map(AsRef::as_ref)
+    pub fn views(&self) -> impl Iterator<Item = &'_ Arc<dyn view::Serialized>> {
+        self.views.values()
     }
 
     /// Iterates over all views that belong to `collection`.
@@ -170,11 +165,11 @@ impl Schematic {
     pub fn views_in_collection(
         &self,
         collection: &CollectionName,
-    ) -> Option<Vec<&'_ dyn view::Serialized>> {
+    ) -> Option<Vec<&'_ Arc<dyn view::Serialized>>> {
         self.views_by_collection.get(collection).map(|view_ids| {
             view_ids
                 .iter()
-                .filter_map(|id| self.views.get(id).map(AsRef::as_ref))
+                .filter_map(|id| self.views.get(id))
                 .collect()
         })
     }
@@ -185,13 +180,13 @@ impl Schematic {
     pub fn eager_views_in_collection(
         &self,
         collection: &CollectionName,
-    ) -> Option<Vec<&'_ dyn view::Serialized>> {
+    ) -> Option<Vec<&'_ Arc<dyn view::Serialized>>> {
         self.eager_views_by_collection
             .get(collection)
             .map(|view_ids| {
                 view_ids
                     .iter()
-                    .filter_map(|id| self.views.get(id).map(AsRef::as_ref))
+                    .filter_map(|id| self.views.get(id))
                     .collect()
             })
     }
@@ -249,17 +244,11 @@ where
             .collect::<Result<Vec<_>, view::Error>>()
     }
 
-    fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, view::Error> {
+    fn reduce(&self, mappings: &[&[u8]], rereduce: bool) -> Result<Vec<u8>, view::Error> {
         let mappings = mappings
             .iter()
-            .map(|(key, value)| match <V::Key as Key>::from_ord_bytes(key) {
-                Ok(key) => {
-                    let value = V::deserialize(value)?;
-                    Ok(MappedValue::new(key, value))
-                }
-                Err(err) => Err(view::Error::key_serialization(err)),
-            })
-            .collect::<Result<Vec<_>, view::Error>>()?;
+            .map(|value| V::deserialize(value))
+            .collect::<Result<Vec<_>, _>>()?;
 
         let reduced_value = self.schema.reduce(&mappings, rereduce)?;
 

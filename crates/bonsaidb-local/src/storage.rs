@@ -37,10 +37,7 @@ use bonsaidb_core::{
 use fs2::FileExt;
 use itertools::Itertools;
 use nebari::{
-    io::{
-        any::{AnyFile, AnyFileManager},
-        FileManager,
-    },
+    sediment::io::{any::AnyFileManager, FileManager},
     ChunkCache, ThreadPool,
 };
 use parking_lot::{Mutex, RwLock};
@@ -252,8 +249,7 @@ impl From<StorageInstance> for Storage {
 struct Data {
     lock: StorageLock,
     path: PathBuf,
-    parallelization: usize,
-    threadpool: ThreadPool<AnyFile>,
+    threadpool: ThreadPool<AnyFileManager>,
     file_manager: AnyFileManager,
     pub(crate) tasks: TaskManager,
     schemas: RwLock<HashMap<SchemaName, Arc<dyn DatabaseOpener>>>,
@@ -285,9 +281,9 @@ impl Storage {
             .clone()
             .unwrap_or_else(|| PathBuf::from("db.bonsaidb"));
         let file_manager = if configuration.memory_only {
-            AnyFileManager::memory()
+            AnyFileManager::new_memory()
         } else {
-            AnyFileManager::std()
+            AnyFileManager::new_file()
         };
 
         let manager = Manager::default();
@@ -342,7 +338,6 @@ impl Storage {
                 data: Arc::new(Data {
                     lock: storage_lock,
                     tasks,
-                    parallelization,
                     subscribers: Arc::default(),
                     authenticated_permissions,
                     sessions: RwLock::default(),
@@ -356,7 +351,7 @@ impl Storage {
                     tree_vault,
                     path: owned_path,
                     file_manager,
-                    chunk_cache: ChunkCache::new(2000, 160_384),
+                    chunk_cache: ChunkCache::new(2_000, 160_384),
                     threadpool: ThreadPool::new(parallelization),
                     schemas: RwLock::new(configuration.initial_schemas),
                     available_databases: RwLock::default(),
@@ -478,11 +473,6 @@ impl Storage {
     #[must_use]
     pub fn unique_id(&self) -> StorageId {
         self.instance.data.lock.id()
-    }
-
-    #[must_use]
-    pub(crate) fn parallelization(&self) -> usize {
-        self.instance.data.parallelization
     }
 
     #[must_use]
@@ -1000,7 +990,7 @@ impl StorageConnection for StorageInstance {
             let file_manager = self.data.file_manager.clone();
             file_manager
                 .delete_directory(&database_folder)
-                .map_err(Error::Nebari)?;
+                .map_err(Error::Io)?;
         }
 
         if let Some(entry) = admin
