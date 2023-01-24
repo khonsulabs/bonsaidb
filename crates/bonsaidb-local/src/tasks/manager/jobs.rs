@@ -1,13 +1,14 @@
-use std::{any::Any, collections::HashMap, fmt::Debug, sync::Arc};
+use std::any::Any;
+use std::collections::HashMap;
+use std::fmt::Debug;
+use std::sync::Arc;
 
 use flume::{Receiver, Sender};
 
-use crate::tasks::{
-    handle::{Handle, Id},
-    manager::{ManagedJob, Manager},
-    traits::Executable,
-    Job, Keyed,
-};
+use crate::tasks::handle::{Handle, Id};
+use crate::tasks::manager::{ManagedJob, Manager};
+use crate::tasks::traits::Executable;
+use crate::tasks::{Job, Keyed};
 
 pub struct Jobs<Key> {
     last_task_id: u64,

@@ -1,19 +1,17 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
-use bonsaidb_core::{api::ApiName, networking::Payload};
+use bonsaidb_core::api::ApiName;
+use bonsaidb_core::networking::Payload;
 use bonsaidb_utils::fast_async_lock;
 use flume::Receiver;
 use url::Url;
-use wasm_bindgen::{closure::Closure, JsCast, JsValue};
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{CloseEvent, ErrorEvent, MessageEvent, WebSocket};
 
-use crate::{
-    client::{AnyApiCallback, OutstandingRequestMapHandle, PendingRequest, SubscriberMap},
-    Error,
-};
+use crate::client::{AnyApiCallback, OutstandingRequestMapHandle, PendingRequest, SubscriberMap};
+use crate::Error;
 
 pub fn spawn_client(
     url: Arc<Url>,

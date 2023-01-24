@@ -1,16 +1,14 @@
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    admin::{group, role},
-    connection::{
-        AsyncStorageConnection, Connection, IdentityReference, SensitiveString, StorageConnection,
-    },
-    define_basic_unique_mapped_view,
-    document::{CollectionDocument, Emit, KeyId},
-    permissions::Permissions,
-    schema::{Collection, Nameable, NamedCollection, SerializedCollection},
+use crate::admin::{group, role};
+use crate::connection::{
+    AsyncStorageConnection, Connection, IdentityReference, SensitiveString, StorageConnection,
 };
+use crate::define_basic_unique_mapped_view;
+use crate::document::{CollectionDocument, Emit, KeyId};
+use crate::permissions::Permissions;
+use crate::schema::{Collection, Nameable, NamedCollection, SerializedCollection};
 
 /// A user that can authenticate with BonsaiDb.
 #[derive(Clone, Debug, Serialize, Deserialize, Default, Collection)]

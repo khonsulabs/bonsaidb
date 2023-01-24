@@ -1,10 +1,9 @@
-use std::{io::SeekFrom, mem::size_of};
+use std::io::SeekFrom;
+use std::mem::size_of;
 
 use bonsaidb_files::{BonsaiFiles, FileConfig, FilesSchema};
-use bonsaidb_local::{
-    config::{Builder, StorageConfiguration},
-    AsyncDatabase,
-};
+use bonsaidb_local::config::{Builder, StorageConfiguration};
+use bonsaidb_local::AsyncDatabase;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 #[cfg_attr(not(test), tokio::main)]

@@ -1,35 +1,28 @@
-use std::{
-    collections::{hash_map, HashMap},
-    fmt::Debug,
-    net::SocketAddr,
-    ops::Deref,
-    path::PathBuf,
-    sync::{
-        atomic::{AtomicU32, AtomicUsize, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::collections::{hash_map, HashMap};
+use std::fmt::Debug;
+use std::net::SocketAddr;
+use std::ops::Deref;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
 use async_lock::{Mutex, RwLock};
 use async_trait::async_trait;
-use bonsaidb_core::{
-    admin::{Admin, ADMIN_DATABASE_NAME},
-    api,
-    api::ApiName,
-    arc_bytes::serde::Bytes,
-    connection::{
-        self, AsyncConnection, AsyncStorageConnection, HasSession, IdentityReference, Session,
-        SessionId,
-    },
-    networking::{self, Payload, CURRENT_PROTOCOL_VERSION},
-    permissions::{
-        bonsai::{bonsaidb_resource_name, BonsaiAction, ServerAction},
-        Permissions,
-    },
-    schema::{self, Nameable, NamedCollection, Schema},
+use bonsaidb_core::admin::{Admin, ADMIN_DATABASE_NAME};
+use bonsaidb_core::api;
+use bonsaidb_core::api::ApiName;
+use bonsaidb_core::arc_bytes::serde::Bytes;
+use bonsaidb_core::connection::{
+    self, AsyncConnection, AsyncStorageConnection, HasSession, IdentityReference, Session,
+    SessionId,
 };
-use bonsaidb_local::{config::Builder, AsyncStorage, Storage, StorageNonBlocking};
+use bonsaidb_core::networking::{self, Payload, CURRENT_PROTOCOL_VERSION};
+use bonsaidb_core::permissions::bonsai::{bonsaidb_resource_name, BonsaiAction, ServerAction};
+use bonsaidb_core::permissions::Permissions;
+use bonsaidb_core::schema::{self, Nameable, NamedCollection, Schema};
+use bonsaidb_local::config::Builder;
+use bonsaidb_local::{AsyncStorage, Storage, StorageNonBlocking};
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use derive_where::derive_where;
 use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
@@ -42,17 +35,15 @@ use signal_hook::consts::SIGQUIT;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use tokio::sync::{oneshot, Notify};
 
+use crate::api::{AnyHandler, HandlerSession};
+use crate::backend::ConnectionHandling;
 #[cfg(feature = "acme")]
 use crate::config::AcmeConfiguration;
-use crate::{
-    api::{AnyHandler, HandlerSession},
-    backend::ConnectionHandling,
-    dispatch::{register_api_handlers, ServerDispatcher},
-    error::Error,
-    hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain},
-    server::shutdown::{Shutdown, ShutdownState},
-    Backend, BackendError, NoBackend, ServerConfiguration,
-};
+use crate::dispatch::{register_api_handlers, ServerDispatcher};
+use crate::error::Error;
+use crate::hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain};
+use crate::server::shutdown::{Shutdown, ShutdownState};
+use crate::{Backend, BackendError, NoBackend, ServerConfiguration};
 
 #[cfg(feature = "acme")]
 pub mod acme;
@@ -65,11 +56,9 @@ mod tcp;
 mod websockets;
 
 use self::connected_client::OwnedClient;
-pub use self::{
-    connected_client::{ConnectedClient, LockedClientDataGuard, Transport},
-    database::ServerDatabase,
-    tcp::{ApplicationProtocols, HttpService, Peer, StandardTcpProtocols, TcpService},
-};
+pub use self::connected_client::{ConnectedClient, LockedClientDataGuard, Transport};
+pub use self::database::ServerDatabase;
+pub use self::tcp::{ApplicationProtocols, HttpService, Peer, StandardTcpProtocols, TcpService};
 
 static CONNECTED_CLIENT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -812,8 +801,8 @@ impl<B: Backend> HasSession for CustomServer<B> {
 
 #[async_trait]
 impl<B: Backend> AsyncStorageConnection for CustomServer<B> {
-    type Database = ServerDatabase<B>;
     type Authenticated = Self;
+    type Database = ServerDatabase<B>;
 
     async fn admin(&self) -> Self::Database {
         self.database::<Admin>(ADMIN_DATABASE_NAME).await.unwrap()

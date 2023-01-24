@@ -2,16 +2,17 @@
 //!
 //! For more information about this benchmark, see ./README.md.
 
-use std::{collections::BTreeMap, io::ErrorKind, sync::Arc, time::Duration};
+use std::collections::BTreeMap;
+use std::io::ErrorKind;
+use std::sync::Arc;
+use std::time::Duration;
 
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use tera::{Context, Tera};
 
-use crate::{
-    model::InitialDataSetConfig,
-    utils::{current_timestamp_string, format_nanoseconds, local_git_rev},
-};
+use crate::model::InitialDataSetConfig;
+use crate::utils::{current_timestamp_string, format_nanoseconds, local_git_rev};
 
 mod bonsai;
 #[cfg(feature = "mongo")]

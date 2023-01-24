@@ -1,7 +1,5 @@
-use std::{
-    borrow::Cow,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::borrow::Cow;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -17,16 +15,15 @@ pub struct Timestamp {
 }
 
 impl Timestamp {
-    /// The minimum representable Timestamp. This is equivalent to [`UNIX_EPOCH`].
-    pub const MIN: Self = Self {
-        seconds: 0,
-        nanos: 0,
-    };
-
     /// The maximum valid value of Timestamp.
     pub const MAX: Self = Self {
         seconds: u64::MAX,
         nanos: 999_999_999,
+    };
+    /// The minimum representable Timestamp. This is equivalent to [`UNIX_EPOCH`].
+    pub const MIN: Self = Self {
+        seconds: 0,
+        nanos: 0,
     };
 
     /// Returns the current timestamp according to the OS. Uses [`SystemTime::now()`].

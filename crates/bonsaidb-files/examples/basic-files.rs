@@ -1,13 +1,9 @@
-use std::{
-    io::{Read, Seek, SeekFrom, Write},
-    mem::size_of,
-};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::mem::size_of;
 
 use bonsaidb_files::{BonsaiFiles, FileConfig, FilesSchema};
-use bonsaidb_local::{
-    config::{Builder, StorageConfiguration},
-    Database,
-};
+use bonsaidb_local::config::{Builder, StorageConfiguration};
+use bonsaidb_local::Database;
 
 #[cfg_attr(test, test)]
 fn main() -> anyhow::Result<()> {

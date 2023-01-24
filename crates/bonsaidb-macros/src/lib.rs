@@ -17,10 +17,12 @@ use proc_macro_crate::{crate_name, FoundCrate};
 use proc_macro_error::{abort, abort_call_site, proc_macro_error, ResultExt};
 use quote::ToTokens;
 use quote_use::{format_ident_namespaced as format_ident, quote_use as quote};
+use syn::punctuated::Punctuated;
+use syn::token::Paren;
 use syn::{
-    parse_macro_input, parse_quote, punctuated::Punctuated, token::Paren, Data, DataEnum,
-    DataStruct, DeriveInput, Expr, Field, Fields, FieldsNamed, FieldsUnnamed, Ident, Index, LitStr,
-    Path, Token, Type, TypePath, TypeTuple, Variant,
+    parse_macro_input, parse_quote, Data, DataEnum, DataStruct, DeriveInput, Expr, Field, Fields,
+    FieldsNamed, FieldsUnnamed, Ident, Index, LitStr, Path, Token, Type, TypePath, TypeTuple,
+    Variant,
 };
 
 // -----------------------------------------------------------------------------
@@ -816,7 +818,7 @@ pub fn file_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
         (_, Some(_), _) => abort_call_site!(
             "if `files_name` is specified, `blocks_name` needs to be provided as well"
         ),
-        (_,_, Some(_)) => abort_call_site!(
+        (_, _, Some(_)) => abort_call_site!(
             "if `blocks_name` is specified, `files_name` needs to be provided as well"
         ),
     };

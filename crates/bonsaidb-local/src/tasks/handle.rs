@@ -1,4 +1,5 @@
-use std::{fmt::Debug, sync::Arc};
+use std::fmt::Debug;
+use std::sync::Arc;
 
 /// he `Id` of an executing task.
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]

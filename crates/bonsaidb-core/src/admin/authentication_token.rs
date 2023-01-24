@@ -1,10 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    connection::{IdentityId, SensitiveString},
-    key::time::TimestampAsNanoseconds,
-    schema::Collection,
-};
+use crate::connection::{IdentityId, SensitiveString};
+use crate::key::time::TimestampAsNanoseconds;
+use crate::schema::Collection;
 
 #[derive(Collection, Clone, Serialize, Deserialize, Debug)]
 #[collection(name = "authentication-tokens", authority = "bonsaidb", core = crate)]
@@ -16,19 +14,18 @@ pub struct AuthenticationToken {
 
 #[cfg(feature = "token-authentication")]
 mod implementation {
-    use rand::{seq::SliceRandom, thread_rng, Rng};
+    use rand::seq::SliceRandom;
+    use rand::{thread_rng, Rng};
     use zeroize::Zeroize;
 
     use super::AuthenticationToken;
-    use crate::{
-        connection::{
-            AsyncConnection, Connection, IdentityId, IdentityReference, SensitiveString,
-            TokenChallengeAlgorithm,
-        },
-        document::CollectionDocument,
-        key::time::TimestampAsNanoseconds,
-        schema::SerializedCollection,
+    use crate::connection::{
+        AsyncConnection, Connection, IdentityId, IdentityReference, SensitiveString,
+        TokenChallengeAlgorithm,
     };
+    use crate::document::CollectionDocument;
+    use crate::key::time::TimestampAsNanoseconds;
+    use crate::schema::SerializedCollection;
 
     impl AuthenticationToken {
         fn random(identity: IdentityId) -> (u64, Self) {

@@ -1,38 +1,35 @@
-use std::{
-    borrow::Borrow,
-    convert::Infallible,
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-    string::FromUtf8Error,
-    sync::Arc,
-};
+use std::borrow::Borrow;
+use std::convert::Infallible;
+use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
+use std::string::FromUtf8Error;
+use std::sync::Arc;
 
 use actionable::{Action, Identifier};
 use arc_bytes::serde::Bytes;
 use async_trait::async_trait;
-use futures::{future::BoxFuture, Future, FutureExt};
+use futures::future::BoxFuture;
+use futures::{Future, FutureExt};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-use crate::{
-    admin::{Role, User},
-    document::{CollectionDocument, CollectionHeader, Document, HasHeader, Header, OwnedDocument},
-    key::{IntoPrefixRange, Key, KeyEncoding},
-    permissions::Permissions,
-    schema::{
-        self, view::map::MappedDocuments, Map, MappedValue, Nameable, NamedReference, Schema,
-        SchemaName, SerializedCollection,
-    },
-    transaction, Error,
+use crate::admin::{Role, User};
+use crate::document::{
+    CollectionDocument, CollectionHeader, Document, HasHeader, Header, OwnedDocument,
 };
+use crate::key::{IntoPrefixRange, Key, KeyEncoding};
+use crate::permissions::Permissions;
+use crate::schema::view::map::MappedDocuments;
+use crate::schema::{
+    self, Map, MappedValue, Nameable, NamedReference, Schema, SchemaName, SerializedCollection,
+};
+use crate::{transaction, Error};
 
 mod has_session;
 mod lowlevel;
 
-pub use self::{
-    has_session::HasSession,
-    lowlevel::{AsyncLowLevelConnection, HasSchema, LowLevelConnection},
-};
+pub use self::has_session::HasSession;
+pub use self::lowlevel::{AsyncLowLevelConnection, HasSchema, LowLevelConnection};
 
 /// A connection to a database's [`Schema`](schema::Schema), giving access to
 /// [`Collection`s](crate::schema::Collection) and
@@ -116,7 +113,8 @@ pub trait Connection: LowLevelConnection + Sized + Send + Sync {
 /// These examples in this type use this basic collection definition:
 ///
 /// ```rust
-/// use bonsaidb_core::{schema::Collection, Error};
+/// use bonsaidb_core::schema::Collection;
+/// use bonsaidb_core::Error;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
@@ -396,12 +394,10 @@ where
     /// Retrieves all documents with ids that start with `prefix`.
     ///
     /// ```rust
-    /// use bonsaidb_core::{
-    ///     connection::Connection,
-    ///     document::OwnedDocument,
-    ///     schema::{Collection, Schematic, SerializedCollection},
-    ///     Error,
-    /// };
+    /// use bonsaidb_core::connection::Connection;
+    /// use bonsaidb_core::document::OwnedDocument;
+    /// use bonsaidb_core::schema::{Collection, Schematic, SerializedCollection};
+    /// use bonsaidb_core::Error;
     /// use serde::{Deserialize, Serialize};
     ///
     /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
@@ -611,13 +607,11 @@ where
 /// # bonsaidb_core::__doctest_prelude!();
 /// # }
 /// # use collection::MyCollection;
-/// use bonsaidb_core::{
-///     define_basic_unique_mapped_view,
-///     document::{CollectionDocument, Emit},
-///     schema::{
-///         CollectionViewSchema, DefaultViewSerialization, Name, ReduceResult, View,
-///         ViewMapResult, ViewMappedValue,
-///     },
+/// use bonsaidb_core::define_basic_unique_mapped_view;
+/// use bonsaidb_core::document::{CollectionDocument, Emit};
+/// use bonsaidb_core::schema::{
+///     CollectionViewSchema, DefaultViewSerialization, Name, ReduceResult, View, ViewMapResult,
+///     ViewMappedValue,
 /// };
 ///
 /// #[derive(Debug, Clone, View)]
@@ -627,6 +621,7 @@ where
 ///
 /// impl CollectionViewSchema for ScoresByRank {
 ///     type View = Self;
+///
 ///     fn map(
 ///         &self,
 ///         document: CollectionDocument<<Self::View as View>::Collection>,
@@ -1128,7 +1123,8 @@ pub trait AsyncConnection: AsyncLowLevelConnection + Sized + Send + Sync {
 /// These examples in this type use this basic collection definition:
 ///
 /// ```rust
-/// use bonsaidb_core::{schema::Collection, Error};
+/// use bonsaidb_core::schema::Collection;
+/// use bonsaidb_core::Error;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
@@ -1440,12 +1436,10 @@ where
     /// Retrieves all documents with ids that start with `prefix`.
     ///
     /// ```rust
-    /// use bonsaidb_core::{
-    ///     connection::AsyncConnection,
-    ///     document::OwnedDocument,
-    ///     schema::{Collection, Schematic, SerializedCollection},
-    ///     Error,
-    /// };
+    /// use bonsaidb_core::connection::AsyncConnection;
+    /// use bonsaidb_core::document::OwnedDocument;
+    /// use bonsaidb_core::schema::{Collection, Schematic, SerializedCollection};
+    /// use bonsaidb_core::Error;
     /// use serde::{Deserialize, Serialize};
     ///
     /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
@@ -1795,13 +1789,11 @@ where
 /// # bonsaidb_core::__doctest_prelude!();
 /// # }
 /// # use collection::MyCollection;
-/// use bonsaidb_core::{
-///     define_basic_unique_mapped_view,
-///     document::{CollectionDocument, Emit},
-///     schema::{
-///         CollectionViewSchema, DefaultViewSerialization, Name, ReduceResult, View,
-///         ViewMapResult, ViewMappedValue,
-///     },
+/// use bonsaidb_core::define_basic_unique_mapped_view;
+/// use bonsaidb_core::document::{CollectionDocument, Emit};
+/// use bonsaidb_core::schema::{
+///     CollectionViewSchema, DefaultViewSerialization, Name, ReduceResult, View, ViewMapResult,
+///     ViewMappedValue,
 /// };
 ///
 /// #[derive(Debug, Clone, View)]
@@ -1811,6 +1803,7 @@ where
 ///
 /// impl CollectionViewSchema for ScoresByRank {
 ///     type View = Self;
+///
 ///     fn map(
 ///         &self,
 ///         document: CollectionDocument<<Self::View as View>::Collection>,
@@ -2450,6 +2443,7 @@ impl<T> Range<T> {
             end: self.end.map(&map),
         }
     }
+
     /// Maps each contained value with the function provided. The callback's
     /// return type is a Result, unlike with `map`.
     pub fn map_result<U, E, F: Fn(T) -> Result<U, E>>(self, map: F) -> Result<Range<U>, E> {

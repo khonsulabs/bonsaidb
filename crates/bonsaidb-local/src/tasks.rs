@@ -1,25 +1,20 @@
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
-use bonsaidb_core::{
-    connection::Connection,
-    keyvalue::Timestamp,
-    schema::{view, CollectionName, ViewName},
-};
+use bonsaidb_core::connection::Connection;
+use bonsaidb_core::keyvalue::Timestamp;
+use bonsaidb_core::schema::{view, CollectionName, ViewName};
 use parking_lot::RwLock;
 
-use crate::{
-    database::{keyvalue::ExpirationLoader, Database},
-    tasks::{compactor::Compactor, handle::Handle, manager::Manager},
-    views::{
-        integrity_scanner::{IntegrityScan, IntegrityScanner, OptionalViewMapHandle},
-        mapper::{Map, Mapper},
-    },
-    Error,
-};
+use crate::database::keyvalue::ExpirationLoader;
+use crate::database::Database;
+use crate::tasks::compactor::Compactor;
+use crate::tasks::handle::Handle;
+use crate::tasks::manager::Manager;
+use crate::views::integrity_scanner::{IntegrityScan, IntegrityScanner, OptionalViewMapHandle};
+use crate::views::mapper::{Map, Mapper};
+use crate::Error;
 
 /// Types related to defining [`Job`]s.
 pub mod handle;

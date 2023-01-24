@@ -2,7 +2,8 @@ use std::time::Duration;
 
 use async_lock::Mutex;
 use bonsaidb_utils::fast_async_lock;
-use tokio::{sync::watch, time::Instant};
+use tokio::sync::watch;
+use tokio::time::Instant;
 
 #[derive(Debug)]
 pub struct Shutdown {

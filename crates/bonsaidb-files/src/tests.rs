@@ -1,15 +1,12 @@
-use std::{
-    io::{Read, Seek, Write},
-    mem::size_of,
-};
+use std::io::{Read, Seek, Write};
+use std::mem::size_of;
 
-use bonsaidb_core::{key::time::TimestampAsNanoseconds, test_util::TestDirectory};
+use bonsaidb_core::key::time::TimestampAsNanoseconds;
+use bonsaidb_core::test_util::TestDirectory;
+use bonsaidb_local::config::{Builder, StorageConfiguration};
 #[cfg(feature = "async")]
 use bonsaidb_local::AsyncDatabase;
-use bonsaidb_local::{
-    config::{Builder, StorageConfiguration},
-    Database,
-};
+use bonsaidb_local::Database;
 #[cfg(feature = "async")]
 use futures::StreamExt;
 #[cfg(feature = "async")]
@@ -409,6 +406,7 @@ async fn async_simple_path_test() {
 enum SmallBlocks {}
 impl FileConfig for SmallBlocks {
     type Metadata = usize;
+
     const BLOCK_SIZE: usize = 8;
 
     fn files_name() -> bonsaidb_core::schema::CollectionName {

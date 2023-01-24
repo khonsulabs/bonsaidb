@@ -1,13 +1,13 @@
-use std::{convert::Infallible, fmt::Debug};
+use std::convert::Infallible;
+use std::fmt::Debug;
 
 use async_trait::async_trait;
-use bonsaidb_core::{
-    connection::Session,
-    permissions::PermissionDenied,
-    schema::{InsertError, InvalidNameError},
-};
+use bonsaidb_core::connection::Session;
+use bonsaidb_core::permissions::PermissionDenied;
+use bonsaidb_core::schema::{InsertError, InvalidNameError};
 
-use crate::{server::ConnectedClient, CustomServer, Error, ServerConfiguration};
+use crate::server::ConnectedClient;
+use crate::{CustomServer, Error, ServerConfiguration};
 
 /// Tailors the behavior of a server to your needs.
 #[async_trait]
@@ -92,8 +92,8 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
 pub struct NoBackend;
 
 impl Backend for NoBackend {
-    type Error = Infallible;
     type ClientData = ();
+    type Error = Infallible;
 }
 
 /// Controls how a server should handle a connection.

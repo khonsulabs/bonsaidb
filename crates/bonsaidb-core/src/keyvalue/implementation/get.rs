@@ -2,10 +2,8 @@ use futures::{Future, FutureExt};
 use serde::Deserialize;
 
 use super::{BuilderState, Command, KeyOperation, KeyValue, Output};
-use crate::{
-    keyvalue::{AsyncKeyValue, Value},
-    Error,
-};
+use crate::keyvalue::{AsyncKeyValue, Value};
+use crate::Error;
 
 /// Builder for a [`Command::Get`] key-value operation.
 #[must_use = "the key-value operation is not performed until query() is called"]

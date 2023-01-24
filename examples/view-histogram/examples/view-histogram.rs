@@ -15,25 +15,18 @@
 
 use std::ops::Deref;
 
-use bonsaidb::{
-    core::{
-        document::{CollectionDocument, Emit},
-        schema::{
-            view::CollectionViewSchema, Collection, ReduceResult, SerializedCollection,
-            SerializedView, View, ViewMappedValue,
-        },
-        transmog::{Format, OwnedDeserializer},
-    },
-    local::{
-        config::{Builder, StorageConfiguration},
-        Database,
-    },
+use bonsaidb::core::document::{CollectionDocument, Emit};
+use bonsaidb::core::schema::view::CollectionViewSchema;
+use bonsaidb::core::schema::{
+    Collection, ReduceResult, SerializedCollection, SerializedView, View, ViewMappedValue,
 };
-use hdrhistogram::{
-    serialization::{Serializer, V2Serializer},
-    Histogram, SyncHistogram,
-};
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use bonsaidb::core::transmog::{Format, OwnedDeserializer};
+use bonsaidb::local::config::{Builder, StorageConfiguration};
+use bonsaidb::local::Database;
+use hdrhistogram::serialization::{Serializer, V2Serializer};
+use hdrhistogram::{Histogram, SyncHistogram};
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 fn main() -> Result<(), bonsaidb::local::Error> {

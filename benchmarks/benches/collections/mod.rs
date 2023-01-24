@@ -1,4 +1,5 @@
-use bonsaidb::core::{arc_bytes::serde::Bytes, schema::Collection};
+use bonsaidb::core::arc_bytes::serde::Bytes;
+use bonsaidb::core::schema::Collection;
 use criterion::{Criterion, Throughput};
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};

@@ -2,15 +2,17 @@
 //! framework should be usable.
 
 use async_trait::async_trait;
-use axum::{extract, extract::Extension, routing::get, Router};
-use bonsaidb::{
-    core::{connection::AsyncStorageConnection, keyvalue::AsyncKeyValue},
-    local::config::Builder,
-    server::{
-        DefaultPermissions, HttpService, Peer, Server, ServerConfiguration, StandardTcpProtocols,
-    },
+use axum::extract::Extension;
+use axum::routing::get;
+use axum::{extract, Router};
+use bonsaidb::core::connection::AsyncStorageConnection;
+use bonsaidb::core::keyvalue::AsyncKeyValue;
+use bonsaidb::local::config::Builder;
+use bonsaidb::server::{
+    DefaultPermissions, HttpService, Peer, Server, ServerConfiguration, StandardTcpProtocols,
 };
-use hyper::{server::conn::Http, Body, Request, Response};
+use hyper::server::conn::Http;
+use hyper::{Body, Request, Response};
 #[cfg(feature = "client")]
 use ::{std::time::Duration, url::Url};
 

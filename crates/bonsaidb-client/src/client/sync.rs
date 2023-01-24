@@ -1,37 +1,34 @@
 use std::sync::Arc;
 
-use bonsaidb_core::{
-    admin::{Admin, ADMIN_DATABASE_NAME},
-    arc_bytes::serde::Bytes,
-    connection::{
-        AccessPolicy, Connection, Database, IdentityReference, LowLevelConnection, Range,
-        SerializedQueryKey, Sort, StorageConnection,
-    },
-    document::{DocumentId, Header, OwnedDocument},
-    keyvalue::KeyValue,
-    networking::{
-        AlterUserPermissionGroupMembership, AlterUserRoleMembership, ApplyTransaction,
-        AssumeIdentity, Compact, CompactCollection, CompactKeyValueStore, Count, CreateDatabase,
-        CreateSubscriber, CreateUser, DeleteDatabase, DeleteDocs, DeleteUser, ExecuteKeyOperation,
-        Get, GetMultiple, LastTransactionId, List, ListAvailableSchemas, ListDatabases,
-        ListExecutedTransactions, ListHeaders, Publish, PublishToAll, Query, QueryWithDocs, Reduce,
-        ReduceGrouped, SubscribeTo, UnsubscribeFrom,
-    },
-    pubsub::{AsyncSubscriber, PubSub, Receiver, Subscriber},
-    schema::{view::map, CollectionName, ViewName},
+use bonsaidb_core::admin::{Admin, ADMIN_DATABASE_NAME};
+use bonsaidb_core::arc_bytes::serde::Bytes;
+use bonsaidb_core::connection::{
+    AccessPolicy, Connection, Database, IdentityReference, LowLevelConnection, Range,
+    SerializedQueryKey, Sort, StorageConnection,
 };
+use bonsaidb_core::document::{DocumentId, Header, OwnedDocument};
+use bonsaidb_core::keyvalue::KeyValue;
+use bonsaidb_core::networking::{
+    AlterUserPermissionGroupMembership, AlterUserRoleMembership, ApplyTransaction, AssumeIdentity,
+    Compact, CompactCollection, CompactKeyValueStore, Count, CreateDatabase, CreateSubscriber,
+    CreateUser, DeleteDatabase, DeleteDocs, DeleteUser, ExecuteKeyOperation, Get, GetMultiple,
+    LastTransactionId, List, ListAvailableSchemas, ListDatabases, ListExecutedTransactions,
+    ListHeaders, Publish, PublishToAll, Query, QueryWithDocs, Reduce, ReduceGrouped, SubscribeTo,
+    UnsubscribeFrom,
+};
+use bonsaidb_core::pubsub::{AsyncSubscriber, PubSub, Receiver, Subscriber};
+use bonsaidb_core::schema::view::map;
+use bonsaidb_core::schema::{CollectionName, ViewName};
 use futures::Future;
-use tokio::{
-    runtime::{Handle, Runtime},
-    sync::oneshot,
-    task::JoinHandle,
-};
+use tokio::runtime::{Handle, Runtime};
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 
 use crate::{Client, RemoteDatabase, RemoteSubscriber};
 
 impl StorageConnection for Client {
-    type Database = RemoteDatabase;
     type Authenticated = Self;
+    type Database = RemoteDatabase;
 
     fn admin(&self) -> Self::Database {
         self.remote_database::<Admin>(ADMIN_DATABASE_NAME).unwrap()

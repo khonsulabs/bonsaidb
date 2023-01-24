@@ -24,8 +24,6 @@ mod error;
 #[cfg(not(target_arch = "wasm32"))]
 pub use fabruic;
 
-pub use self::{
-    builder::Builder,
-    client::{ApiCallback, Client, RemoteDatabase, RemoteSubscriber},
-    error::{ApiError, Error},
-};
+pub use self::builder::Builder;
+pub use self::client::{ApiCallback, Client, RemoteDatabase, RemoteSubscriber};
+pub use self::error::{ApiError, Error};

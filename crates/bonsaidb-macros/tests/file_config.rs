@@ -1,7 +1,5 @@
-use bonsaidb::{
-    core::schema::Qualified,
-    files::{BonsaiFiles, FileConfig},
-};
+use bonsaidb::core::schema::Qualified;
+use bonsaidb::files::{BonsaiFiles, FileConfig};
 
 #[test]
 fn defaults() {

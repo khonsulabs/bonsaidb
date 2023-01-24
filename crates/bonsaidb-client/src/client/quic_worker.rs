@@ -1,6 +1,8 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
+use std::sync::Arc;
 
-use bonsaidb_core::{api::ApiName, networking::Payload};
+use bonsaidb_core::api::ApiName;
+use bonsaidb_core::networking::Payload;
 use bonsaidb_utils::fast_async_lock;
 use fabruic::{self, Certificate, Endpoint};
 use flume::Receiver;
@@ -8,10 +10,8 @@ use futures::StreamExt;
 use url::Url;
 
 use super::PendingRequest;
-use crate::{
-    client::{AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap},
-    Error,
-};
+use crate::client::{AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap};
+use crate::Error;
 
 /// This function will establish a connection and try to keep it active. If an
 /// error occurs, any queries that come in while reconnecting will have the

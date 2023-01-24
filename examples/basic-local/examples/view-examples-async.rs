@@ -1,16 +1,11 @@
-use bonsaidb::{
-    core::{
-        document::{CollectionDocument, Emit},
-        schema::{
-            view::CollectionViewSchema, Collection, ReduceResult, SerializedCollection,
-            SerializedView, View, ViewMapResult, ViewMappedValue,
-        },
-    },
-    local::{
-        config::{Builder, StorageConfiguration},
-        AsyncDatabase,
-    },
+use bonsaidb::core::document::{CollectionDocument, Emit};
+use bonsaidb::core::schema::view::CollectionViewSchema;
+use bonsaidb::core::schema::{
+    Collection, ReduceResult, SerializedCollection, SerializedView, View, ViewMapResult,
+    ViewMappedValue,
 };
+use bonsaidb::local::config::{Builder, StorageConfiguration};
+use bonsaidb::local::AsyncDatabase;
 use serde::{Deserialize, Serialize};
 
 // begin rustme snippet: snippet-a

@@ -1,16 +1,15 @@
 //! Tests invoking an API defined in a custom backend.
 
-use bonsaidb::{
-    client::{url::Url, Client},
-    core::{
-        api::{Api, Infallible},
-        async_trait::async_trait,
-        test_util::{Basic, TestDirectory},
-    },
-    local::config::Builder,
-    server::{api::Handler, Backend, CustomServer, DefaultPermissions, ServerConfiguration},
-};
-use bonsaidb_core::{api::ApiName, schema::Qualified};
+use bonsaidb::client::url::Url;
+use bonsaidb::client::Client;
+use bonsaidb::core::api::{Api, Infallible};
+use bonsaidb::core::async_trait::async_trait;
+use bonsaidb::core::test_util::{Basic, TestDirectory};
+use bonsaidb::local::config::Builder;
+use bonsaidb::server::api::Handler;
+use bonsaidb::server::{Backend, CustomServer, DefaultPermissions, ServerConfiguration};
+use bonsaidb_core::api::ApiName;
+use bonsaidb_core::schema::Qualified;
 use bonsaidb_server::api::{HandlerResult, HandlerSession};
 use serde::{Deserialize, Serialize};
 
@@ -18,8 +17,8 @@ use serde::{Deserialize, Serialize};
 struct CustomBackend;
 
 impl Backend for CustomBackend {
-    type Error = Infallible;
     type ClientData = u64;
+    type Error = Infallible;
 }
 
 #[tokio::test]
@@ -62,8 +61,8 @@ struct SetValue {
 }
 
 impl Api for SetValue {
-    type Response = Option<u64>;
     type Error = Infallible;
+    type Response = Option<u64>;
 
     fn name() -> ApiName {
         ApiName::private("set-value")

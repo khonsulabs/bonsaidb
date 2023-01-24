@@ -1,7 +1,5 @@
-use std::{
-    ops::Add,
-    time::{Duration, SystemTime},
-};
+use std::ops::Add;
+use std::time::{Duration, SystemTime};
 
 use futures::{Future, FutureExt};
 use serde::{Deserialize, Serialize};
@@ -10,10 +8,8 @@ use super::{
     BuilderState, Command, KeyCheck, KeyOperation, KeyStatus, KeyValue, Output, PendingValue,
     Timestamp,
 };
-use crate::{
-    keyvalue::{AsyncKeyValue, SetCommand, Value},
-    Error,
-};
+use crate::keyvalue::{AsyncKeyValue, SetCommand, Value};
+use crate::Error;
 
 /// Builder for a [`Command::Set`] key-value operation.
 #[must_use = "the key-value operation is not performed until execute() is called"]

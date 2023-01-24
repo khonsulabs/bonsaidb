@@ -1,61 +1,47 @@
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-    fmt::{Debug, Display},
-    fs::{self, File},
-    io::{Read, Write},
-    marker::PhantomData,
-    path::{Path, PathBuf},
-    sync::{Arc, Weak},
-};
+use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Display};
+use std::fs::{self, File};
+use std::io::{Read, Write};
+use std::marker::PhantomData;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Weak};
 
+use bonsaidb_core::admin::database::{self, ByName, Database as DatabaseRecord};
+use bonsaidb_core::admin::user::User;
+use bonsaidb_core::admin::{self, Admin, PermissionGroup, Role, ADMIN_DATABASE_NAME};
+use bonsaidb_core::circulate;
 pub use bonsaidb_core::circulate::Relay;
+use bonsaidb_core::connection::{
+    self, Connection, HasSession, Identity, IdentityReference, LowLevelConnection, Session,
+    SessionAuthentication, SessionId, StorageConnection,
+};
+use bonsaidb_core::document::CollectionDocument;
 #[cfg(any(feature = "encryption", feature = "compression"))]
 use bonsaidb_core::document::KeyId;
-use bonsaidb_core::{
-    admin::{
-        self,
-        database::{self, ByName, Database as DatabaseRecord},
-        user::User,
-        Admin, PermissionGroup, Role, ADMIN_DATABASE_NAME,
-    },
-    circulate,
-    connection::{
-        self, Connection, HasSession, Identity, IdentityReference, LowLevelConnection, Session,
-        SessionAuthentication, SessionId, StorageConnection,
-    },
-    document::CollectionDocument,
-    permissions::{
-        bonsai::{
-            bonsaidb_resource_name, database_resource_name, role_resource_name, user_resource_name,
-            BonsaiAction, ServerAction,
-        },
-        Permissions,
-    },
-    schema::{Nameable, NamedCollection, Schema, SchemaName, Schematic},
+use bonsaidb_core::permissions::bonsai::{
+    bonsaidb_resource_name, database_resource_name, role_resource_name, user_resource_name,
+    BonsaiAction, ServerAction,
 };
+use bonsaidb_core::permissions::Permissions;
+use bonsaidb_core::schema::{Nameable, NamedCollection, Schema, SchemaName, Schematic};
 use fs2::FileExt;
 use itertools::Itertools;
-use nebari::{
-    io::{
-        any::{AnyFile, AnyFileManager},
-        FileManager,
-    },
-    ChunkCache, ThreadPool,
-};
+use nebari::io::any::{AnyFile, AnyFileManager};
+use nebari::io::FileManager;
+use nebari::{ChunkCache, ThreadPool};
 use parking_lot::{Mutex, RwLock};
 use rand::{thread_rng, Rng};
 
 #[cfg(feature = "compression")]
 use crate::config::Compression;
+use crate::config::{KeyValuePersistence, StorageConfiguration};
+use crate::database::Context;
+use crate::tasks::manager::Manager;
+use crate::tasks::TaskManager;
 #[cfg(feature = "encryption")]
 use crate::vault::{self, LocalVaultKeyStorage, Vault};
-use crate::{
-    config::{KeyValuePersistence, StorageConfiguration},
-    database::Context,
-    tasks::{manager::Manager, TaskManager},
-    Database, Error,
-};
+use crate::{Database, Error};
 
 #[cfg(feature = "password-hashing")]
 mod argon;
@@ -91,7 +77,8 @@ pub use backup::{AnyBackupLocation, BackupLocation};
 ///
 /// ```rust
 /// // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_local::core`.
-/// use bonsaidb_core::{connection::StorageConnection, schema::Schema};
+/// use bonsaidb_core::connection::StorageConnection;
+/// use bonsaidb_core::schema::Schema;
 /// // `bonsaidb_local` is re-exported to `bonsaidb::local` if using the omnibus crate.
 /// use bonsaidb_local::{
 ///     config::{Builder, StorageConfiguration},
@@ -116,14 +103,10 @@ pub use backup::{AnyBackupLocation, BackupLocation};
 /// with multiple schemas:
 ///
 /// ```rust
-/// use bonsaidb_core::{
-///     connection::StorageConnection,
-///     schema::{Collection, Schema},
-/// };
-/// use bonsaidb_local::{
-///     config::{Builder, StorageConfiguration},
-///     Storage,
-/// };
+/// use bonsaidb_core::connection::StorageConnection;
+/// use bonsaidb_core::schema::{Collection, Schema};
+/// use bonsaidb_local::config::{Builder, StorageConfiguration};
+/// use bonsaidb_local::Storage;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Debug, Schema)]
@@ -927,8 +910,8 @@ impl HasSession for StorageInstance {
 }
 
 impl StorageConnection for StorageInstance {
-    type Database = Database;
     type Authenticated = Storage;
+    type Database = Database;
 
     fn admin(&self) -> Self::Database {
         Database::new::<Admin, _>(
@@ -1187,8 +1170,8 @@ impl HasSession for Storage {
 }
 
 impl StorageConnection for Storage {
-    type Database = Database;
     type Authenticated = Self;
+    type Database = Database;
 
     fn admin(&self) -> Self::Database {
         self.instance.admin()

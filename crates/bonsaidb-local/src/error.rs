@@ -1,11 +1,13 @@
-use std::{convert::Infallible, fmt::Display, str::Utf8Error, string::FromUtf8Error, sync::Arc};
+use std::convert::Infallible;
+use std::fmt::Display;
+use std::str::Utf8Error;
+use std::string::FromUtf8Error;
+use std::sync::Arc;
 
-use bonsaidb_core::{
-    permissions::PermissionDenied,
-    pubsub::{Disconnected, TryReceiveError},
-    schema::{view, InsertError, InvalidNameError},
-    AnyError,
-};
+use bonsaidb_core::permissions::PermissionDenied;
+use bonsaidb_core::pubsub::{Disconnected, TryReceiveError};
+use bonsaidb_core::schema::{view, InsertError, InvalidNameError};
+use bonsaidb_core::AnyError;
 use nebari::AbortError;
 
 use crate::database::compat::UnknownVersion;

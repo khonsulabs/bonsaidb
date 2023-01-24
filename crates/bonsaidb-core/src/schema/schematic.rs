@@ -1,26 +1,17 @@
-use std::{
-    any::TypeId,
-    collections::{HashMap, HashSet},
-    fmt::Debug,
-    marker::PhantomData,
-};
+use std::any::TypeId;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
+use std::marker::PhantomData;
 
 use derive_where::derive_where;
 
-use crate::{
-    document::{BorrowedDocument, DocumentId, KeyId},
-    key::Key,
-    schema::{
-        collection::Collection,
-        view::{
-            self,
-            map::{self, MappedValue},
-            Serialized, SerializedView, ViewSchema,
-        },
-        CollectionName, Schema, SchemaName, View, ViewName,
-    },
-    Error,
-};
+use crate::document::{BorrowedDocument, DocumentId, KeyId};
+use crate::key::Key;
+use crate::schema::collection::Collection;
+use crate::schema::view::map::{self, MappedValue};
+use crate::schema::view::{self, Serialized, SerializedView, ViewSchema};
+use crate::schema::{CollectionName, Schema, SchemaName, View, ViewName};
+use crate::Error;
 
 /// A collection of defined collections and views.
 #[derive(Debug)]

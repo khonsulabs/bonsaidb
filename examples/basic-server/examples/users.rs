@@ -2,22 +2,19 @@
 
 use std::time::Duration;
 
-use bonsaidb::{
-    client::{url::Url, Client},
-    core::{
-        admin::{PermissionGroup, Role},
-        connection::{
-            AsyncStorageConnection, Authentication, AuthenticationMethod, SensitiveString,
-        },
-        permissions::{
-            bonsai::{BonsaiAction, DatabaseAction, DocumentAction, ServerAction},
-            Permissions, Statement,
-        },
-        schema::{InsertError, SerializedCollection},
-    },
-    local::config::Builder,
-    server::{Server, ServerConfiguration},
+use bonsaidb::client::url::Url;
+use bonsaidb::client::Client;
+use bonsaidb::core::admin::{PermissionGroup, Role};
+use bonsaidb::core::connection::{
+    AsyncStorageConnection, Authentication, AuthenticationMethod, SensitiveString,
 };
+use bonsaidb::core::permissions::bonsai::{
+    BonsaiAction, DatabaseAction, DocumentAction, ServerAction,
+};
+use bonsaidb::core::permissions::{Permissions, Statement};
+use bonsaidb::core::schema::{InsertError, SerializedCollection};
+use bonsaidb::local::config::Builder;
+use bonsaidb::server::{Server, ServerConfiguration};
 
 mod support;
 use support::schema::Shape;

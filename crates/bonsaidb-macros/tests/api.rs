@@ -1,9 +1,7 @@
 use core::fmt::Debug;
 
-use bonsaidb::core::{
-    api::{Api, ApiName},
-    schema::Qualified,
-};
+use bonsaidb::core::api::{Api, ApiName};
+use bonsaidb::core::schema::Qualified;
 use serde::{Deserialize, Serialize};
 
 #[test]

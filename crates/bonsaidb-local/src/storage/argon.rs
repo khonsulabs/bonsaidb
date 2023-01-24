@@ -1,21 +1,15 @@
-use std::{
-    sync::Arc,
-    thread::JoinHandle,
-    time::{Duration, Instant},
-};
+use std::sync::Arc;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
-use argon2::{
-    password_hash::{ParamsString, SaltString},
-    Algorithm, Argon2, Block, ParamsBuilder, PasswordHash, Version,
-};
+use argon2::password_hash::{ParamsString, SaltString};
+use argon2::{Algorithm, Argon2, Block, ParamsBuilder, PasswordHash, Version};
 use bonsaidb_core::connection::SensitiveString;
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, CryptoRng, Rng};
 
-use crate::{
-    config::{ArgonConfiguration, ArgonParams},
-    Error,
-};
+use crate::config::{ArgonConfiguration, ArgonParams};
+use crate::Error;
 
 #[derive(Debug)]
 #[cfg_attr(not(test), allow(dead_code))]

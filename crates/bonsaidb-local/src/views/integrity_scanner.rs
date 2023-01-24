@@ -1,27 +1,24 @@
-use std::{borrow::Cow, collections::HashSet, convert::Infallible, hash::Hash, sync::Arc};
+use std::borrow::Cow;
+use std::collections::HashSet;
+use std::convert::Infallible;
+use std::hash::Hash;
+use std::sync::Arc;
 
-use bonsaidb_core::{
-    document::DocumentId,
-    schema::{CollectionName, ViewName},
-};
-use nebari::{
-    io::any::AnyFile,
-    tree::{Operation, ScanEvaluation, Unversioned, Versioned},
-    ArcBytes, Roots, Tree,
-};
+use bonsaidb_core::document::DocumentId;
+use bonsaidb_core::schema::{CollectionName, ViewName};
+use nebari::io::any::AnyFile;
+use nebari::tree::{Operation, ScanEvaluation, Unversioned, Versioned};
+use nebari::{ArcBytes, Roots, Tree};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
-use super::{
-    mapper::{Map, Mapper},
-    view_invalidated_docs_tree_name, view_versions_tree_name,
-};
-use crate::{
-    database::{document_tree_name, Database},
-    tasks::{handle::Handle, Job, Keyed, Task},
-    views::{view_document_map_tree_name, view_entries_tree_name},
-    Error,
-};
+use super::mapper::{Map, Mapper};
+use super::{view_invalidated_docs_tree_name, view_versions_tree_name};
+use crate::database::{document_tree_name, Database};
+use crate::tasks::handle::Handle;
+use crate::tasks::{Job, Keyed, Task};
+use crate::views::{view_document_map_tree_name, view_entries_tree_name};
+use crate::Error;
 
 #[derive(Debug)]
 pub struct IntegrityScanner {
@@ -40,8 +37,8 @@ pub struct IntegrityScan {
 pub type OptionalViewMapHandle = Option<Arc<Mutex<Option<Handle<u64, Error>>>>>;
 
 impl Job for IntegrityScanner {
-    type Output = OptionalViewMapHandle;
     type Error = Error;
+    type Output = OptionalViewMapHandle;
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     #[allow(clippy::too_many_lines)]
@@ -145,6 +142,7 @@ pub struct ViewVersion {
 
 impl ViewVersion {
     const CURRENT_VERSION: u8 = 3;
+
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, crate::Error> {
         match pot::from_slice(bytes) {
             Ok(version) => Ok(version),

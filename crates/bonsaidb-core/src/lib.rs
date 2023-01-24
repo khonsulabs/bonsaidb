@@ -45,26 +45,22 @@ pub mod networking;
 /// Types for Publish/Subscribe (`PubSub`) messaging.
 pub mod pubsub;
 
-use std::{fmt::Display, string::FromUtf8Error};
+use std::fmt::Display;
+use std::string::FromUtf8Error;
 
-pub use actionable;
-pub use arc_bytes;
-pub use async_trait;
-pub use circulate;
-pub use num_traits;
-pub use ordered_varint;
 use schema::{view, CollectionName, SchemaName, ViewName};
 use serde::{Deserialize, Serialize};
-pub use transmog;
-pub use transmog_pot;
-
-use crate::{
-    api::ApiName,
-    connection::HasSchema,
-    document::{DocumentId, Header, InvalidHexadecimal},
-    key::{time::TimeError, NextValueError},
-    schema::InsertError,
+pub use {
+    actionable, arc_bytes, async_trait, circulate, num_traits, ordered_varint, transmog,
+    transmog_pot,
 };
+
+use crate::api::ApiName;
+use crate::connection::HasSchema;
+use crate::document::{DocumentId, Header, InvalidHexadecimal};
+use crate::key::time::TimeError;
+use crate::key::NextValueError;
+use crate::schema::InsertError;
 
 /// an enumeration of errors that this crate can produce
 #[derive(Clone, thiserror::Error, Debug, Serialize, Deserialize)]

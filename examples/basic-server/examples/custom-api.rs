@@ -4,28 +4,21 @@
 
 use std::time::Duration;
 
-use bonsaidb::{
-    client::{url::Url, ApiError, Client},
-    core::{
-        actionable::Permissions,
-        api::{Api, ApiName, Infallible},
-        async_trait::async_trait,
-        connection::{
-            AsyncStorageConnection, Authentication, AuthenticationMethod, SensitiveString,
-        },
-        keyvalue::AsyncKeyValue,
-        permissions::{
-            bonsai::{BonsaiAction, ServerAction},
-            Action, Identifier, Statement,
-        },
-        schema::Qualified,
-    },
-    local::config::Builder,
-    server::{
-        api::{Handler, HandlerResult, HandlerSession},
-        Backend, CustomServer, ServerConfiguration,
-    },
+use bonsaidb::client::url::Url;
+use bonsaidb::client::{ApiError, Client};
+use bonsaidb::core::actionable::Permissions;
+use bonsaidb::core::api::{Api, ApiName, Infallible};
+use bonsaidb::core::async_trait::async_trait;
+use bonsaidb::core::connection::{
+    AsyncStorageConnection, Authentication, AuthenticationMethod, SensitiveString,
 };
+use bonsaidb::core::keyvalue::AsyncKeyValue;
+use bonsaidb::core::permissions::bonsai::{BonsaiAction, ServerAction};
+use bonsaidb::core::permissions::{Action, Identifier, Statement};
+use bonsaidb::core::schema::Qualified;
+use bonsaidb::local::config::Builder;
+use bonsaidb::server::api::{Handler, HandlerResult, HandlerSession};
+use bonsaidb::server::{Backend, CustomServer, ServerConfiguration};
 use serde::{Deserialize, Serialize};
 
 /// The `Backend` for the BonsaiDb server.
@@ -37,8 +30,8 @@ pub struct ExampleBackend;
 pub struct Ping;
 
 impl Api for Ping {
-    type Response = Pong;
     type Error = Infallible;
+    type Response = Pong;
 
     fn name() -> ApiName {
         ApiName::private("ping")
@@ -54,8 +47,8 @@ pub struct IncrementCounter {
 }
 
 impl Api for IncrementCounter {
-    type Response = Counter;
     type Error = Infallible;
+    type Response = Counter;
 
     fn name() -> ApiName {
         ApiName::private("increment")
@@ -68,8 +61,8 @@ pub struct Counter(pub u64);
 
 // ANCHOR: server-traits
 impl Backend for ExampleBackend {
-    type Error = Infallible;
     type ClientData = ();
+    type Error = Infallible;
 }
 
 /// Dispatches Requests and returns Responses.

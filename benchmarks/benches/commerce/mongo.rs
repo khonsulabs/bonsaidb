@@ -1,20 +1,19 @@
 use std::collections::BTreeMap;
 
 use bonsaidb::core::async_trait::async_trait;
-use mongodb::{
-    bson::{doc, oid::ObjectId, Document},
-    options::{Acknowledgment, ClientOptions, CreateCollectionOptions, IndexOptions, WriteConcern},
-    Client, IndexModel,
+use mongodb::bson::oid::ObjectId;
+use mongodb::bson::{doc, Document};
+use mongodb::options::{
+    Acknowledgment, ClientOptions, CreateCollectionOptions, IndexOptions, WriteConcern,
 };
+use mongodb::{Client, IndexModel};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    execute::{Backend, BackendOperator, Measurements, Metric, Operator},
-    model::{Cart, Order, Product, ProductReview},
-    plan::{
-        AddProductToCart, Checkout, CreateCart, FindProduct, Load, LookupProduct, OperationResult,
-        ReviewProduct,
-    },
+use crate::execute::{Backend, BackendOperator, Measurements, Metric, Operator};
+use crate::model::{Cart, Order, Product, ProductReview};
+use crate::plan::{
+    AddProductToCart, Checkout, CreateCart, FindProduct, Load, LookupProduct, OperationResult,
+    ReviewProduct,
 };
 
 pub struct MongoBackend {
@@ -27,8 +26,8 @@ pub struct MongoOperator {
 
 #[async_trait]
 impl Backend for MongoBackend {
-    type Operator = MongoOperator;
     type Config = String;
+    type Operator = MongoOperator;
 
     fn label(&self) -> &'static str {
         "mongodb"

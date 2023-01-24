@@ -1,9 +1,7 @@
-use std::{
-    borrow::Cow,
-    fmt::{Debug, Display, Write},
-    ops::Deref,
-    sync::Arc,
-};
+use std::borrow::Cow;
+use std::fmt::{Debug, Display, Write};
+use std::ops::Deref;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 

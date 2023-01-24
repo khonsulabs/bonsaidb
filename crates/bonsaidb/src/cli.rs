@@ -1,8 +1,11 @@
 //! BonsaiDb command line tools.
 
-use std::{ffi::OsString, fmt::Debug, path::PathBuf};
+use std::ffi::OsString;
+use std::fmt::Debug;
+use std::path::PathBuf;
 
-use bonsaidb_client::{fabruic::Certificate, Client};
+use bonsaidb_client::fabruic::Certificate;
+use bonsaidb_client::Client;
 use bonsaidb_core::async_trait::async_trait;
 #[cfg(any(feature = "password-hashing", feature = "token-authentication"))]
 use bonsaidb_core::connection::AsyncStorageConnection;

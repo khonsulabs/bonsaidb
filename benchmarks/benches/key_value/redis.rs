@@ -1,4 +1,5 @@
-use criterion::{measurement::WallTime, BenchmarkGroup, BenchmarkId};
+use criterion::measurement::WallTime;
+use criterion::{BenchmarkGroup, BenchmarkId};
 use ubyte::ToByteUnit;
 
 pub fn read_blobs(c: &mut BenchmarkGroup<WallTime>, data: &[u8]) {

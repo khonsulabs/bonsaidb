@@ -2,10 +2,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use rustls::server::ResolvesServerCert;
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    net::TcpListener,
-};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpListener;
 
 use crate::{Backend, CustomServer, Error};
 

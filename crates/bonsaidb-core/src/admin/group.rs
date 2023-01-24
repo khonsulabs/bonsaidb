@@ -1,11 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    define_basic_unique_mapped_view,
-    document::{CollectionDocument, Emit},
-    permissions::Statement,
-    schema::{Collection, NamedCollection},
-};
+use crate::define_basic_unique_mapped_view;
+use crate::document::{CollectionDocument, Emit};
+use crate::permissions::Statement;
+use crate::schema::{Collection, NamedCollection};
 
 /// A named group of permissions statements.
 #[derive(Clone, Debug, Serialize, Deserialize, Collection)]

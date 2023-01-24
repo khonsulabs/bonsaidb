@@ -7,21 +7,19 @@ use std::fmt::Debug;
 
 pub use bonsaidb_macros::{Collection, Schema, View};
 
-pub use self::{
-    collection::{
-        AsyncEntry, AsyncList, Collection, DefaultSerialization, InsertError, List, Nameable,
-        NamedCollection, NamedReference, SerializedCollection,
-    },
-    names::{
-        Authority, CollectionName, InvalidNameError, Name, Qualified, QualifiedName, SchemaName,
-        ViewName,
-    },
-    schematic::Schematic,
-    view::{
-        map::{Map, MappedValue, ViewMappedValue},
-        CollectionViewSchema, DefaultViewSerialization, ReduceResult, SerializedView, View,
-        ViewMapResult, ViewSchema,
-    },
+pub use self::collection::{
+    AsyncEntry, AsyncList, Collection, DefaultSerialization, InsertError, List, Nameable,
+    NamedCollection, NamedReference, SerializedCollection,
+};
+pub use self::names::{
+    Authority, CollectionName, InvalidNameError, Name, Qualified, QualifiedName, SchemaName,
+    ViewName,
+};
+pub use self::schematic::Schematic;
+pub use self::view::map::{Map, MappedValue, ViewMappedValue};
+pub use self::view::{
+    CollectionViewSchema, DefaultViewSerialization, ReduceResult, SerializedView, View,
+    ViewMapResult, ViewSchema,
 };
 use crate::Error;
 

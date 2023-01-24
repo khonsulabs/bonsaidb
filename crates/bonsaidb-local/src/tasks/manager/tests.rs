@@ -1,4 +1,6 @@
-use std::{convert::Infallible, fmt::Debug, hash::Hash};
+use std::convert::Infallible;
+use std::fmt::Debug;
+use std::hash::Hash;
 
 use super::Manager;
 use crate::tasks::{Job, Keyed};
@@ -10,8 +12,8 @@ impl<T> Job for Echo<T>
 where
     T: Clone + Eq + Hash + Debug + Send + Sync + 'static,
 {
-    type Output = T;
     type Error = Infallible;
+    type Output = T;
 
     fn execute(&mut self) -> Result<Self::Output, Self::Error> {
         Ok(self.0.clone())

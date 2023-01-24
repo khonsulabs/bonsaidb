@@ -1,9 +1,9 @@
-use std::{borrow::Cow, sync::Arc};
+use std::borrow::Cow;
+use std::sync::Arc;
 
-use crate::{
-    tasks::compactor::Compaction,
-    views::{integrity_scanner::IntegrityScan, mapper::Map},
-};
+use crate::tasks::compactor::Compaction;
+use crate::views::integrity_scanner::IntegrityScan;
+use crate::views::mapper::Map;
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub enum Task {

@@ -1,9 +1,6 @@
-use bonsaidb::core::{
-    document::{CollectionDocument, Emit},
-    schema::{
-        view::CollectionViewSchema, Collection, ReduceResult, View, ViewMapResult, ViewMappedValue,
-    },
-};
+use bonsaidb::core::document::{CollectionDocument, Emit};
+use bonsaidb::core::schema::view::CollectionViewSchema;
+use bonsaidb::core::schema::{Collection, ReduceResult, View, ViewMapResult, ViewMappedValue};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Collection)]

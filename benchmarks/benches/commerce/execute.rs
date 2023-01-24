@@ -1,35 +1,31 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    ops::{Range, RangeInclusive},
-    path::Path,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::collections::{BTreeMap, HashMap};
+use std::ops::{Range, RangeInclusive};
+use std::path::Path;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use bonsaidb::core::async_trait::async_trait;
 use cli_table::{Cell, Table};
-use futures::{stream::FuturesUnordered, StreamExt};
-use plotters::{
-    coord::ranged1d::{NoDefaultFormatting, ValueFormatter},
-    element::{BackendCoordOnly, CoordMapper, Drawable, PointCollection},
-    prelude::*,
-};
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
+use plotters::coord::ranged1d::{NoDefaultFormatting, ValueFormatter};
+use plotters::element::{BackendCoordOnly, CoordMapper, Drawable, PointCollection};
+use plotters::prelude::*;
 use plotters_backend::DrawingErrorKind;
-use rand::{rngs::SmallRng, SeedableRng};
+use rand::rngs::SmallRng;
+use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use tera::Tera;
 use tokio::runtime::Runtime;
 
-use crate::{
-    bonsai::{Bonsai, BonsaiBackend},
-    model::{InitialDataSet, InitialDataSetConfig},
-    plan::{
-        AddProductToCart, Checkout, CreateCart, FindProduct, Load, LookupProduct, Operation,
-        OperationResult, Plan, ReviewProduct, ShopperPlanConfig,
-    },
-    plot::{label_to_color, BACKGROUND_COLOR, TEXT_COLOR},
-    utils::{current_timestamp_string, format_nanoseconds, local_git_rev},
+use crate::bonsai::{Bonsai, BonsaiBackend};
+use crate::model::{InitialDataSet, InitialDataSetConfig};
+use crate::plan::{
+    AddProductToCart, Checkout, CreateCart, FindProduct, Load, LookupProduct, Operation,
+    OperationResult, Plan, ReviewProduct, ShopperPlanConfig,
 };
+use crate::plot::{label_to_color, BACKGROUND_COLOR, TEXT_COLOR};
+use crate::utils::{current_timestamp_string, format_nanoseconds, local_git_rev};
 
 pub fn execute_plans_for_all_backends(
     name_filter: &str,
@@ -438,8 +434,8 @@ impl ValueFormatter<Nanos> for NanosRange {
 }
 
 impl Ranged for NanosRange {
-    type ValueType = Nanos;
     type FormatOption = NoDefaultFormatting;
+    type ValueType = Nanos;
 
     fn map(&self, value: &Self::ValueType, limit: (i32, i32)) -> i32 {
         let limited_size = limit.1 - limit.0;
@@ -870,9 +866,8 @@ impl<'a> Drawable<BitMapBackend<'a>> for HistogramBar {
 }
 
 impl<'a> PointCollection<'a, (Nanos, u64)> for &'a HistogramBar {
-    type Point = &'a (Nanos, u64);
-
     type IntoIter = HistogramBarIter<'a>;
+    type Point = &'a (Nanos, u64);
 
     fn point_iter(self) -> Self::IntoIter {
         HistogramBarIter::UpperLeft(self)
@@ -902,9 +897,8 @@ impl<'a> Iterator for HistogramBarIter<'a> {
 }
 
 impl IntoIterator for HistogramBars {
-    type Item = HistogramBar;
-
     type IntoIter = std::vec::IntoIter<HistogramBar>;
+    type Item = HistogramBar;
 
     fn into_iter(self) -> Self::IntoIter {
         self.bars.into_iter()

@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 
 use super::{KeyOperation, KeyValue, Output};
-use crate::{keyvalue::AsyncKeyValue, Error};
+use crate::keyvalue::AsyncKeyValue;
+use crate::Error;
 
 /// A namespaced key-value store. All operations performed with this will be
 /// separate from other namespaces.

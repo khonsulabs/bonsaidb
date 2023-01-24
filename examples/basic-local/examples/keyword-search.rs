@@ -10,21 +10,15 @@
 //! While this approach can be powerful, it pales in comparsion to full text
 //! search capabilities. The tracking issue for adding full text indexes to
 //! BonsaiDb is here: <https://github.com/khonsulabs/bonsaidb/issues/149>.
-use std::{str::Chars, time::SystemTime};
+use std::str::Chars;
+use std::time::SystemTime;
 
-use bonsaidb::{
-    core::{
-        document::{CollectionDocument, Emit},
-        schema::{
-            Collection, CollectionViewSchema, SerializedCollection, SerializedView, View,
-            ViewMapResult,
-        },
-    },
-    local::{
-        config::{Builder, StorageConfiguration},
-        Database,
-    },
+use bonsaidb::core::document::{CollectionDocument, Emit};
+use bonsaidb::core::schema::{
+    Collection, CollectionViewSchema, SerializedCollection, SerializedView, View, ViewMapResult,
 };
+use bonsaidb::local::config::{Builder, StorageConfiguration};
+use bonsaidb::local::Database;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Collection)]

@@ -1,23 +1,18 @@
-use std::{
-    collections::{BTreeMap, HashSet},
-    ops::RangeInclusive,
-};
+use std::collections::{BTreeMap, HashSet};
+use std::ops::RangeInclusive;
 
-use fake::{
-    faker::{
-        address::raw::{
-            BuildingNumber, CityName, CountryCode, PostCode, StateName, StreetName, StreetSuffix,
-        },
-        company::raw::{Bs, BsAdj},
-        internet::raw::SafeEmail,
-        lorem::raw::Paragraphs,
-        name::raw::Name,
-        phone_number::raw::PhoneNumber,
-    },
-    locales::EN,
-    Dummy, Fake,
+use fake::faker::address::raw::{
+    BuildingNumber, CityName, CountryCode, PostCode, StateName, StreetName, StreetSuffix,
 };
-use rand::{seq::SliceRandom, Rng};
+use fake::faker::company::raw::{Bs, BsAdj};
+use fake::faker::internet::raw::SafeEmail;
+use fake::faker::lorem::raw::Paragraphs;
+use fake::faker::name::raw::Name;
+use fake::faker::phone_number::raw::PhoneNumber;
+use fake::locales::EN;
+use fake::{Dummy, Fake};
+use rand::seq::SliceRandom;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::utils::gen_range;

@@ -1,29 +1,25 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use bonsaidb_core::{
-    connection::{
-        self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
-        Connection, HasSchema, HasSession, IdentityReference, LowLevelConnection, Range,
-        SerializedQueryKey, Session, Sort, StorageConnection,
-    },
-    document::{DocumentId, Header, OwnedDocument},
-    keyvalue::{AsyncKeyValue, KeyOperation, KeyValue, Output},
-    permissions::Permissions,
-    pubsub::{self, AsyncPubSub, AsyncSubscriber, PubSub, Receiver},
-    schema::{
-        self, view::map::MappedSerializedValue, CollectionName, Nameable, Schema, SchemaName,
-        Schematic, ViewName,
-    },
-    transaction::{self, OperationResult, Transaction},
+use bonsaidb_core::connection::{
+    self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
+    Connection, HasSchema, HasSession, IdentityReference, LowLevelConnection, Range,
+    SerializedQueryKey, Session, Sort, StorageConnection,
 };
+use bonsaidb_core::document::{DocumentId, Header, OwnedDocument};
+use bonsaidb_core::keyvalue::{AsyncKeyValue, KeyOperation, KeyValue, Output};
+use bonsaidb_core::permissions::Permissions;
+use bonsaidb_core::pubsub::{self, AsyncPubSub, AsyncSubscriber, PubSub, Receiver};
+use bonsaidb_core::schema::view::map::MappedSerializedValue;
+use bonsaidb_core::schema::{
+    self, CollectionName, Nameable, Schema, SchemaName, Schematic, ViewName,
+};
+use bonsaidb_core::transaction::{self, OperationResult, Transaction};
 
-use crate::{
-    config::StorageConfiguration,
-    database::DatabaseNonBlocking,
-    storage::{AnyBackupLocation, StorageNonBlocking},
-    Database, Error, Storage, Subscriber,
-};
+use crate::config::StorageConfiguration;
+use crate::database::DatabaseNonBlocking;
+use crate::storage::{AnyBackupLocation, StorageNonBlocking};
+use crate::{Database, Error, Storage, Subscriber};
 
 /// A file-based, multi-database, multi-user database engine. This type is
 /// designed for use with [Tokio](https://tokio.rs). For blocking
@@ -50,7 +46,8 @@ use crate::{
 ///
 /// ```rust
 /// // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_local::core`.
-/// use bonsaidb_core::{connection::AsyncStorageConnection, schema::Schema};
+/// use bonsaidb_core::connection::AsyncStorageConnection;
+/// use bonsaidb_core::schema::Schema;
 /// // `bonsaidb_local` is re-exported to `bonsaidb::local` if using the omnibus crate.
 /// use bonsaidb_local::{
 ///     config::{Builder, StorageConfiguration},
@@ -76,14 +73,10 @@ use crate::{
 /// databases with multiple schemas:
 ///
 /// ```rust
-/// use bonsaidb_core::{
-///     connection::AsyncStorageConnection,
-///     schema::{Collection, Schema},
-/// };
-/// use bonsaidb_local::{
-///     config::{Builder, StorageConfiguration},
-///     AsyncStorage,
-/// };
+/// use bonsaidb_core::connection::AsyncStorageConnection;
+/// use bonsaidb_core::schema::{Collection, Schema};
+/// use bonsaidb_local::config::{Builder, StorageConfiguration};
+/// use bonsaidb_local::AsyncStorage;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Debug, Schema)]
@@ -220,6 +213,7 @@ impl StorageNonBlocking for AsyncStorage {
     fn path(&self) -> &std::path::Path {
         self.storage.path()
     }
+
     fn assume_session(&self, session: Session) -> Result<Self, bonsaidb_core::Error> {
         self.storage.assume_session(session).map(|storage| Self {
             storage,
@@ -355,8 +349,8 @@ impl HasSession for AsyncStorage {
 
 #[async_trait]
 impl AsyncStorageConnection for AsyncStorage {
-    type Database = AsyncDatabase;
     type Authenticated = Self;
+    type Database = AsyncDatabase;
 
     async fn admin(&self) -> Self::Database {
         let task_self = self.clone();

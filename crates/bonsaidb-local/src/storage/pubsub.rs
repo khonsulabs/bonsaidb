@@ -1,8 +1,10 @@
 use std::collections::hash_map::Entry;
 
-use bonsaidb_core::{connection::SessionId, pubsub::Receiver};
+use bonsaidb_core::connection::SessionId;
+use bonsaidb_core::pubsub::Receiver;
 
-use crate::{storage::SessionSubscriber, Database, Subscriber};
+use crate::storage::SessionSubscriber;
+use crate::{Database, Subscriber};
 
 impl crate::storage::StorageInstance {
     pub(crate) fn register_subscriber(

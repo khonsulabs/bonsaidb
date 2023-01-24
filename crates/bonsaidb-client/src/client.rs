@@ -1,41 +1,39 @@
+use std::any::TypeId;
+use std::collections::HashMap;
+use std::fmt::Debug;
+use std::ops::Deref;
 #[cfg(feature = "test-util")]
 use std::sync::atomic::AtomicBool;
-use std::{
-    any::TypeId,
-    collections::HashMap,
-    fmt::Debug,
-    ops::Deref,
-    sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc,
-    },
-};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use bonsaidb_core::{
-    admin::{Admin, ADMIN_DATABASE_NAME},
-    api::{self, Api, ApiName},
-    arc_bytes::{serde::Bytes, OwnedBytes},
-    connection::{AsyncStorageConnection, Database, HasSession, IdentityReference, Session},
-    networking::{
-        AlterUserPermissionGroupMembership, AlterUserRoleMembership, AssumeIdentity,
-        CreateDatabase, CreateUser, DeleteDatabase, DeleteUser, ListAvailableSchemas,
-        ListDatabases, LogOutSession, MessageReceived, Payload, UnregisterSubscriber,
-        CURRENT_PROTOCOL_VERSION,
-    },
-    permissions::Permissions,
-    schema::{Nameable, Schema, SchemaName, Schematic},
+use bonsaidb_core::admin::{Admin, ADMIN_DATABASE_NAME};
+use bonsaidb_core::api::{self, Api, ApiName};
+use bonsaidb_core::arc_bytes::serde::Bytes;
+use bonsaidb_core::arc_bytes::OwnedBytes;
+use bonsaidb_core::connection::{
+    AsyncStorageConnection, Database, HasSession, IdentityReference, Session,
 };
+use bonsaidb_core::networking::{
+    AlterUserPermissionGroupMembership, AlterUserRoleMembership, AssumeIdentity, CreateDatabase,
+    CreateUser, DeleteDatabase, DeleteUser, ListAvailableSchemas, ListDatabases, LogOutSession,
+    MessageReceived, Payload, UnregisterSubscriber, CURRENT_PROTOCOL_VERSION,
+};
+use bonsaidb_core::permissions::Permissions;
+use bonsaidb_core::schema::{Nameable, Schema, SchemaName, Schematic};
 use bonsaidb_utils::fast_async_lock;
 use flume::Sender;
-use futures::{future::BoxFuture, Future, FutureExt};
+use futures::future::BoxFuture;
+use futures::{Future, FutureExt};
 use parking_lot::Mutex;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::{runtime::Handle, task::JoinHandle};
 use url::Url;
 
 pub use self::remote_database::{RemoteDatabase, RemoteSubscriber};
-use crate::{error::Error, ApiError, Builder};
+use crate::error::Error;
+use crate::{ApiError, Builder};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod quic_worker;
@@ -147,10 +145,8 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// ```rust
 /// # use bonsaidb_client::{Client, fabruic::Certificate, url::Url};
 /// // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_client::core`.
-/// use bonsaidb_core::{
-///     api::{Api, ApiName, Infallible},
-///     schema::Qualified,
-/// };
+/// use bonsaidb_core::api::{Api, ApiName, Infallible};
+/// use bonsaidb_core::schema::Qualified;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Serialize, Deserialize, Debug)]
@@ -160,8 +156,8 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// pub struct Pong;
 ///
 /// impl Api for Ping {
-///     type Response = Pong;
 ///     type Error = Infallible;
+///     type Response = Pong;
 ///
 ///     fn name() -> ApiName {
 ///         ApiName::private("ping")
@@ -610,8 +606,8 @@ impl HasSession for Client {
 
 #[async_trait]
 impl AsyncStorageConnection for Client {
-    type Database = RemoteDatabase;
     type Authenticated = Self;
+    type Database = RemoteDatabase;
 
     async fn admin(&self) -> Self::Database {
         self.remote_database::<Admin>(ADMIN_DATABASE_NAME).unwrap()
@@ -887,6 +883,7 @@ impl<Api: api::Api> ApiCallback<Api> {
             generator: Box::new(ApiFutureBoxer::<Api::Response, Fut>(Box::new(callback))),
         }
     }
+
     /// Returns a new instance wrapping the provided function, passing a clone
     /// of `context` as the second parameter. This is just a convenience wrapper
     /// around `new()` that produces more readable code when needing to access

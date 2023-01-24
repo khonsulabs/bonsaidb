@@ -1,18 +1,23 @@
-use std::{collections::BTreeMap, marker::PhantomData, mem::size_of};
+use std::collections::BTreeMap;
+use std::marker::PhantomData;
+use std::mem::size_of;
 
 #[cfg(feature = "async")]
 use bonsaidb_core::connection::AsyncConnection;
-use bonsaidb_core::{
-    connection::Connection,
-    document::{BorrowedDocument, Emit},
-    key::{time::TimestampAsNanoseconds, KeyEncoding},
-    schema::{Collection, CollectionName, View, ViewMapResult, ViewMappedValue, ViewSchema},
-    transaction::{Operation, Transaction},
+use bonsaidb_core::connection::Connection;
+use bonsaidb_core::document::{BorrowedDocument, Emit};
+use bonsaidb_core::key::time::TimestampAsNanoseconds;
+use bonsaidb_core::key::KeyEncoding;
+use bonsaidb_core::schema::{
+    Collection, CollectionName, View, ViewMapResult, ViewMappedValue, ViewSchema,
 };
+use bonsaidb_core::transaction::{Operation, Transaction};
 use derive_where::derive_where;
 use serde::{Deserialize, Serialize};
 
-use crate::{direct::BlockInfo, schema::file::File, FileConfig};
+use crate::direct::BlockInfo;
+use crate::schema::file::File;
+use crate::FileConfig;
 
 #[derive_where(Debug, Default)]
 pub struct Block<Config>(PhantomData<Config>)

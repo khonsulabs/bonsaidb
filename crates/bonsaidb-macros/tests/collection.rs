@@ -1,11 +1,9 @@
 use core::fmt::Debug;
 
-use bonsaidb::core::{
-    document::{CollectionDocument, Emit, KeyId},
-    schema::{
-        Collection, CollectionViewSchema, DefaultSerialization, DefaultViewSerialization, Name,
-        Qualified, Schematic, SerializedCollection, View, ViewMapResult,
-    },
+use bonsaidb::core::document::{CollectionDocument, Emit, KeyId};
+use bonsaidb::core::schema::{
+    Collection, CollectionViewSchema, DefaultSerialization, DefaultViewSerialization, Name,
+    Qualified, Schematic, SerializedCollection, View, ViewMapResult,
 };
 use serde::{Deserialize, Serialize};
 

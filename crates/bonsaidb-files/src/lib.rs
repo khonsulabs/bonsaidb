@@ -44,21 +44,22 @@
     clippy::module_name_repetitions,
 )]
 
-use std::{fmt::Debug, marker::PhantomData};
+use std::fmt::Debug;
+use std::marker::PhantomData;
 
 #[cfg(feature = "async")]
 use bonsaidb_core::async_trait::async_trait;
 #[cfg(feature = "async")]
 use bonsaidb_core::connection::AsyncConnection;
-use bonsaidb_core::{
-    connection::Connection,
-    key::time::TimestampAsNanoseconds,
-    schema::{CollectionName, InsertError, Qualified, Schema, SchemaName, Schematic},
+use bonsaidb_core::connection::Connection;
+use bonsaidb_core::key::time::TimestampAsNanoseconds;
+use bonsaidb_core::schema::{
+    CollectionName, InsertError, Qualified, Schema, SchemaName, Schematic,
 };
-use derive_where::derive_where;
-use serde::{de::DeserializeOwned, Serialize};
-
 pub use bonsaidb_macros::FileConfig;
+use derive_where::derive_where;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 mod schema;
 
@@ -446,11 +447,13 @@ pub struct BonsaiFiles;
 
 impl FileConfig for BonsaiFiles {
     type Metadata = Option<()>;
+
     const BLOCK_SIZE: usize = 65_536;
 
     fn files_name() -> CollectionName {
         CollectionName::new("bonsaidb", "files")
     }
+
     fn blocks_name() -> CollectionName {
         CollectionName::new("bonsaidb", "blocks")
     }

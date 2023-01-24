@@ -1,14 +1,10 @@
 use std::io::{Read, Write};
 
-use bonsaidb_core::{
-    connection::Connection,
-    schema::{CollectionName, Qualified, Schema, SchemaName, Schematic},
-};
+use bonsaidb_core::connection::Connection;
+use bonsaidb_core::schema::{CollectionName, Qualified, Schema, SchemaName, Schematic};
 use bonsaidb_files::{BonsaiFiles, FileConfig};
-use bonsaidb_local::{
-    config::{Builder, StorageConfiguration},
-    Database,
-};
+use bonsaidb_local::config::{Builder, StorageConfiguration};
+use bonsaidb_local::Database;
 
 #[derive(Debug)]
 enum MultipleConfigs {}
@@ -31,6 +27,7 @@ enum ProcessedFiles {}
 
 impl FileConfig for ProcessedFiles {
     type Metadata = ();
+
     const BLOCK_SIZE: usize = 16_384;
 
     fn files_name() -> CollectionName {

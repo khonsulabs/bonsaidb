@@ -1,6 +1,7 @@
 use actionable::{Action, Identifier};
 
-use crate::{connection::Session, Error};
+use crate::connection::Session;
+use crate::Error;
 
 /// Functions to access information about the current session (authentication).
 pub trait HasSession {

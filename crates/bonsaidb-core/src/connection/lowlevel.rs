@@ -1,29 +1,24 @@
-use std::{borrow::Borrow, collections::BTreeMap};
+use std::borrow::Borrow;
+use std::collections::BTreeMap;
 
 use arc_bytes::serde::Bytes;
 use async_trait::async_trait;
 
 use super::GroupedReductions;
-use crate::{
-    connection::{
-        AccessPolicy, HasSession, QueryKey, Range, RangeRef, SerializedQueryKey, Sort, ViewMappings,
-    },
-    document::{
-        CollectionDocument, CollectionHeader, Document, DocumentId, HasHeader, Header,
-        OwnedDocument,
-    },
-    key::{self, Key, KeyEncoding},
-    schema::{
-        self,
-        view::{
-            self,
-            map::{MappedDocuments, MappedSerializedValue},
-        },
-        CollectionName, Map, MappedValue, Schematic, SerializedCollection, ViewName,
-    },
-    transaction::{OperationResult, Transaction},
-    Error,
+use crate::connection::{
+    AccessPolicy, HasSession, QueryKey, Range, RangeRef, SerializedQueryKey, Sort, ViewMappings,
 };
+use crate::document::{
+    CollectionDocument, CollectionHeader, Document, DocumentId, HasHeader, Header, OwnedDocument,
+};
+use crate::key::{self, Key, KeyEncoding};
+use crate::schema::view::map::{MappedDocuments, MappedSerializedValue};
+use crate::schema::view::{self};
+use crate::schema::{
+    self, CollectionName, Map, MappedValue, Schematic, SerializedCollection, ViewName,
+};
+use crate::transaction::{OperationResult, Transaction};
+use crate::Error;
 
 /// The low-level interface to a database's [`schema::Schema`], giving access to
 /// [`Collection`s](crate::schema::Collection) and

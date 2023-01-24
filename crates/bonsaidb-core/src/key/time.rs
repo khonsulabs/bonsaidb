@@ -1,16 +1,12 @@
-use std::{
-    borrow::Cow,
-    fmt::Debug,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::borrow::Cow;
+use std::fmt::Debug;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ordered_varint::Variable;
 use serde::{Deserialize, Serialize};
 
-use crate::key::{
-    time::limited::{BonsaiEpoch, UnixEpoch},
-    Key, KeyEncoding,
-};
+use crate::key::time::limited::{BonsaiEpoch, UnixEpoch};
+use crate::key::{Key, KeyEncoding};
 
 impl<'a> Key<'a> for Duration {
     fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
@@ -115,20 +111,19 @@ impl From<std::io::Error> for TimeError {
 
 /// Types for storing limited-precision Durations.
 pub mod limited {
-    use std::{
-        borrow::Cow,
-        fmt::{self, Debug, Display, Write},
-        hash::Hash,
-        marker::PhantomData,
-        str::FromStr,
-        time::{Duration, SystemTime, UNIX_EPOCH},
-    };
+    use std::borrow::Cow;
+    use std::fmt::{self, Debug, Display, Write};
+    use std::hash::Hash;
+    use std::marker::PhantomData;
+    use std::str::FromStr;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use derive_where::derive_where;
     use ordered_varint::Variable;
     use serde::{Deserialize, Serialize};
 
-    use crate::key::{time::TimeError, Key, KeyEncoding};
+    use crate::key::time::TimeError;
+    use crate::key::{Key, KeyEncoding};
 
     /// A [`Duration`] of time stored with a limited `Resolution`. This type may be
     /// preferred to [`std::time::Duration`] because `Duration` takes a full 12
@@ -1018,6 +1013,7 @@ pub mod limited {
         Epoch: TimeEpoch,
     {
         type Error = TimeError;
+
         fn try_from(time: SystemTime) -> Result<Self, TimeError> {
             let epoch = UNIX_EPOCH
                 .checked_add(Epoch::epoch_offset())

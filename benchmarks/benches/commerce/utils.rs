@@ -1,7 +1,10 @@
-use std::{ops::RangeInclusive, process::Command};
+use std::ops::RangeInclusive;
+use std::process::Command;
 
-use rand::{distributions::uniform::SampleUniform, Rng};
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use rand::distributions::uniform::SampleUniform;
+use rand::Rng;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
 pub fn gen_range<S: Rng, T>(rng: &mut S, range: RangeInclusive<T>) -> T
 where

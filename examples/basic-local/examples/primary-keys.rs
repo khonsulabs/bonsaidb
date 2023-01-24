@@ -1,13 +1,7 @@
-use bonsaidb::{
-    core::{
-        key::{Key, NextValueError},
-        schema::{Collection, Schema, SerializedCollection},
-    },
-    local::{
-        config::{Builder, StorageConfiguration},
-        Database,
-    },
-};
+use bonsaidb::core::key::{Key, NextValueError};
+use bonsaidb::core::schema::{Collection, Schema, SerializedCollection};
+use bonsaidb::local::config::{Builder, StorageConfiguration};
+use bonsaidb::local::Database;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Schema)]

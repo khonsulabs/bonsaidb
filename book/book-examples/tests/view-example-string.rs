@@ -1,18 +1,12 @@
-use bonsaidb::{
-    core::{
-        connection::Connection,
-        document::{BorrowedDocument, Emit},
-        schema::{
-            view::map::ViewMappedValue, Collection, ReduceResult, SerializedCollection, View,
-            ViewMapResult, ViewSchema,
-        },
-        Error,
-    },
-    local::{
-        config::{Builder, StorageConfiguration},
-        Database,
-    },
+use bonsaidb::core::connection::Connection;
+use bonsaidb::core::document::{BorrowedDocument, Emit};
+use bonsaidb::core::schema::view::map::ViewMappedValue;
+use bonsaidb::core::schema::{
+    Collection, ReduceResult, SerializedCollection, View, ViewMapResult, ViewSchema,
 };
+use bonsaidb::core::Error;
+use bonsaidb::local::config::{Builder, StorageConfiguration};
+use bonsaidb::local::Database;
 use serde::{Deserialize, Serialize};
 
 // ANCHOR: struct

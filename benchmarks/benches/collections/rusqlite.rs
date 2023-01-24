@@ -1,6 +1,7 @@
 use std::path::Path;
 
-use criterion::{measurement::WallTime, BenchmarkGroup, BenchmarkId};
+use criterion::measurement::WallTime;
+use criterion::{BenchmarkGroup, BenchmarkId};
 use rusqlite::{params, Connection};
 use ubyte::ToByteUnit;
 

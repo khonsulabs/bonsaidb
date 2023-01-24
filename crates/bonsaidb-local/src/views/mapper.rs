@@ -1,33 +1,25 @@
-use std::{
-    borrow::Cow,
-    collections::{hash_map::RandomState, BTreeMap, BTreeSet, HashSet},
-    sync::Arc,
-};
+use std::borrow::Cow;
+use std::collections::hash_map::RandomState;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::sync::Arc;
 
-use bonsaidb_core::{
-    arc_bytes::{serde::Bytes, ArcBytes, OwnedBytes},
-    connection::Connection,
-    schema::{
-        view::{self, map, Serialized},
-        CollectionName, ViewName,
-    },
-};
+use bonsaidb_core::arc_bytes::serde::Bytes;
+use bonsaidb_core::arc_bytes::{ArcBytes, OwnedBytes};
+use bonsaidb_core::connection::Connection;
+use bonsaidb_core::schema::view::{self, map, Serialized};
+use bonsaidb_core::schema::{CollectionName, ViewName};
 use easy_parallel::Parallel;
-use nebari::{
-    io::any::AnyFile,
-    tree::{AnyTreeRoot, CompareSwap, KeyOperation, Operation, Unversioned, Versioned},
-    LockedTransactionTree, Tree, UnlockedTransactionTree,
-};
+use nebari::io::any::AnyFile;
+use nebari::tree::{AnyTreeRoot, CompareSwap, KeyOperation, Operation, Unversioned, Versioned};
+use nebari::{LockedTransactionTree, Tree, UnlockedTransactionTree};
 
-use crate::{
-    database::{deserialize_document, document_tree_name, Database},
-    tasks::{Job, Keyed, Task},
-    views::{
-        view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
-        EntryMapping, ViewEntry,
-    },
-    Error,
+use crate::database::{deserialize_document, document_tree_name, Database};
+use crate::tasks::{Job, Keyed, Task};
+use crate::views::{
+    view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
+    EntryMapping, ViewEntry,
 };
+use crate::Error;
 
 #[derive(Debug)]
 pub struct Mapper {
@@ -43,8 +35,8 @@ pub struct Map {
 }
 
 impl Job for Mapper {
-    type Output = u64;
     type Error = Error;
+    type Output = u64;
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     #[allow(clippy::too_many_lines)]

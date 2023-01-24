@@ -1,31 +1,26 @@
 #[cfg(feature = "async")]
 use std::collections::BTreeMap;
+use std::collections::VecDeque;
+use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
+use std::marker::PhantomData;
 #[cfg(feature = "async")]
 use std::task::Poll;
-use std::{
-    collections::VecDeque,
-    io::{ErrorKind, Read, Seek, SeekFrom, Write},
-    marker::PhantomData,
-};
 
+use bonsaidb_core::connection::Connection;
+use bonsaidb_core::document::{CollectionDocument, DocumentId, Header};
+use bonsaidb_core::key::time::TimestampAsNanoseconds;
+use bonsaidb_core::schema::SerializedCollection;
 #[cfg(feature = "async")]
 use bonsaidb_core::{circulate::flume, connection::AsyncConnection};
-use bonsaidb_core::{
-    connection::Connection,
-    document::{CollectionDocument, DocumentId, Header},
-    key::time::TimestampAsNanoseconds,
-    schema::SerializedCollection,
-};
 use derive_where::derive_where;
 #[cfg(feature = "async")]
 use futures::{future::BoxFuture, ready, FutureExt};
 #[cfg(feature = "async")]
 use tokio::io::AsyncWriteExt;
 
-use crate::{
-    schema::{self, block::BlockAppendInfo},
-    BonsaiFiles, Error, FileConfig, Statistics, Truncate,
-};
+use crate::schema::block::BlockAppendInfo;
+use crate::schema::{self};
+use crate::{BonsaiFiles, Error, FileConfig, Statistics, Truncate};
 
 /// A handle to a file stored in a database.
 #[derive_where(Debug, Clone)]

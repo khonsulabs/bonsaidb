@@ -1,12 +1,8 @@
 use std::time::Duration;
 
-use bonsaidb::{
-    core::keyvalue::{AsyncKeyValue, KeyStatus},
-    local::{
-        config::{Builder, StorageConfiguration},
-        AsyncDatabase,
-    },
-};
+use bonsaidb::core::keyvalue::{AsyncKeyValue, KeyStatus};
+use bonsaidb::local::config::{Builder, StorageConfiguration};
+use bonsaidb::local::AsyncDatabase;
 
 // BonsaiDb supports a lightweight, atomic key-value store in addition to its
 // acid-compliant transactional storage. This interface is meant to replicate

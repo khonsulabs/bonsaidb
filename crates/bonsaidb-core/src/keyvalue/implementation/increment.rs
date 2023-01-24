@@ -3,10 +3,8 @@ use std::marker::PhantomData;
 use futures::{Future, FutureExt};
 
 use super::{BuilderState, Command, KeyOperation, KeyValue, Output};
-use crate::{
-    keyvalue::{AsyncKeyValue, IncompatibleTypeError, Numeric, Value},
-    Error,
-};
+use crate::keyvalue::{AsyncKeyValue, IncompatibleTypeError, Numeric, Value};
+use crate::Error;
 
 /// Executes a [`Command::Increment`] or [`Command::Decrement`] key-value operation.
 #[must_use = "the key-value operation is not performed until execute() is called"]

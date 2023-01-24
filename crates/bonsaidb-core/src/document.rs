@@ -28,21 +28,17 @@ use std::borrow::Cow;
 use arc_bytes::serde::{Bytes, CowBytes};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    key::KeyEncoding,
-    schema::{Collection, SerializedCollection},
-};
+use crate::key::KeyEncoding;
+use crate::schema::{Collection, SerializedCollection};
 
 mod collection;
 mod header;
 mod id;
 mod revision;
-pub use self::{
-    collection::{CollectionDocument, OwnedDocuments},
-    header::{AnyHeader, CollectionHeader, Emit, HasHeader, Header},
-    id::{DocumentId, InvalidHexadecimal},
-    revision::Revision,
-};
+pub use self::collection::{CollectionDocument, OwnedDocuments};
+pub use self::header::{AnyHeader, CollectionHeader, Emit, HasHeader, Header};
+pub use self::id::{DocumentId, InvalidHexadecimal};
+pub use self::revision::Revision;
 /// Contains a serialized document in the database.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BorrowedDocument<'a> {

@@ -2,21 +2,17 @@ mod compatibility;
 
 use std::time::Duration;
 
+use bonsaidb_core::connection::{AccessPolicy, Connection};
+use bonsaidb_core::permissions::{Permissions, Statement};
 #[cfg(feature = "encryption")]
 use bonsaidb_core::test_util::EncryptedBasic;
-use bonsaidb_core::{
-    connection::{AccessPolicy, Connection},
-    permissions::{Permissions, Statement},
-    test_util::{
-        Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
-        BasicCollectionWithOnlyBrokenParentId, BasicSchema, HarnessTest, TestDirectory,
-    },
+use bonsaidb_core::test_util::{
+    Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
+    BasicCollectionWithOnlyBrokenParentId, BasicSchema, HarnessTest, TestDirectory,
 };
 
-use crate::{
-    config::{Builder, StorageConfiguration},
-    Database, Storage,
-};
+use crate::config::{Builder, StorageConfiguration};
+use crate::{Database, Storage};
 
 macro_rules! define_local_suite {
     ($name:ident) => {
@@ -272,7 +268,8 @@ fn encryption() -> anyhow::Result<()> {
 
 #[test]
 fn expiration_after_close() -> anyhow::Result<()> {
-    use bonsaidb_core::{keyvalue::KeyValue, test_util::TimingTest};
+    use bonsaidb_core::keyvalue::KeyValue;
+    use bonsaidb_core::test_util::TimingTest;
     loop {
         let path = TestDirectory::new("expiration-after-close");
         // To ensure full cleanup between each block, each runs in its own runtime;

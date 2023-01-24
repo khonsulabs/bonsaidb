@@ -1,7 +1,5 @@
-use std::{
-    fmt::{Debug, Display},
-    ops::Deref,
-};
+use std::fmt::{Debug, Display};
+use std::ops::Deref;
 
 pub use bonsaidb_macros::Api;
 use serde::{Deserialize, Serialize};

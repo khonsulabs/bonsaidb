@@ -1,10 +1,10 @@
-use bonsaidb_core::{
-    actionable::{Permissions, Statement},
-    connection::AsyncStorageConnection,
-    test_util::{self, BasicSchema, HarnessTest, TestDirectory},
-};
+use bonsaidb_core::actionable::{Permissions, Statement};
+use bonsaidb_core::connection::AsyncStorageConnection;
+use bonsaidb_core::test_util::{self, BasicSchema, HarnessTest, TestDirectory};
 
-use crate::{server::ServerDatabase, test_util::initialize_basic_server, Server};
+use crate::server::ServerDatabase;
+use crate::test_util::initialize_basic_server;
+use crate::Server;
 
 #[tokio::test]
 async fn simple_test() -> anyhow::Result<()> {

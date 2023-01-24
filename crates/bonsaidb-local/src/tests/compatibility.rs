@@ -1,26 +1,20 @@
-use std::{
-    collections::HashSet,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use bonsaidb_core::{
-    connection::{Connection, StorageConnection},
-    document::{CollectionDocument, Emit},
-    keyvalue::KeyValue,
-    schema::{
-        Collection, CollectionViewSchema, ReduceResult, Schema, SerializedCollection, View,
-        ViewMappedValue,
-    },
-    test_util::TestDirectory,
+use bonsaidb_core::connection::{Connection, StorageConnection};
+use bonsaidb_core::document::{CollectionDocument, Emit};
+use bonsaidb_core::keyvalue::KeyValue;
+use bonsaidb_core::schema::{
+    Collection, CollectionViewSchema, ReduceResult, Schema, SerializedCollection, View,
+    ViewMappedValue,
 };
+use bonsaidb_core::test_util::TestDirectory;
 use fs_extra::dir;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    config::{Builder, StorageConfiguration},
-    Database, Storage,
-};
+use crate::config::{Builder, StorageConfiguration};
+use crate::{Database, Storage};
 
 #[derive(Schema, Debug)]
 #[schema(name = "schema-a", collections = [Basic], core = bonsaidb_core)]

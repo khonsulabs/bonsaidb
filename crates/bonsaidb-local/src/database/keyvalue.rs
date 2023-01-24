@@ -1,37 +1,29 @@
-use std::{
-    borrow::Cow,
-    collections::{btree_map, BTreeMap, VecDeque},
-    sync::{Arc, Weak},
-    time::Duration,
-};
+use std::borrow::Cow;
+use std::collections::{btree_map, BTreeMap, VecDeque};
+use std::sync::{Arc, Weak};
+use std::time::Duration;
 
-use bonsaidb_core::{
-    connection::{Connection, HasSession},
-    keyvalue::{
-        Command, KeyCheck, KeyOperation, KeyStatus, KeyValue, Numeric, Output, SetCommand,
-        Timestamp, Value,
-    },
-    permissions::bonsai::{
-        keyvalue_key_resource_name, BonsaiAction, DatabaseAction, KeyValueAction,
-    },
-    transaction::{ChangedKey, Changes},
+use bonsaidb_core::connection::{Connection, HasSession};
+use bonsaidb_core::keyvalue::{
+    Command, KeyCheck, KeyOperation, KeyStatus, KeyValue, Numeric, Output, SetCommand, Timestamp,
+    Value,
 };
-use nebari::{
-    io::any::AnyFile,
-    tree::{CompareSwap, Operation, Root, ScanEvaluation, Unversioned},
-    AbortError, ArcBytes, Roots,
+use bonsaidb_core::permissions::bonsai::{
+    keyvalue_key_resource_name, BonsaiAction, DatabaseAction, KeyValueAction,
 };
+use bonsaidb_core::transaction::{ChangedKey, Changes};
+use nebari::io::any::AnyFile;
+use nebari::tree::{CompareSwap, Operation, Root, ScanEvaluation, Unversioned};
+use nebari::{AbortError, ArcBytes, Roots};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use watchable::{Watchable, Watcher};
 
-use crate::{
-    config::KeyValuePersistence,
-    database::compat,
-    storage::StorageLock,
-    tasks::{Job, Keyed, Task},
-    Database, DatabaseNonBlocking, Error,
-};
+use crate::config::KeyValuePersistence;
+use crate::database::compat;
+use crate::storage::StorageLock;
+use crate::tasks::{Job, Keyed, Task};
+use crate::{Database, DatabaseNonBlocking, Error};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Entry {
@@ -856,8 +848,8 @@ impl Keyed<Task> for ExpirationLoader {
 }
 
 impl Job for ExpirationLoader {
-    type Output = ();
     type Error = Error;
+    type Output = ();
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn execute(&mut self) -> Result<Self::Output, Self::Error> {
@@ -885,14 +877,13 @@ impl Job for ExpirationLoader {
 mod tests {
     use std::time::Duration;
 
-    use bonsaidb_core::{
-        arc_bytes::serde::Bytes,
-        test_util::{TestDirectory, TimingTest},
-    };
+    use bonsaidb_core::arc_bytes::serde::Bytes;
+    use bonsaidb_core::test_util::{TestDirectory, TimingTest};
     use nebari::io::any::{AnyFile, AnyFileManager};
 
     use super::*;
-    use crate::{config::PersistenceThreshold, database::Context};
+    use crate::config::PersistenceThreshold;
+    use crate::database::Context;
 
     fn run_test_with_persistence<
         F: Fn(Context, nebari::Roots<AnyFile>) -> anyhow::Result<()> + Send,

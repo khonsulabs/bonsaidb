@@ -1,11 +1,12 @@
-use std::{ops::RangeInclusive, sync::Arc};
+use std::ops::RangeInclusive;
+use std::sync::Arc;
 
-use rand::{distributions::Standard, prelude::Distribution, Rng};
+use rand::distributions::Standard;
+use rand::prelude::Distribution;
+use rand::Rng;
 
-use crate::{
-    model::{InitialDataSet, Product},
-    utils::gen_range,
-};
+use crate::model::{InitialDataSet, Product};
+use crate::utils::gen_range;
 
 /// A single database operation.
 #[derive(Clone, Debug)]

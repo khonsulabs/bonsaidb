@@ -1,12 +1,11 @@
-use std::{collections::BTreeMap, fmt::Debug};
+use std::collections::BTreeMap;
+use std::fmt::Debug;
 
 use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    document::{DocumentId, Header, OwnedDocument},
-    schema::view::{self, Key, SerializedView, View},
-};
+use crate::document::{DocumentId, Header, OwnedDocument};
+use crate::schema::view::{self, Key, SerializedView, View};
 
 /// A document's entry in a View's mappings.
 #[derive(Eq, PartialEq, Debug)]
@@ -121,9 +120,8 @@ impl<K: for<'a> Key<'a>, V> FromIterator<Self> for Mappings<K, V> {
 }
 
 impl<K: for<'a> Key<'a>, V> IntoIterator for Mappings<K, V> {
-    type Item = Map<K, V>;
-
     type IntoIter = MappingsIter<K, V>;
+    type Item = Map<K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
         match self {
@@ -204,9 +202,8 @@ pub struct MappedDocumentsIter<'a, D, V: View> {
 }
 
 impl<'a, D, V: View> IntoIterator for &'a MappedDocuments<D, V> {
-    type Item = MappedDocument<'a, D, V::Key, V::Value>;
-
     type IntoIter = MappedDocumentsIter<'a, D, V>;
+    type Item = MappedDocument<'a, D, V::Key, V::Value>;
 
     fn into_iter(self) -> Self::IntoIter {
         MappedDocumentsIter {

@@ -1,12 +1,9 @@
-use std::{thread::sleep, time::Duration};
+use std::thread::sleep;
+use std::time::Duration;
 
-use bonsaidb::{
-    core::pubsub::{PubSub, Subscriber},
-    local::{
-        config::{Builder, StorageConfiguration},
-        Database,
-    },
-};
+use bonsaidb::core::pubsub::{PubSub, Subscriber};
+use bonsaidb::local::config::{Builder, StorageConfiguration};
+use bonsaidb::local::Database;
 
 fn main() -> Result<(), bonsaidb::local::Error> {
     // This example is using a database with no collections, because PubSub is a

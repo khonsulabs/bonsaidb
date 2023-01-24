@@ -1,24 +1,18 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
-use bonsaidb_core::{
-    permissions::Permissions,
-    schema::{Schema, SchemaName},
-};
+use bonsaidb_core::permissions::Permissions;
+use bonsaidb_core::schema::{Schema, SchemaName};
 use sysinfo::{RefreshKind, System, SystemExt};
 
+use crate::storage::{DatabaseOpener, StorageSchemaOpener};
 #[cfg(feature = "encryption")]
 use crate::vault::AnyVaultKeyStorage;
-use crate::{
-    storage::{DatabaseOpener, StorageSchemaOpener},
-    Error,
-};
+use crate::Error;
 
 #[cfg(feature = "password-hashing")]
 mod argon;

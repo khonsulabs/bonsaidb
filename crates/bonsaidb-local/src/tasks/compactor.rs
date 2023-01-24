@@ -1,17 +1,17 @@
 use std::borrow::Cow;
 
-use bonsaidb_core::{connection::Connection, schema::CollectionName};
+use bonsaidb_core::connection::Connection;
+use bonsaidb_core::schema::CollectionName;
 use nebari::tree::{Root, Unversioned, Versioned};
 
-use crate::{
-    database::{document_tree_name, keyvalue::KEY_TREE, DatabaseNonBlocking},
-    tasks::{Job, Keyed, Task},
-    views::{
-        view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
-        view_versions_tree_name,
-    },
-    Database, Error,
+use crate::database::keyvalue::KEY_TREE;
+use crate::database::{document_tree_name, DatabaseNonBlocking};
+use crate::tasks::{Job, Keyed, Task};
+use crate::views::{
+    view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
+    view_versions_tree_name,
 };
+use crate::{Database, Error};
 
 #[derive(Debug)]
 pub struct Compactor {
@@ -82,9 +82,8 @@ impl Target {
 }
 
 impl Job for Compactor {
-    type Output = ();
-
     type Error = Error;
+    type Output = ();
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn execute(&mut self) -> Result<Self::Output, Error> {

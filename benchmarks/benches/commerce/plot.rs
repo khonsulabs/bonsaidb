@@ -1,9 +1,10 @@
-use std::{collections::BTreeMap, ops::RangeInclusive, path::Path, time::Duration};
+use std::collections::BTreeMap;
+use std::ops::RangeInclusive;
+use std::path::Path;
+use std::time::Duration;
 
-use plotters::{
-    coord::ranged1d::{NoDefaultFormatting, ValueFormatter},
-    prelude::*,
-};
+use plotters::coord::ranged1d::{NoDefaultFormatting, ValueFormatter};
+use plotters::prelude::*;
 
 use crate::utils::format_nanoseconds;
 pub fn overview_graph(
@@ -94,8 +95,8 @@ impl ValueFormatter<Nanos> for NanosRange {
 }
 
 impl Ranged for NanosRange {
-    type ValueType = Nanos;
     type FormatOption = NoDefaultFormatting;
+    type ValueType = Nanos;
 
     fn map(&self, value: &Self::ValueType, limit: (i32, i32)) -> i32 {
         let limited_size = limit.1 - limit.0;

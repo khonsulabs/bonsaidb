@@ -1,20 +1,20 @@
-use std::{ops::Deref, sync::Arc};
+use std::ops::Deref;
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use bonsaidb_core::{
-    connection::{
-        AccessPolicy, AsyncConnection, AsyncLowLevelConnection, HasSchema, HasSession, Range,
-        SerializedQueryKey, Session, Sort,
-    },
-    document::{DocumentId, Header, OwnedDocument},
-    networking::{
-        ApplyTransaction, Compact, CompactCollection, CompactKeyValueStore, Count, DeleteDocs, Get,
-        GetMultiple, LastTransactionId, List, ListExecutedTransactions, ListHeaders, Query,
-        QueryWithDocs, Reduce, ReduceGrouped,
-    },
-    schema::{self, view::map::MappedSerializedValue, CollectionName, Schematic, ViewName},
-    transaction::{Executed, OperationResult, Transaction},
+use bonsaidb_core::connection::{
+    AccessPolicy, AsyncConnection, AsyncLowLevelConnection, HasSchema, HasSession, Range,
+    SerializedQueryKey, Session, Sort,
 };
+use bonsaidb_core::document::{DocumentId, Header, OwnedDocument};
+use bonsaidb_core::networking::{
+    ApplyTransaction, Compact, CompactCollection, CompactKeyValueStore, Count, DeleteDocs, Get,
+    GetMultiple, LastTransactionId, List, ListExecutedTransactions, ListHeaders, Query,
+    QueryWithDocs, Reduce, ReduceGrouped,
+};
+use bonsaidb_core::schema::view::map::MappedSerializedValue;
+use bonsaidb_core::schema::{self, CollectionName, Schematic, ViewName};
+use bonsaidb_core::transaction::{Executed, OperationResult, Transaction};
 
 use crate::Client;
 

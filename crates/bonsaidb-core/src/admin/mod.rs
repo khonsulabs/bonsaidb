@@ -11,10 +11,11 @@ pub mod role;
 #[doc(hidden)]
 pub mod user;
 
-pub use self::{
-    authentication_token::AuthenticationToken, database::Database, group::PermissionGroup,
-    role::Role, user::User,
-};
+pub use self::authentication_token::AuthenticationToken;
+pub use self::database::Database;
+pub use self::group::PermissionGroup;
+pub use self::role::Role;
+pub use self::user::User;
 
 /// The BonsaiDb administration schema.
 #[derive(Debug, Schema)]

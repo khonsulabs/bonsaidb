@@ -1,6 +1,9 @@
 use std::fmt::Debug;
 
-use crate::tasks::{handle::Id, manager::Manager, traits::Executable, Job};
+use crate::tasks::handle::Id;
+use crate::tasks::manager::Manager;
+use crate::tasks::traits::Executable;
+use crate::tasks::Job;
 
 #[derive(Debug)]
 pub struct ManagedJob<J, Key> {

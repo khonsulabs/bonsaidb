@@ -1,12 +1,14 @@
-use std::{path::Path, time::Duration};
+use std::path::Path;
+use std::time::Duration;
 
-use bonsaidb::{
-    client::{url::Url, Client, RemoteDatabase},
-    core::{connection::AsyncStorageConnection, keyvalue::AsyncKeyValue},
-    local::config::{Builder, KeyValuePersistence, PersistenceThreshold},
-    server::{DefaultPermissions, Server, ServerConfiguration},
-};
-use criterion::{measurement::WallTime, BenchmarkGroup, BenchmarkId};
+use bonsaidb::client::url::Url;
+use bonsaidb::client::{Client, RemoteDatabase};
+use bonsaidb::core::connection::AsyncStorageConnection;
+use bonsaidb::core::keyvalue::AsyncKeyValue;
+use bonsaidb::local::config::{Builder, KeyValuePersistence, PersistenceThreshold};
+use bonsaidb::server::{DefaultPermissions, Server, ServerConfiguration};
+use criterion::measurement::WallTime;
+use criterion::{BenchmarkGroup, BenchmarkId};
 use tokio::runtime::Runtime;
 use ubyte::ToByteUnit;
 

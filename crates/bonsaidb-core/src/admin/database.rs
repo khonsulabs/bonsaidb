@@ -1,10 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    define_basic_unique_mapped_view,
-    document::{CollectionDocument, Emit},
-    schema::{Collection, NamedCollection, SchemaName},
-};
+use crate::define_basic_unique_mapped_view;
+use crate::document::{CollectionDocument, Emit};
+use crate::schema::{Collection, NamedCollection, SchemaName};
 
 /// A database stored in BonsaiDb.
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize, Collection)]

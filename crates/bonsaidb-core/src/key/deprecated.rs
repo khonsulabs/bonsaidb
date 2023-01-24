@@ -1,7 +1,5 @@
-use std::{
-    borrow::Cow,
-    io::{ErrorKind, Write},
-};
+use std::borrow::Cow;
+use std::io::{ErrorKind, Write};
 
 use ordered_varint::Variable;
 

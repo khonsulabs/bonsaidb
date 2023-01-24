@@ -1,23 +1,22 @@
-use std::{collections::HashMap, marker::PhantomData, path::Path, sync::Arc};
+use std::collections::HashMap;
+use std::marker::PhantomData;
+use std::path::Path;
+use std::sync::Arc;
 
+use bonsaidb_core::api;
+use bonsaidb_core::api::ApiName;
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
-use bonsaidb_core::{
-    api,
-    api::ApiName,
-    permissions::{Permissions, Statement},
-    schema::Schema,
-};
+use bonsaidb_core::permissions::{Permissions, Statement};
+use bonsaidb_core::schema::Schema;
 #[cfg(feature = "compression")]
 use bonsaidb_local::config::Compression;
 use bonsaidb_local::config::{Builder, KeyValuePersistence, StorageConfiguration};
 #[cfg(feature = "encryption")]
 use bonsaidb_local::vault::AnyVaultKeyStorage;
 
-use crate::{
-    api::{AnyHandler, AnyWrapper, Handler},
-    Backend, Error, NoBackend,
-};
+use crate::api::{AnyHandler, AnyWrapper, Handler};
+use crate::{Backend, Error, NoBackend};
 
 /// Configuration options for [`Server`](crate::Server)
 #[derive(Debug, Clone)]

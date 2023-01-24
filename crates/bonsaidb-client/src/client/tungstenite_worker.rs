@@ -1,21 +1,20 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
+use std::sync::Arc;
 
-use bonsaidb_core::{api::ApiName, networking::Payload};
+use bonsaidb_core::api::ApiName;
+use bonsaidb_core::networking::Payload;
 use bonsaidb_utils::fast_async_lock;
 use flume::Receiver;
-use futures::{
-    stream::{SplitSink, SplitStream},
-    SinkExt, StreamExt,
-};
+use futures::stream::{SplitSink, SplitStream};
+use futures::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
-use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use url::Url;
 
 use super::PendingRequest;
-use crate::{
-    client::{AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap},
-    Error,
-};
+use crate::client::{AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap};
+use crate::Error;
 
 pub async fn reconnecting_client_loop(
     url: Url,

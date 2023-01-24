@@ -1,12 +1,8 @@
 use std::time::SystemTime;
 
-use bonsaidb::{
-    core::schema::{Collection, SerializedCollection},
-    local::{
-        config::{Builder, StorageConfiguration},
-        Database,
-    },
-};
+use bonsaidb::core::schema::{Collection, SerializedCollection};
+use bonsaidb::local::config::{Builder, StorageConfiguration};
+use bonsaidb::local::Database;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Collection)]

@@ -2,11 +2,12 @@
 
 use std::time::Duration;
 
-use bonsaidb::{
-    client::{url::Url, Client},
-    core::connection::AsyncStorageConnection,
-    local::config::Builder,
-    server::{DefaultPermissions, Server, ServerConfiguration, LETS_ENCRYPT_STAGING_DIRECTORY},
+use bonsaidb::client::url::Url;
+use bonsaidb::client::Client;
+use bonsaidb::core::connection::AsyncStorageConnection;
+use bonsaidb::local::config::Builder;
+use bonsaidb::server::{
+    DefaultPermissions, Server, ServerConfiguration, LETS_ENCRYPT_STAGING_DIRECTORY,
 };
 
 const DOMAIN: &str = "example.com";

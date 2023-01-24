@@ -1,12 +1,8 @@
 use std::time::Duration;
 
-use bonsaidb::{
-    core::pubsub::{AsyncPubSub, AsyncSubscriber},
-    local::{
-        config::{Builder, StorageConfiguration},
-        AsyncDatabase,
-    },
-};
+use bonsaidb::core::pubsub::{AsyncPubSub, AsyncSubscriber};
+use bonsaidb::local::config::{Builder, StorageConfiguration};
+use bonsaidb::local::AsyncDatabase;
 use tokio::time::sleep;
 
 #[tokio::main]

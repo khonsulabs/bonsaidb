@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use clap::Subcommand;
 
-use crate::{config::StorageConfiguration, Error, Storage};
+use crate::config::StorageConfiguration;
+use crate::{Error, Storage};
 
 /// Commands for administering the bonsaidb server.
 pub mod admin;
@@ -72,6 +73,7 @@ impl Location {
             Location::Path { path } => storage.restore(path),
         }
     }
+
     /// Backs-up `storage` to `self`.
     #[cfg(feature = "async")]
     pub async fn backup_async(&self, storage: &crate::AsyncStorage) -> Result<(), Error> {
@@ -129,11 +131,9 @@ fn read_sensitive_input_from_stdin(
 ) -> Result<bonsaidb_core::connection::SensitiveString, ReadPasswordError> {
     use std::io::stdout;
 
-    use crossterm::{
-        cursor::MoveToColumn,
-        terminal::{Clear, ClearType},
-        ExecutableCommand,
-    };
+    use crossterm::cursor::MoveToColumn;
+    use crossterm::terminal::{Clear, ClearType};
+    use crossterm::ExecutableCommand;
 
     println!("{prompt} (input Enter or Return when done, or Escape to cancel)");
 
@@ -164,12 +164,10 @@ fn read_password_loop(
 
     use std::io::Read;
 
-    use crossterm::{
-        cursor::{MoveLeft, MoveToColumn},
-        style::Print,
-        terminal::{Clear, ClearType},
-        ExecutableCommand,
-    };
+    use crossterm::cursor::{MoveLeft, MoveToColumn};
+    use crossterm::style::Print;
+    use crossterm::terminal::{Clear, ClearType};
+    use crossterm::ExecutableCommand;
     let mut stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     let mut buffer = [0; 1];

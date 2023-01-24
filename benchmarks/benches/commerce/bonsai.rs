@@ -1,37 +1,33 @@
-use std::{path::Path, time::Duration};
+use std::path::Path;
+use std::time::Duration;
 
+use bonsaidb::client::url::Url;
+use bonsaidb::client::Client;
+use bonsaidb::core::async_trait::async_trait;
+use bonsaidb::core::connection::{
+    AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
+};
+use bonsaidb::core::document::{CollectionDocument, CollectionHeader, Emit};
+use bonsaidb::core::schema::view::map::Mappings;
+use bonsaidb::core::schema::{
+    Collection, CollectionName, CollectionViewSchema, DefaultSerialization, InsertError,
+    NamedCollection, Qualified, ReduceResult, Schema, Schematic, SerializedCollection, View,
+    ViewMapResult, ViewMappedValue,
+};
+use bonsaidb::core::transaction::{self, Transaction};
+use bonsaidb::core::{define_basic_unique_mapped_view, Error};
+use bonsaidb::local::config::Builder;
 #[cfg(feature = "compression")]
 use bonsaidb::local::config::Compression;
-use bonsaidb::{
-    client::{url::Url, Client},
-    core::{
-        async_trait::async_trait,
-        connection::{
-            AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
-        },
-        define_basic_unique_mapped_view,
-        document::{CollectionDocument, CollectionHeader, Emit},
-        schema::{
-            view::map::Mappings, Collection, CollectionName, CollectionViewSchema,
-            DefaultSerialization, InsertError, NamedCollection, Qualified, ReduceResult, Schema,
-            Schematic, SerializedCollection, View, ViewMapResult, ViewMappedValue,
-        },
-        transaction::{self, Transaction},
-        Error,
-    },
-    local::config::Builder,
-    server::{DefaultPermissions, Server, ServerConfiguration},
-    AnyDatabase,
-};
+use bonsaidb::server::{DefaultPermissions, Server, ServerConfiguration};
+use bonsaidb::AnyDatabase;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    execute::{Backend, BackendOperator, Measurements, Metric, Operator},
-    model::{Cart, Category, Customer, Order, Product, ProductReview},
-    plan::{
-        AddProductToCart, Checkout, CreateCart, FindProduct, Load, LookupProduct, OperationResult,
-        ReviewProduct,
-    },
+use crate::execute::{Backend, BackendOperator, Measurements, Metric, Operator};
+use crate::model::{Cart, Category, Customer, Order, Product, ProductReview};
+use crate::plan::{
+    AddProductToCart, Checkout, CreateCart, FindProduct, Load, LookupProduct, OperationResult,
+    ReviewProduct,
 };
 
 pub enum Bonsai {
@@ -68,8 +64,8 @@ pub enum Commerce {}
 
 #[async_trait]
 impl Backend for BonsaiBackend {
-    type Operator = BonsaiOperator;
     type Config = Bonsai;
+    type Operator = BonsaiOperator;
 
     fn label(&self) -> &'static str {
         self.kind.label()

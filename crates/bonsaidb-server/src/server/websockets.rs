@@ -37,11 +37,12 @@ impl<B: Backend> CustomServer<B> {
         peer_address: std::net::SocketAddr,
         mut request: hyper::Request<hyper::Body>,
     ) -> hyper::Response<hyper::Body> {
-        use hyper::{
-            header::{HeaderValue, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE},
-            StatusCode,
+        use hyper::header::{
+            HeaderValue, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE,
         };
-        use tokio_tungstenite::{tungstenite::protocol::Role, WebSocketStream};
+        use hyper::StatusCode;
+        use tokio_tungstenite::tungstenite::protocol::Role;
+        use tokio_tungstenite::WebSocketStream;
 
         let mut response = hyper::Response::new(hyper::Body::empty());
         // Send a 400 to any request that doesn't have

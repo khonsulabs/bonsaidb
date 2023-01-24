@@ -1,13 +1,11 @@
 use actionable::Permissions;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    admin::group,
-    connection::{AsyncStorageConnection, Connection, IdentityReference, StorageConnection},
-    define_basic_unique_mapped_view,
-    document::{CollectionDocument, Emit},
-    schema::{Collection, Nameable, NamedCollection, SerializedCollection},
-};
+use crate::admin::group;
+use crate::connection::{AsyncStorageConnection, Connection, IdentityReference, StorageConnection};
+use crate::define_basic_unique_mapped_view;
+use crate::document::{CollectionDocument, Emit};
+use crate::schema::{Collection, Nameable, NamedCollection, SerializedCollection};
 
 /// An assignable role, which grants permissions based on the associated [`PermissionGroup`](crate::admin::PermissionGroup)s.
 #[derive(Clone, Debug, Serialize, Deserialize, Collection)]

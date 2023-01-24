@@ -1,46 +1,38 @@
 #![allow(clippy::missing_panics_doc)]
 
-use std::{
-    fmt::{Debug, Display},
-    io::ErrorKind,
-    ops::Deref,
-    path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc,
-    },
-    time::{Duration, Instant},
-};
+use std::fmt::{Debug, Display};
+use std::io::ErrorKind;
+use std::ops::Deref;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use transmog_pot::Pot;
 
+use crate::admin::{PermissionGroup, Role, User};
+use crate::connection::{
+    AccessPolicy, AsyncConnection, AsyncStorageConnection, Connection, StorageConnection,
+};
+use crate::document::{
+    BorrowedDocument, CollectionDocument, CollectionHeader, DocumentId, Emit, Header, KeyId,
+};
+use crate::keyvalue::{AsyncKeyValue, KeyValue};
+use crate::limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS};
+use crate::schema::view::map::{Mappings, ViewMappedValue};
+use crate::schema::view::{ReduceResult, ViewSchema};
+use crate::schema::{
+    Collection, CollectionName, MappedValue, NamedCollection, Qualified, Schema, SchemaName,
+    Schematic, SerializedCollection, View, ViewMapResult,
+};
+use crate::transaction::{Operation, Transaction};
+use crate::Error;
 #[cfg(feature = "token-authentication")]
 use crate::{
     admin::AuthenticationToken,
     connection::{HasSession, Identity, IdentityReference, Session},
-};
-use crate::{
-    admin::{PermissionGroup, Role, User},
-    connection::{
-        AccessPolicy, AsyncConnection, AsyncStorageConnection, Connection, StorageConnection,
-    },
-    document::{
-        BorrowedDocument, CollectionDocument, CollectionHeader, DocumentId, Emit, Header, KeyId,
-    },
-    keyvalue::{AsyncKeyValue, KeyValue},
-    limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-    schema::{
-        view::{
-            map::{Mappings, ViewMappedValue},
-            ReduceResult, ViewSchema,
-        },
-        Collection, CollectionName, MappedValue, NamedCollection, Qualified, Schema, SchemaName,
-        Schematic, SerializedCollection, View, ViewMapResult,
-    },
-    transaction::{Operation, Transaction},
-    Error,
 };
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Default, Clone, Collection)]
@@ -366,6 +358,7 @@ impl TestDirectory {
         }
         Self(path)
     }
+
     pub fn new<S: AsRef<Path>>(name: S) -> Self {
         let path = std::env::temp_dir().join(name);
         if path.exists() {
@@ -3242,10 +3235,8 @@ macro_rules! define_async_kv_test_suite {
             async fn kv_transaction_tests() -> anyhow::Result<()> {
                 use std::time::Duration;
 
-                use $crate::{
-                    connection::AsyncConnection,
-                    keyvalue::{AsyncKeyValue, KeyStatus},
-                };
+                use $crate::connection::AsyncConnection;
+                use $crate::keyvalue::{AsyncKeyValue, KeyStatus};
                 // loop {
                 let harness = $harness::new($crate::test_util::HarnessTest::KvTransactions).await?;
                 let db = harness.connect().await?;
@@ -3708,10 +3699,8 @@ macro_rules! define_blocking_kv_test_suite {
             fn kv_transaction_tests() -> anyhow::Result<()> {
                 use std::time::Duration;
 
-                use $crate::{
-                    connection::Connection,
-                    keyvalue::{KeyStatus, KeyValue},
-                };
+                use $crate::connection::Connection;
+                use $crate::keyvalue::{KeyStatus, KeyValue};
                 // loop {
                 let harness = $harness::new($crate::test_util::HarnessTest::KvTransactions)?;
                 let db = harness.connect()?;

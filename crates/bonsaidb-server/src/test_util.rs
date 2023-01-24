@@ -2,10 +2,12 @@
 
 use std::path::Path;
 
-use bonsaidb_core::{connection::AsyncStorageConnection, test_util::BasicSchema};
+use bonsaidb_core::connection::AsyncStorageConnection;
+use bonsaidb_core::test_util::BasicSchema;
 use bonsaidb_local::config::Builder;
 
-use crate::{config::DefaultPermissions, BackendError, Server, ServerConfiguration};
+use crate::config::DefaultPermissions;
+use crate::{BackendError, Server, ServerConfiguration};
 
 pub const BASIC_SERVER_NAME: &str = "basic-server";
 

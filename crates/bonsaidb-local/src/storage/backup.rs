@@ -1,22 +1,16 @@
-use std::{
-    fs::DirEntry,
-    io::ErrorKind,
-    path::{Path, PathBuf},
-};
+use std::fs::DirEntry;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 
-use bonsaidb_core::{
-    admin,
-    connection::{LowLevelConnection, Range, Sort, StorageConnection},
-    document::DocumentId,
-    schema::{Collection, Qualified, SchemaName},
-    transaction::{Operation, Transaction},
-    AnyError,
-};
+use bonsaidb_core::connection::{LowLevelConnection, Range, Sort, StorageConnection};
+use bonsaidb_core::document::DocumentId;
+use bonsaidb_core::schema::{Collection, Qualified, SchemaName};
+use bonsaidb_core::transaction::{Operation, Transaction};
+use bonsaidb_core::{admin, AnyError};
 
-use crate::{
-    database::{keyvalue::Entry, DatabaseNonBlocking},
-    Database, Error, Storage,
-};
+use crate::database::keyvalue::Entry;
+use crate::database::DatabaseNonBlocking;
+use crate::{Database, Error, Storage};
 
 /// A location to store and restore a database from.
 pub trait BackupLocation: Send + Sync {
@@ -450,17 +444,13 @@ fn container_folder(
 
 #[cfg(test)]
 mod tests {
-    use bonsaidb_core::{
-        connection::{Connection as _, StorageConnection as _},
-        keyvalue::KeyValue,
-        schema::SerializedCollection,
-        test_util::{Basic, TestDirectory},
-    };
+    use bonsaidb_core::connection::{Connection as _, StorageConnection as _};
+    use bonsaidb_core::keyvalue::KeyValue;
+    use bonsaidb_core::schema::SerializedCollection;
+    use bonsaidb_core::test_util::{Basic, TestDirectory};
 
-    use crate::{
-        config::{Builder, KeyValuePersistence, PersistenceThreshold, StorageConfiguration},
-        Storage,
-    };
+    use crate::config::{Builder, KeyValuePersistence, PersistenceThreshold, StorageConfiguration};
+    use crate::Storage;
 
     #[test]
     fn backup_restore() -> anyhow::Result<()> {

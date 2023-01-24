@@ -2,15 +2,12 @@
 
 use std::time::Duration;
 
-use bonsaidb::{
-    client::{url::Url, Client},
-    core::{
-        connection::{AsyncConnection, AsyncStorageConnection},
-        schema::{SerializedCollection, SerializedView},
-    },
-    local::config::Builder,
-    server::{DefaultPermissions, Server, ServerConfiguration},
-};
+use bonsaidb::client::url::Url;
+use bonsaidb::client::Client;
+use bonsaidb::core::connection::{AsyncConnection, AsyncStorageConnection};
+use bonsaidb::core::schema::{SerializedCollection, SerializedView};
+use bonsaidb::local::config::Builder;
+use bonsaidb::server::{DefaultPermissions, Server, ServerConfiguration};
 use rand::{thread_rng, Rng};
 
 mod support;

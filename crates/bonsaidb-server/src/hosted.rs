@@ -1,10 +1,9 @@
-use bonsaidb_core::{
-    define_basic_mapped_view, define_basic_unique_mapped_view,
-    document::{CollectionDocument, Emit, KeyId},
-    schema::{Collection, NamedCollection, Schema},
-};
+use bonsaidb_core::document::{CollectionDocument, Emit, KeyId};
+use bonsaidb_core::schema::{Collection, NamedCollection, Schema};
+use bonsaidb_core::{define_basic_mapped_view, define_basic_unique_mapped_view};
 use fabruic::{CertificateChain, PrivateKey};
-use serde::{de::Visitor, Deserialize, Serialize};
+use serde::de::Visitor;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Schema)]
 #[schema(name = "hosted", authority = "khonsulabs", collections = [TlsCertificate], core = bonsaidb_core)]

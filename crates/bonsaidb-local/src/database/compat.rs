@@ -1,11 +1,11 @@
-use std::{any::type_name, collections::HashMap, marker::PhantomData};
+use std::any::type_name;
+use std::collections::HashMap;
+use std::marker::PhantomData;
 
-use bonsaidb_core::{
-    arc_bytes::serde::Bytes,
-    document::DocumentId,
-    schema::CollectionName,
-    transaction::{ChangedDocument, ChangedKey, Changes, DocumentChanges},
-};
+use bonsaidb_core::arc_bytes::serde::Bytes;
+use bonsaidb_core::document::DocumentId;
+use bonsaidb_core::schema::CollectionName;
+use bonsaidb_core::transaction::{ChangedDocument, ChangedKey, Changes, DocumentChanges};
 use serde::{Deserialize, Serialize};
 use transmog_versions::Versioned;
 
@@ -89,6 +89,7 @@ pub enum ChangesV0 {
 
 impl TryFrom<ChangesV0> for Changes {
     type Error = bonsaidb_core::Error;
+
     fn try_from(legacy: ChangesV0) -> Result<Self, Self::Error> {
         match legacy {
             ChangesV0::Documents(legacy_documents) => {
@@ -142,6 +143,7 @@ pub enum LegacyDocumentId {
 
 impl TryFrom<LegacyDocumentId> for DocumentId {
     type Error = bonsaidb_core::Error;
+
     fn try_from(id: LegacyDocumentId) -> Result<Self, Self::Error> {
         match id {
             LegacyDocumentId::Document(id) => DocumentId::try_from(&id[..]),

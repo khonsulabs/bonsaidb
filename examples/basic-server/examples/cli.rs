@@ -2,17 +2,15 @@
 
 use std::convert::Infallible;
 
-use bonsaidb::{
-    cli::CommandLine,
-    core::{
-        actionable::async_trait,
-        connection::AsyncStorageConnection,
-        schema::{SerializedCollection, SerializedView},
-    },
-    local::config::Builder,
-    server::{Backend, BackendError, CustomServer, DefaultPermissions, ServerConfiguration},
-    AnyServerConnection,
+use bonsaidb::cli::CommandLine;
+use bonsaidb::core::actionable::async_trait;
+use bonsaidb::core::connection::AsyncStorageConnection;
+use bonsaidb::core::schema::{SerializedCollection, SerializedView};
+use bonsaidb::local::config::Builder;
+use bonsaidb::server::{
+    Backend, BackendError, CustomServer, DefaultPermissions, ServerConfiguration,
 };
+use bonsaidb::AnyServerConnection;
 use clap::Subcommand;
 
 mod support;
@@ -35,8 +33,8 @@ enum Cli {
 
 #[async_trait]
 impl Backend for CliBackend {
-    type Error = Infallible;
     type ClientData = ();
+    type Error = Infallible;
 
     async fn initialize(&self, server: &CustomServer<Self>) -> Result<(), BackendError> {
         server.create_database::<Shape>("shapes", true).await?;

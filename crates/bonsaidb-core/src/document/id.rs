@@ -1,14 +1,13 @@
-use std::{
-    borrow::Cow,
-    fmt::{Display, Write},
-    hash::Hash,
-    mem::size_of,
-    ops::Deref,
-    str::FromStr,
-};
+use std::borrow::Cow;
+use std::fmt::{Display, Write};
+use std::hash::Hash;
+use std::mem::size_of;
+use std::ops::Deref;
+use std::str::FromStr;
 
 use actionable::Identifier;
-use serde::{de::Visitor, Deserialize, Serialize};
+use serde::de::Visitor;
+use serde::{Deserialize, Serialize};
 use tinyvec::{Array, TinyVec};
 
 use crate::key::{Key, KeyEncoding};
@@ -19,6 +18,7 @@ pub struct DocumentId(TinyVec<[u8; Self::INLINE_SIZE]>);
 
 impl Deref for DocumentId {
     type Target = [u8];
+
     fn deref(&self) -> &[u8] {
         &self.0
     }

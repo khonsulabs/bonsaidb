@@ -2,12 +2,10 @@ use std::fmt::Debug;
 
 use arc_bytes::serde::{Bytes, CowBytes};
 
-use crate::{
-    connection::{AsyncConnection, Connection},
-    document::{BorrowedDocument, CollectionHeader, DocumentId, Header, OwnedDocument},
-    schema::SerializedCollection,
-    Error,
-};
+use crate::connection::{AsyncConnection, Connection};
+use crate::document::{BorrowedDocument, CollectionHeader, DocumentId, Header, OwnedDocument};
+use crate::schema::SerializedCollection;
+use crate::Error;
 
 /// A document with serializable contents.
 #[derive(Clone, Debug, Eq, PartialEq)]

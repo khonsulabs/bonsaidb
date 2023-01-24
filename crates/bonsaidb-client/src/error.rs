@@ -1,4 +1,5 @@
-use bonsaidb_core::{arc_bytes::serde::Bytes, schema::Name};
+use bonsaidb_core::arc_bytes::serde::Bytes;
+use bonsaidb_core::schema::Name;
 
 /// Errors related to working with [`Client`](crate::Client)
 #[derive(thiserror::Error, Debug)]

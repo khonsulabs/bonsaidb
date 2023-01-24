@@ -1,12 +1,11 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::fmt::Debug;
+use std::marker::PhantomData;
 
 use async_trait::async_trait;
-use bonsaidb_core::{
-    api::{self, Api, ApiError, Infallible},
-    arc_bytes::serde::Bytes,
-    permissions::PermissionDenied,
-    schema::{InsertError, InvalidNameError},
-};
+use bonsaidb_core::api::{self, Api, ApiError, Infallible};
+use bonsaidb_core::arc_bytes::serde::Bytes;
+use bonsaidb_core::permissions::PermissionDenied;
+use bonsaidb_core::schema::{InsertError, InvalidNameError};
 
 use crate::{Backend, ConnectedClient, CustomServer, Error, NoBackend};
 

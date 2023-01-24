@@ -2,11 +2,10 @@ use std::fmt::{Display, Write};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    document::{BorrowedDocument, CollectionDocument, DocumentId, OwnedDocument, Revision},
-    key::Key,
-    schema::{view::map::Mappings, Map, SerializedCollection},
-};
+use crate::document::{BorrowedDocument, CollectionDocument, DocumentId, OwnedDocument, Revision};
+use crate::key::Key;
+use crate::schema::view::map::Mappings;
+use crate::schema::{Map, SerializedCollection};
 
 /// The header of a `Document`.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -180,7 +179,8 @@ where
 
 #[test]
 fn emissions_tests() -> Result<(), crate::Error> {
-    use crate::{schema::Map, test_util::Basic};
+    use crate::schema::Map;
+    use crate::test_util::Basic;
 
     let doc = BorrowedDocument::with_contents::<Basic, _>(&1, &Basic::default())?;
 
@@ -209,7 +209,8 @@ fn emissions_tests() -> Result<(), crate::Error> {
 
 #[test]
 fn chained_mappings_test() -> Result<(), crate::Error> {
-    use crate::{schema::Map, test_util::Basic};
+    use crate::schema::Map;
+    use crate::test_util::Basic;
 
     let doc = BorrowedDocument::with_contents::<Basic, _>(&1, &Basic::default())?;
 

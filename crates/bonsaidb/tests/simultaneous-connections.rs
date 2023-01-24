@@ -1,14 +1,11 @@
 //! Tests a single server with multiple simultaneous connections.
 
-use bonsaidb::{
-    client::{url::Url, Client},
-    core::{
-        connection::AsyncStorageConnection,
-        test_util::{self, BasicSchema, TestDirectory},
-    },
-    local::config::Builder,
-    server::{DefaultPermissions, Server, ServerConfiguration},
-};
+use bonsaidb::client::url::Url;
+use bonsaidb::client::Client;
+use bonsaidb::core::connection::AsyncStorageConnection;
+use bonsaidb::core::test_util::{self, BasicSchema, TestDirectory};
+use bonsaidb::local::config::Builder;
+use bonsaidb::server::{DefaultPermissions, Server, ServerConfiguration};
 
 #[tokio::test]
 async fn simultaneous_connections() -> anyhow::Result<()> {

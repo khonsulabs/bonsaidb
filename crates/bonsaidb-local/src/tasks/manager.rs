@@ -1,13 +1,12 @@
-use std::{fmt::Debug, sync::Arc};
+use std::fmt::Debug;
+use std::sync::Arc;
 
 use derive_where::derive_where;
 use parking_lot::RwLock;
 
-use crate::tasks::{
-    handle::{Handle, Id},
-    traits::Executable,
-    Job, Keyed,
-};
+use crate::tasks::handle::{Handle, Id};
+use crate::tasks::traits::Executable;
+use crate::tasks::{Job, Keyed};
 
 pub(crate) mod jobs;
 mod managed_job;

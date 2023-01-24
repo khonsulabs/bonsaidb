@@ -1,6 +1,8 @@
 use std::fmt::Display;
 
-use bonsaidb_core::{arc_bytes::serde::Bytes, document::Header, schema::CollectionName};
+use bonsaidb_core::arc_bytes::serde::Bytes;
+use bonsaidb_core::document::Header;
+use bonsaidb_core::schema::CollectionName;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]

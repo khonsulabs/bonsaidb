@@ -1,13 +1,11 @@
+use bonsaidb::core::connection::Connection;
+use bonsaidb::core::test_util::TestDirectory;
 #[cfg(feature = "compression")]
 use bonsaidb::local::config::Compression;
-use bonsaidb::{
-    core::{connection::Connection, test_util::TestDirectory},
-    local::{
-        config::{Builder, StorageConfiguration},
-        Database,
-    },
-};
-use criterion::{measurement::WallTime, BenchmarkGroup, BenchmarkId};
+use bonsaidb::local::config::{Builder, StorageConfiguration};
+use bonsaidb::local::Database;
+use criterion::measurement::WallTime;
+use criterion::{BenchmarkGroup, BenchmarkId};
 use ubyte::ToByteUnit;
 
 use crate::collections::ResizableDocument;

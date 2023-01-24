@@ -1,12 +1,10 @@
 use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    connection::{AsyncLowLevelConnection, LowLevelConnection},
-    document::{CollectionHeader, DocumentId, HasHeader, Header, Revision},
-    schema::{Collection, CollectionName, SerializedCollection},
-    Error,
-};
+use crate::connection::{AsyncLowLevelConnection, LowLevelConnection};
+use crate::document::{CollectionHeader, DocumentId, HasHeader, Header, Revision};
+use crate::schema::{Collection, CollectionName, SerializedCollection};
+use crate::Error;
 
 /// A list of operations to execute as a single unit. If any operation fails,
 /// all changes are aborted. Transactions are ACID-compliant. ACID stands for:
@@ -529,9 +527,8 @@ impl Iterator for DocumentChangesIntoIter {
 }
 
 impl IntoIterator for DocumentChanges {
-    type Item = (CollectionName, ChangedDocument);
-
     type IntoIter = DocumentChangesIntoIter;
+    type Item = (CollectionName, ChangedDocument);
 
     fn into_iter(self) -> Self::IntoIter {
         DocumentChangesIntoIter {

@@ -2,21 +2,15 @@ use arc_bytes::serde::Bytes;
 use schema::SchemaName;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    api::{Api, ApiName},
-    connection::{
-        AccessPolicy, Database, IdentityReference, Range, SerializedQueryKey, Session, SessionId,
-        Sort,
-    },
-    document::{DocumentId, Header, OwnedDocument},
-    keyvalue::{KeyOperation, Output},
-    schema::{
-        self,
-        view::map::{self, MappedSerializedDocuments},
-        CollectionName, NamedReference, Qualified, ViewName,
-    },
-    transaction::{Executed, OperationResult, Transaction},
+use crate::api::{Api, ApiName};
+use crate::connection::{
+    AccessPolicy, Database, IdentityReference, Range, SerializedQueryKey, Session, SessionId, Sort,
 };
+use crate::document::{DocumentId, Header, OwnedDocument};
+use crate::keyvalue::{KeyOperation, Output};
+use crate::schema::view::map::{self, MappedSerializedDocuments};
+use crate::schema::{self, CollectionName, NamedReference, Qualified, ViewName};
+use crate::transaction::{Executed, OperationResult, Transaction};
 
 /// The current protocol version.
 pub const CURRENT_PROTOCOL_VERSION: &str = "bonsai/pre/0";
@@ -44,8 +38,8 @@ pub struct CreateDatabase {
 }
 
 impl Api for CreateDatabase {
-    type Response = ();
     type Error = crate::Error;
+    type Response = ();
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "CreateDatabase")
@@ -60,8 +54,8 @@ pub struct DeleteDatabase {
 }
 
 impl Api for DeleteDatabase {
-    type Response = ();
     type Error = crate::Error;
+    type Response = ();
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "DeleteDatabase")
@@ -73,8 +67,8 @@ impl Api for DeleteDatabase {
 pub struct ListDatabases;
 
 impl Api for ListDatabases {
-    type Response = Vec<Database>;
     type Error = crate::Error;
+    type Response = Vec<Database>;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "ListDatabases")
@@ -86,8 +80,8 @@ impl Api for ListDatabases {
 pub struct ListAvailableSchemas;
 
 impl Api for ListAvailableSchemas {
-    type Response = Vec<SchemaName>;
     type Error = crate::Error;
+    type Response = Vec<SchemaName>;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "ListAvailableSchemas")
@@ -102,8 +96,8 @@ pub struct CreateUser {
 }
 
 impl Api for CreateUser {
-    type Response = u64;
     type Error = crate::Error;
+    type Response = u64;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "CreateUser")
@@ -118,8 +112,8 @@ pub struct DeleteUser {
 }
 
 impl Api for DeleteUser {
-    type Response = ();
     type Error = crate::Error;
+    type Response = ();
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "DeleteUser")
@@ -138,8 +132,8 @@ pub struct SetUserPassword {
 
 #[cfg(feature = "password-hashing")]
 impl Api for SetUserPassword {
-    type Response = ();
     type Error = crate::Error;
+    type Response = ();
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "SetUserPassword")
@@ -156,8 +150,8 @@ pub struct Authenticate {
 
 #[cfg(any(feature = "password-hashing", feature = "token-authentication"))]
 impl Api for Authenticate {
-    type Response = Session;
     type Error = crate::Error;
+    type Response = Session;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "Authenticate")
@@ -169,8 +163,8 @@ impl Api for Authenticate {
 pub struct AssumeIdentity(pub IdentityReference<'static>);
 
 impl Api for AssumeIdentity {
-    type Response = Session;
     type Error = crate::Error;
+    type Response = Session;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "AssumeIdentity")
@@ -182,8 +176,8 @@ impl Api for AssumeIdentity {
 pub struct LogOutSession(pub SessionId);
 
 impl Api for LogOutSession {
-    type Response = ();
     type Error = crate::Error;
+    type Response = ();
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "LogOutSession")
@@ -204,8 +198,8 @@ pub struct AlterUserPermissionGroupMembership {
 }
 
 impl Api for AlterUserPermissionGroupMembership {
-    type Response = ();
     type Error = crate::Error;
+    type Response = ();
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "AlterUserPermissionGroupMembership")
@@ -226,8 +220,8 @@ pub struct AlterUserRoleMembership {
 }
 
 impl Api for AlterUserRoleMembership {
-    type Response = ();
     type Error = crate::Error;
+    type Response = ();
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "AlterUserRoleMembership")
@@ -246,8 +240,8 @@ pub struct Get {
 }
 
 impl Api for Get {
-    type Response = Option<OwnedDocument>;
     type Error = crate::Error;
+    type Response = Option<OwnedDocument>;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "Get")
@@ -266,8 +260,8 @@ pub struct GetMultiple {
 }
 
 impl Api for GetMultiple {
-    type Response = Vec<OwnedDocument>;
     type Error = crate::Error;
+    type Response = Vec<OwnedDocument>;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "GetMultiple")
@@ -290,8 +284,8 @@ pub struct List {
 }
 
 impl Api for List {
-    type Response = Vec<OwnedDocument>;
     type Error = crate::Error;
+    type Response = Vec<OwnedDocument>;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "List")
@@ -303,8 +297,8 @@ impl Api for List {
 pub struct ListHeaders(pub List);
 
 impl Api for ListHeaders {
-    type Response = Vec<Header>;
     type Error = crate::Error;
+    type Response = Vec<Header>;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "ListHeaders")
@@ -323,8 +317,8 @@ pub struct Count {
 }
 
 impl Api for Count {
-    type Response = u64;
     type Error = crate::Error;
+    type Response = u64;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "Count")
@@ -349,8 +343,8 @@ pub struct Query {
 }
 
 impl Api for Query {
-    type Response = Vec<map::Serialized>;
     type Error = crate::Error;
+    type Response = Vec<map::Serialized>;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "Query")
@@ -362,8 +356,8 @@ impl Api for Query {
 pub struct QueryWithDocs(pub Query);
 
 impl Api for QueryWithDocs {
-    type Response = MappedSerializedDocuments;
     type Error = crate::Error;
+    type Response = MappedSerializedDocuments;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "QueryWithDocs")
@@ -384,8 +378,8 @@ pub struct Reduce {
 }
 
 impl Api for Reduce {
-    type Response = Bytes;
     type Error = crate::Error;
+    type Response = Bytes;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "Reduce")
@@ -397,8 +391,8 @@ impl Api for Reduce {
 pub struct ReduceGrouped(pub Reduce);
 
 impl Api for ReduceGrouped {
-    type Response = Vec<map::MappedSerializedValue>;
     type Error = crate::Error;
+    type Response = Vec<map::MappedSerializedValue>;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "ReduceGrouped")
@@ -419,8 +413,8 @@ pub struct DeleteDocs {
 }
 
 impl Api for DeleteDocs {
-    type Response = u64;
     type Error = crate::Error;
+    type Response = u64;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "DeleteDocs")
@@ -437,8 +431,8 @@ pub struct ApplyTransaction {
 }
 
 impl Api for ApplyTransaction {
-    type Response = Vec<OperationResult>;
     type Error = crate::Error;
+    type Response = Vec<OperationResult>;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "ApplyTransaction")
@@ -457,8 +451,8 @@ pub struct ListExecutedTransactions {
 }
 
 impl Api for ListExecutedTransactions {
-    type Response = Vec<Executed>;
     type Error = crate::Error;
+    type Response = Vec<Executed>;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "ListExecutedTransactions")
@@ -473,8 +467,8 @@ pub struct LastTransactionId {
 }
 
 impl Api for LastTransactionId {
-    type Response = Option<u64>;
     type Error = crate::Error;
+    type Response = Option<u64>;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "LastTransactionId")
@@ -489,8 +483,8 @@ pub struct CreateSubscriber {
 }
 
 impl Api for CreateSubscriber {
-    type Response = u64;
     type Error = crate::Error;
+    type Response = u64;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "CreateSubscriber")
@@ -509,8 +503,8 @@ pub struct Publish {
 }
 
 impl Api for Publish {
-    type Response = ();
     type Error = crate::Error;
+    type Response = ();
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "Publish")
@@ -529,8 +523,8 @@ pub struct PublishToAll {
 }
 
 impl Api for PublishToAll {
-    type Response = ();
     type Error = crate::Error;
+    type Response = ();
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "PublishToAll")
@@ -549,8 +543,8 @@ pub struct SubscribeTo {
 }
 
 impl Api for SubscribeTo {
-    type Response = ();
     type Error = crate::Error;
+    type Response = ();
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "SubscribeTo")
@@ -569,8 +563,8 @@ pub struct MessageReceived {
 }
 
 impl Api for MessageReceived {
-    type Response = Self;
     type Error = crate::Error;
+    type Response = Self;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "MessageReceived")
@@ -589,8 +583,8 @@ pub struct UnsubscribeFrom {
 }
 
 impl Api for UnsubscribeFrom {
-    type Response = ();
     type Error = crate::Error;
+    type Response = ();
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "UnsubscribeFrom")
@@ -607,8 +601,8 @@ pub struct UnregisterSubscriber {
 }
 
 impl Api for UnregisterSubscriber {
-    type Response = ();
     type Error = crate::Error;
+    type Response = ();
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "UnregisterSubscriber")
@@ -625,8 +619,8 @@ pub struct ExecuteKeyOperation {
 }
 
 impl Api for ExecuteKeyOperation {
-    type Response = Output;
     type Error = crate::Error;
+    type Response = Output;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "ExecuteKeyOperation")
@@ -643,8 +637,8 @@ pub struct CompactCollection {
 }
 
 impl Api for CompactCollection {
-    type Response = ();
     type Error = crate::Error;
+    type Response = ();
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "CompactCollection")
@@ -659,8 +653,8 @@ pub struct CompactKeyValueStore {
 }
 
 impl Api for CompactKeyValueStore {
-    type Response = ();
     type Error = crate::Error;
+    type Response = ();
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "CompactKeyValueStore")
@@ -675,8 +669,8 @@ pub struct Compact {
 }
 
 impl Api for Compact {
-    type Response = ();
     type Error = crate::Error;
+    type Response = ();
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "Compact")

@@ -1,6 +1,9 @@
-use std::{fmt::Display, sync::Arc};
+use std::fmt::Display;
+use std::sync::Arc;
 
-use bonsaidb_core::{permissions::PermissionDenied, schema, schema::InsertError, AnyError};
+use bonsaidb_core::permissions::PermissionDenied;
+use bonsaidb_core::schema::InsertError;
+use bonsaidb_core::{schema, AnyError};
 use schema::InvalidNameError;
 
 /// An error occurred while interacting with a [`Server`](crate::Server).

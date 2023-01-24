@@ -47,18 +47,17 @@
     clippy::module_name_repetitions,
 )]
 
-use std::{fmt::Display, future::Future};
+use std::fmt::Display;
+use std::future::Future;
 
 use async_trait::async_trait;
 use aws_config::meta::region::RegionProviderChain;
-pub use aws_sdk_s3;
-use aws_sdk_s3::{types::ByteStream, Client, Endpoint, Region};
-use bonsaidb_local::{
-    vault::{KeyPair, VaultKeyStorage},
-    StorageId,
-};
-pub use http;
+use aws_sdk_s3::types::ByteStream;
+use aws_sdk_s3::{Client, Endpoint, Region};
+use bonsaidb_local::vault::{KeyPair, VaultKeyStorage};
+use bonsaidb_local::StorageId;
 use tokio::runtime::{self, Handle, Runtime};
+pub use {aws_sdk_s3, http};
 
 /// S3-compatible [`VaultKeyStorage`] implementor.
 #[derive(Default, Debug)]
@@ -235,16 +234,12 @@ macro_rules! env_var {
 #[cfg(test)]
 #[tokio::test]
 async fn basic_test() {
-    use bonsaidb_core::{
-        connection::AsyncStorageConnection,
-        document::KeyId,
-        schema::SerializedCollection,
-        test_util::{Basic, BasicSchema, TestDirectory},
-    };
-    use bonsaidb_local::{
-        config::{Builder, StorageConfiguration},
-        AsyncStorage,
-    };
+    use bonsaidb_core::connection::AsyncStorageConnection;
+    use bonsaidb_core::document::KeyId;
+    use bonsaidb_core::schema::SerializedCollection;
+    use bonsaidb_core::test_util::{Basic, BasicSchema, TestDirectory};
+    use bonsaidb_local::config::{Builder, StorageConfiguration};
+    use bonsaidb_local::AsyncStorage;
     use http::Uri;
     drop(dotenv::dotenv());
 
@@ -300,16 +295,12 @@ async fn basic_test() {
 
 #[test]
 fn blocking_test() {
-    use bonsaidb_core::{
-        connection::StorageConnection,
-        document::KeyId,
-        schema::SerializedCollection,
-        test_util::{Basic, BasicSchema, TestDirectory},
-    };
-    use bonsaidb_local::{
-        config::{Builder, StorageConfiguration},
-        Storage,
-    };
+    use bonsaidb_core::connection::StorageConnection;
+    use bonsaidb_core::document::KeyId;
+    use bonsaidb_core::schema::SerializedCollection;
+    use bonsaidb_core::test_util::{Basic, BasicSchema, TestDirectory};
+    use bonsaidb_local::config::{Builder, StorageConfiguration};
+    use bonsaidb_local::Storage;
     use http::Uri;
     drop(dotenv::dotenv());
 

@@ -1,16 +1,14 @@
 use std::collections::HashMap;
 
 use bonsaidb_core::schema::{CollectionName, Schematic};
-use nebari::{
-    io::any::AnyFile,
-    tree::{AnyTreeRoot, Root, Unversioned, Versioned},
-};
+use nebari::io::any::AnyFile;
+use nebari::tree::{AnyTreeRoot, Root, Unversioned, Versioned};
 
+use crate::database::document_tree_name;
 #[cfg(any(feature = "encryption", feature = "compression"))]
 use crate::storage::TreeVault;
-use crate::{
-    database::document_tree_name,
-    views::{view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name},
+use crate::views::{
+    view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
 };
 
 #[derive(Default)]

@@ -1,17 +1,15 @@
 use bonsaidb_client::{Client, RemoteDatabase};
-use bonsaidb_core::{
-    async_trait::async_trait,
-    connection::{
-        self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
-        HasSchema, HasSession, IdentityReference, Range, SerializedQueryKey, Session, Sort,
-    },
-    document::{DocumentId, Header, OwnedDocument},
-    schema::{
-        self, view::map::MappedSerializedValue, Collection, CollectionName, Nameable, Schema,
-        SchemaName, Schematic, ViewName,
-    },
-    transaction::{Executed, OperationResult, Transaction},
+use bonsaidb_core::async_trait::async_trait;
+use bonsaidb_core::connection::{
+    self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
+    HasSchema, HasSession, IdentityReference, Range, SerializedQueryKey, Session, Sort,
 };
+use bonsaidb_core::document::{DocumentId, Header, OwnedDocument};
+use bonsaidb_core::schema::view::map::MappedSerializedValue;
+use bonsaidb_core::schema::{
+    self, Collection, CollectionName, Nameable, Schema, SchemaName, Schematic, ViewName,
+};
+use bonsaidb_core::transaction::{Executed, OperationResult, Transaction};
 use bonsaidb_server::{Backend, CustomServer, NoBackend, ServerDatabase};
 use derive_where::derive_where;
 
@@ -35,8 +33,8 @@ impl<B: Backend> HasSession for AnyServerConnection<B> {
 
 #[async_trait]
 impl<B: Backend> AsyncStorageConnection for AnyServerConnection<B> {
-    type Database = AnyDatabase<B>;
     type Authenticated = Self;
+    type Database = AnyDatabase<B>;
 
     async fn admin(&self) -> Self::Database {
         match self {

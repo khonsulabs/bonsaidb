@@ -1,11 +1,9 @@
 use actionable::{Action, Identifier, ResourceName};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    connection::AuthenticationMethod,
-    document::{DocumentId, KeyId},
-    schema::{CollectionName, ViewName},
-};
+use crate::connection::AuthenticationMethod;
+use crate::document::{DocumentId, KeyId};
+use crate::schema::{CollectionName, ViewName};
 
 /// The base BonsaiDb resource namespace. All database objects have this as
 /// their first name segment.

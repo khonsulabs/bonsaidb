@@ -1,16 +1,17 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
+use std::sync::Arc;
 
-use bonsaidb_core::{api, api::ApiName, networking::CURRENT_PROTOCOL_VERSION};
+use bonsaidb_core::api;
+use bonsaidb_core::api::ApiName;
+use bonsaidb_core::networking::CURRENT_PROTOCOL_VERSION;
 #[cfg(not(target_arch = "wasm32"))]
 use fabruic::Certificate;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::runtime::Handle;
 use url::Url;
 
-use crate::{
-    client::{AnyApiCallback, ApiCallback},
-    Client, Error,
-};
+use crate::client::{AnyApiCallback, ApiCallback};
+use crate::{Client, Error};
 
 /// Builds a new [`Client`] with custom settings.
 #[must_use]

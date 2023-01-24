@@ -1,68 +1,59 @@
-use std::{
-    borrow::{Borrow, Cow},
-    collections::{BTreeMap, HashMap, HashSet},
-    convert::Infallible,
-    ops::{self, Deref},
-    sync::Arc,
-    u8,
-};
+use std::borrow::{Borrow, Cow};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::convert::Infallible;
+use std::ops::{self, Deref};
+use std::sync::Arc;
+use std::u8;
 
+use bonsaidb_core::arc_bytes::serde::CowBytes;
+use bonsaidb_core::arc_bytes::ArcBytes;
+use bonsaidb_core::connection::{
+    self, AccessPolicy, Connection, HasSchema, HasSession, LowLevelConnection, Range,
+    SerializedQueryKey, Session, Sort, StorageConnection,
+};
 #[cfg(any(feature = "encryption", feature = "compression"))]
 use bonsaidb_core::document::KeyId;
-use bonsaidb_core::{
-    arc_bytes::{serde::CowBytes, ArcBytes},
-    connection::{
-        self, AccessPolicy, Connection, HasSchema, HasSession, LowLevelConnection, Range,
-        SerializedQueryKey, Session, Sort, StorageConnection,
-    },
-    document::{BorrowedDocument, DocumentId, Header, OwnedDocument, Revision},
-    keyvalue::{KeyOperation, Output, Timestamp},
-    limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-    permissions::{
-        bonsai::{
-            collection_resource_name, database_resource_name, document_resource_name,
-            kv_resource_name, view_resource_name, BonsaiAction, DatabaseAction, DocumentAction,
-            TransactionAction, ViewAction,
-        },
-        Permissions,
-    },
-    schema::{
-        self,
-        view::{self, map::MappedSerializedValue},
-        CollectionName, Schema, Schematic, ViewName,
-    },
-    transaction::{
-        self, ChangedDocument, Changes, Command, DocumentChanges, Operation, OperationResult,
-        Transaction,
-    },
+use bonsaidb_core::document::{BorrowedDocument, DocumentId, Header, OwnedDocument, Revision};
+use bonsaidb_core::keyvalue::{KeyOperation, Output, Timestamp};
+use bonsaidb_core::limits::{
+    LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS,
+};
+use bonsaidb_core::permissions::bonsai::{
+    collection_resource_name, database_resource_name, document_resource_name, kv_resource_name,
+    view_resource_name, BonsaiAction, DatabaseAction, DocumentAction, TransactionAction,
+    ViewAction,
+};
+use bonsaidb_core::permissions::Permissions;
+use bonsaidb_core::schema::view::map::MappedSerializedValue;
+use bonsaidb_core::schema::view::{self};
+use bonsaidb_core::schema::{self, CollectionName, Schema, Schematic, ViewName};
+use bonsaidb_core::transaction::{
+    self, ChangedDocument, Changes, Command, DocumentChanges, Operation, OperationResult,
+    Transaction,
 };
 use itertools::Itertools;
-use nebari::{
-    io::any::AnyFile,
-    tree::{
-        AnyTreeRoot, BorrowByteRange, BorrowedRange, CompareSwap, Root, ScanEvaluation, TreeRoot,
-        Unversioned, Versioned,
-    },
-    AbortError, ExecutingTransaction, Roots, Tree,
+use nebari::io::any::AnyFile;
+use nebari::tree::{
+    AnyTreeRoot, BorrowByteRange, BorrowedRange, CompareSwap, Root, ScanEvaluation, TreeRoot,
+    Unversioned, Versioned,
 };
+use nebari::{AbortError, ExecutingTransaction, Roots, Tree};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use watchable::Watchable;
 
+use crate::config::{Builder, KeyValuePersistence, StorageConfiguration};
+use crate::database::keyvalue::BackgroundWorkerProcessTarget;
+use crate::error::Error;
+use crate::open_trees::OpenTrees;
+use crate::storage::StorageLock;
 #[cfg(feature = "encryption")]
 use crate::storage::TreeVault;
-use crate::{
-    config::{Builder, KeyValuePersistence, StorageConfiguration},
-    database::keyvalue::BackgroundWorkerProcessTarget,
-    error::Error,
-    open_trees::OpenTrees,
-    storage::StorageLock,
-    views::{
-        mapper, view_document_map_tree_name, view_entries_tree_name,
-        view_invalidated_docs_tree_name, ViewEntry,
-    },
-    Storage,
+use crate::views::{
+    mapper, view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
+    ViewEntry,
 };
+use crate::Storage;
 
 pub mod keyvalue;
 

@@ -1,14 +1,13 @@
 use bonsaidb::core::actionable::async_trait;
 use futures::StreamExt;
-use sqlx::{postgres::PgArguments, Arguments, Connection, Executor, PgPool, Row, Statement};
+use sqlx::postgres::PgArguments;
+use sqlx::{Arguments, Connection, Executor, PgPool, Row, Statement};
 
-use crate::{
-    execute::{Backend, BackendOperator, Measurements, Metric, Operator},
-    model::Product,
-    plan::{
-        AddProductToCart, Checkout, CreateCart, FindProduct, Load, LookupProduct, OperationResult,
-        ReviewProduct,
-    },
+use crate::execute::{Backend, BackendOperator, Measurements, Metric, Operator};
+use crate::model::Product;
+use crate::plan::{
+    AddProductToCart, Checkout, CreateCart, FindProduct, Load, LookupProduct, OperationResult,
+    ReviewProduct,
 };
 
 pub struct Postgres {
@@ -17,8 +16,8 @@ pub struct Postgres {
 
 #[async_trait]
 impl Backend for Postgres {
-    type Operator = PostgresOperator;
     type Config = String;
+    type Operator = PostgresOperator;
 
     fn label(&self) -> &'static str {
         "postgresql"

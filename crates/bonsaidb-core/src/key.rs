@@ -3,28 +3,22 @@ pub mod time;
 
 mod deprecated;
 
-use std::{
-    borrow::{Borrow, Cow},
-    convert::Infallible,
-    io::ErrorKind,
-    num::TryFromIntError,
-    string::FromUtf8Error,
-};
+use std::borrow::{Borrow, Cow};
+use std::convert::Infallible;
+use std::io::ErrorKind;
+use std::num::TryFromIntError;
+use std::string::FromUtf8Error;
 
-use arc_bytes::{
-    serde::{Bytes, CowBytes},
-    ArcBytes,
-};
+use arc_bytes::serde::{Bytes, CowBytes};
+use arc_bytes::ArcBytes;
 pub use bonsaidb_macros::Key;
 pub use deprecated::*;
 use num_traits::{FromPrimitive, ToPrimitive};
 use ordered_varint::{Signed, Unsigned, Variable};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    connection::{Bound, BoundRef, MaybeOwned, RangeRef},
-    AnyError,
-};
+use crate::connection::{Bound, BoundRef, MaybeOwned, RangeRef};
+use crate::AnyError;
 
 /// A trait that enables a type to convert itself into a `memcmp`-compatible
 /// sequence of bytes.
@@ -1346,6 +1340,7 @@ where
     T: ToPrimitive + FromPrimitive + Clone + Eq + Ord + std::fmt::Debug + Send + Sync,
 {
     type Error = std::io::Error;
+
     const LENGTH: Option<usize> = None;
 
     fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
@@ -1376,6 +1371,7 @@ macro_rules! impl_key_for_primitive {
         }
         impl<'a> KeyEncoding<'a, Self> for $type {
             type Error = IncorrectByteLength;
+
             const LENGTH: Option<usize> = Some(std::mem::size_of::<$type>());
 
             fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {

@@ -1,19 +1,16 @@
 use std::fmt::Debug;
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use transmog::{Format, OwnedDeserializer};
 use transmog_pot::Pot;
 
-use crate::{
-    connection::{self, AsyncConnection, Connection},
-    document::{BorrowedDocument, CollectionDocument},
-    key::Key,
-    schema::{
-        view::map::{Mappings, ViewMappedValue},
-        Collection, CollectionName, Name, SerializedCollection, ViewName,
-    },
-    AnyError,
-};
+use crate::connection::{self, AsyncConnection, Connection};
+use crate::document::{BorrowedDocument, CollectionDocument};
+use crate::key::Key;
+use crate::schema::view::map::{Mappings, ViewMappedValue};
+use crate::schema::{Collection, CollectionName, Name, SerializedCollection, ViewName};
+use crate::AnyError;
 
 /// Types for defining a `Map` within a `View`.
 pub mod map;

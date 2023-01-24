@@ -1,30 +1,26 @@
-use std::{
-    borrow::{Borrow, Cow},
-    marker::PhantomData,
-};
+use std::borrow::{Borrow, Cow};
+use std::marker::PhantomData;
 
 #[cfg(feature = "async")]
 use bonsaidb_core::connection::AsyncConnection;
-use bonsaidb_core::{
-    connection::{Bound, BoundRef, Connection, RangeRef, ViewMappings},
-    document::{CollectionDocument, Emit},
-    key::{
-        time::TimestampAsNanoseconds, CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError,
-        IntoPrefixRange, Key, KeyEncoding,
-    },
-    schema::{
-        Collection, CollectionName, CollectionViewSchema, DefaultSerialization,
-        SerializedCollection, View, ViewMapResult,
-    },
-    transaction::{Operation, Transaction},
+use bonsaidb_core::connection::{Bound, BoundRef, Connection, RangeRef, ViewMappings};
+use bonsaidb_core::document::{CollectionDocument, Emit};
+use bonsaidb_core::key::time::TimestampAsNanoseconds;
+use bonsaidb_core::key::{
+    CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError, IntoPrefixRange, Key, KeyEncoding,
 };
+use bonsaidb_core::schema::{
+    Collection, CollectionName, CollectionViewSchema, DefaultSerialization, SerializedCollection,
+    View, ViewMapResult,
+};
+use bonsaidb_core::transaction::{Operation, Transaction};
 use bonsaidb_utils::next_string_sequence;
 use derive_where::derive_where;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    direct::BlockInfo, schema::block::Block, BonsaiFiles, Error, FileConfig, Statistics, Truncate,
-};
+use crate::direct::BlockInfo;
+use crate::schema::block::Block;
+use crate::{BonsaiFiles, Error, FileConfig, Statistics, Truncate};
 
 #[derive_where(Debug, Clone)]
 #[derive(Serialize, Deserialize)]

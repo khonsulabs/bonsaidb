@@ -1,18 +1,11 @@
-use std::{
-    env::{current_dir, set_current_dir, temp_dir},
-    io::{stdout, Write},
-    str::FromStr,
-};
+use std::env::{current_dir, set_current_dir, temp_dir};
+use std::io::{stdout, Write};
+use std::str::FromStr;
 
-use khonsu_tools::{
-    publish,
-    universal::{
-        anyhow, audit,
-        clap::{self, Parser},
-        devx_cmd::{run, Cmd},
-        DefaultConfig,
-    },
-};
+use khonsu_tools::publish;
+use khonsu_tools::universal::clap::{self, Parser};
+use khonsu_tools::universal::devx_cmd::{run, Cmd};
+use khonsu_tools::universal::{anyhow, audit, DefaultConfig};
 use serde::Serialize;
 
 #[derive(Parser, Debug)]

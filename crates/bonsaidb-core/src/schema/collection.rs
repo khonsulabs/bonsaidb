@@ -1,27 +1,25 @@
-use std::{
-    borrow::{Borrow, Cow},
-    fmt::Debug,
-    marker::PhantomData,
-    task::Poll,
-};
+use std::borrow::{Borrow, Cow};
+use std::fmt::Debug;
+use std::marker::PhantomData;
+use std::task::Poll;
 
 use async_trait::async_trait;
-use futures::{future::BoxFuture, ready, Future, FutureExt};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use futures::future::BoxFuture;
+use futures::{ready, Future, FutureExt};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use transmog::{Format, OwnedDeserializer};
 use transmog_pot::Pot;
 
-use crate::{
-    connection::{self, AsyncConnection, Connection, RangeRef},
-    document::{
-        BorrowedDocument, CollectionDocument, CollectionHeader, Document, DocumentId, Header,
-        KeyId, OwnedDocument, OwnedDocuments, Revision,
-    },
-    key::{IntoPrefixRange, Key, KeyEncoding},
-    schema::{CollectionName, Schematic},
-    transaction::{Operation, OperationResult, Transaction},
-    Error,
+use crate::connection::{self, AsyncConnection, Connection, RangeRef};
+use crate::document::{
+    BorrowedDocument, CollectionDocument, CollectionHeader, Document, DocumentId, Header, KeyId,
+    OwnedDocument, OwnedDocuments, Revision,
 };
+use crate::key::{IntoPrefixRange, Key, KeyEncoding};
+use crate::schema::{CollectionName, Schematic};
+use crate::transaction::{Operation, OperationResult, Transaction};
+use crate::Error;
 
 /// A namespaced collection of `Document<Self>` items and views.
 ///
@@ -138,7 +136,8 @@ use crate::{
 /// By default, encryption will be required if an `encryption_key` is provided:
 ///
 /// ```rust
-/// use bonsaidb_core::{document::KeyId, schema::Collection};
+/// use bonsaidb_core::document::KeyId;
+/// use bonsaidb_core::schema::Collection;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
@@ -151,7 +150,8 @@ use crate::{
 /// explicit:
 ///
 /// ```rust
-/// use bonsaidb_core::{document::KeyId, schema::Collection};
+/// use bonsaidb_core::document::KeyId;
+/// use bonsaidb_core::schema::Collection;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
@@ -166,7 +166,8 @@ use crate::{
 /// `encryption_optional` parameter:
 ///
 /// ```rust
-/// use bonsaidb_core::{document::KeyId, schema::Collection};
+/// use bonsaidb_core::document::KeyId;
+/// use bonsaidb_core::schema::Collection;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
@@ -237,10 +238,8 @@ pub trait Collection: Debug + Send + Sync {
 /// These examples for this type use this basic collection definition:
 ///
 /// ```rust
-/// use bonsaidb_core::{
-///     schema::{Collection, DefaultSerialization, Schematic},
-///     Error,
-/// };
+/// use bonsaidb_core::schema::{Collection, DefaultSerialization, Schematic};
+/// use bonsaidb_core::Error;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
@@ -507,12 +506,10 @@ pub trait SerializedCollection: Collection {
     /// Retrieves all documents with ids that start with `prefix`.
     ///
     /// ```rust
-    /// use bonsaidb_core::{
-    ///     connection::Connection,
-    ///     document::CollectionDocument,
-    ///     schema::{Collection, Schematic, SerializedCollection},
-    ///     Error,
-    /// };
+    /// use bonsaidb_core::connection::Connection;
+    /// use bonsaidb_core::document::CollectionDocument;
+    /// use bonsaidb_core::schema::{Collection, Schematic, SerializedCollection};
+    /// use bonsaidb_core::Error;
     /// use serde::{Deserialize, Serialize};
     ///
     /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
@@ -548,12 +545,10 @@ pub trait SerializedCollection: Collection {
     /// Retrieves all documents with ids that start with `prefix`.
     ///
     /// ```rust
-    /// use bonsaidb_core::{
-    ///     connection::AsyncConnection,
-    ///     document::CollectionDocument,
-    ///     schema::{Collection, Schematic, SerializedCollection},
-    ///     Error,
-    /// };
+    /// use bonsaidb_core::connection::AsyncConnection;
+    /// use bonsaidb_core::document::CollectionDocument;
+    /// use bonsaidb_core::schema::{Collection, Schematic, SerializedCollection};
+    /// use bonsaidb_core::Error;
     /// use serde::{Deserialize, Serialize};
     ///
     /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
@@ -1822,6 +1817,7 @@ where
             Ok(None)
         }
     }
+
     fn pending(&mut self) -> &mut EntryBuilder<'a, 'name, Connection, Col, EI, EU> {
         match &mut self.state {
             EntryState::Pending(pending) => pending.as_mut().unwrap(),
