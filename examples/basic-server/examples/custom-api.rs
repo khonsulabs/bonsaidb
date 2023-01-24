@@ -104,7 +104,7 @@ pub async fn increment_counter<S: AsyncStorageConnection<Database = C>, C: Async
     as_client: &S,
     amount: u64,
 ) -> Result<u64, bonsaidb::core::Error> {
-    as_client.check_permission(&[Identifier::from("increment")], &ExampleActions::Increment)?;
+    as_client.check_permission([Identifier::from("increment")], &ExampleActions::Increment)?;
     let database = storage.database::<()>("counter").await?;
     database.increment_key_by("counter", amount).await
 }

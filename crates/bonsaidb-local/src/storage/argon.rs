@@ -89,7 +89,7 @@ impl Hasher {
             match result_receiver.recv()?.map_err(Error::from) {
                 Ok(_) => Ok(()),
                 Err(err) => {
-                    eprintln!("Error validating password for user {}: {:?}", id, err);
+                    eprintln!("Error validating password for user {id}: {err:?}");
                     Err(Error::Core(bonsaidb_core::Error::InvalidCredentials))
                 }
             }

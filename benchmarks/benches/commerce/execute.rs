@@ -328,7 +328,7 @@ impl<'a> Benchmark<'a> {
             shoppers, number_of_agents
         );
         // Generate plans to execute.
-        let mut plans = Vec::with_capacity(shoppers as usize);
+        let mut plans = Vec::with_capacity(shoppers);
         for _ in 0..shoppers {
             plans.push(Arc::new(
                 self.shopper_config.random_plan(&mut rng, &initial_data),
@@ -703,8 +703,8 @@ fn stats_thread(
                 .axis_desc_style(("sans-serif", 15, &TEXT_COLOR))
                 .x_label_style(&TEXT_COLOR)
                 .y_label_style(&TEXT_COLOR)
-                .light_line_style(&TEXT_COLOR.mix(0.1))
-                .bold_line_style(&TEXT_COLOR.mix(0.3))
+                .light_line_style(TEXT_COLOR.mix(0.1))
+                .bold_line_style(TEXT_COLOR.mix(0.3))
                 .draw()
                 .unwrap();
 
@@ -735,16 +735,12 @@ fn stats_thread(
             .x_label_area_size(50)
             .y_label_area_size(80)
             .build_cartesian_2d(
-                0..label_lines
-                    .iter()
-                    .map(|(_, data)| data.len())
-                    .max()
-                    .unwrap(),
+                0..label_lines.values().map(|data| data.len()).max().unwrap(),
                 NanosRange(
                     Nanos(0)
                         ..=label_lines
-                            .iter()
-                            .map(|(_, stats)| stats.last().unwrap().1)
+                            .values()
+                            .map(|stats| stats.last().unwrap().1)
                             .max()
                             .unwrap(),
                 ),
@@ -759,24 +755,24 @@ fn stats_thread(
             .axis_desc_style(("sans-serif", 15, &TEXT_COLOR))
             .x_label_style(&TEXT_COLOR)
             .y_label_style(&TEXT_COLOR)
-            .light_line_style(&TEXT_COLOR.mix(0.1))
-            .bold_line_style(&TEXT_COLOR.mix(0.3))
+            .light_line_style(TEXT_COLOR.mix(0.1))
+            .bold_line_style(TEXT_COLOR.mix(0.3))
             .draw()
             .unwrap();
 
         for (label, data) in label_lines {
             metric_chart
-                .draw_series(LineSeries::new(data.into_iter(), &label_to_color(label)))
+                .draw_series(LineSeries::new(data.into_iter(), label_to_color(label)))
                 .unwrap()
                 .label(label.to_string())
                 .legend(|(x, y)| {
-                    PathElement::new(vec![(x, y), (x + 20, y)], &label_to_color(label))
+                    PathElement::new(vec![(x, y), (x + 20, y)], label_to_color(label))
                 });
         }
         metric_chart
             .configure_series_labels()
-            .border_style(&TEXT_COLOR)
-            .background_style(&BACKGROUND_COLOR)
+            .border_style(TEXT_COLOR)
+            .background_style(BACKGROUND_COLOR)
             .label_font(&TEXT_COLOR)
             .position(SeriesLabelPosition::UpperLeft)
             .draw()
@@ -822,7 +818,7 @@ fn stats_thread(
                 wall_time: format_nanoseconds(duration.as_nanos() as f64 / number_of_agents as f64),
             })
             .collect(),
-        operations: operations.into_iter().map(|(_k, v)| v).collect(),
+        operations: operations.into_values().collect(),
     }
     .render_to(&plot_dir.join("index.html"), tera);
     accumulated_label_stats

@@ -196,7 +196,7 @@ fn compute_websocket_accept_header(key: &[u8]) -> hyper::header::HeaderValue {
     let mut digest = Sha1::default();
     digest.update(key);
     digest.update(&b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"[..]);
-    let encoded = base64::encode(&digest.finalize());
+    let encoded = base64::encode(digest.finalize());
     hyper::header::HeaderValue::from_str(&encoded).expect("base64 is a valid value")
 }
 

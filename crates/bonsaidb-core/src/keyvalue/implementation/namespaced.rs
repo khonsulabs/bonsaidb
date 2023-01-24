@@ -34,7 +34,7 @@ where
         Self: Sized,
     {
         Namespaced {
-            namespace: format!("{}\u{0}{}", self.namespace, namespace),
+            namespace: format!("{}\u{0}{namespace}", self.namespace),
             kv: self,
         }
     }
@@ -58,7 +58,7 @@ where
         Self: Sized,
     {
         Namespaced {
-            namespace: format!("{}\u{0}{}", self.namespace, namespace),
+            namespace: format!("{}\u{0}{namespace}", self.namespace),
             kv: self,
         }
     }

@@ -271,7 +271,7 @@ impl<B: Backend> CustomServer<B> {
             Ok(pem) => PrivateKey::unchecked_from_der(pem.contents),
             Err(_) => PrivateKey::from_der(private_key)?,
         };
-        let certificates = pem::parse_many(&certificate_chain)?
+        let certificates = pem::parse_many(certificate_chain)?
             .into_iter()
             .map(|entry| fabruic::Certificate::unchecked_from_der(entry.contents))
             .collect::<Vec<_>>();
@@ -442,7 +442,7 @@ impl<B: Backend> CustomServer<B> {
         sender: Sender<(Option<SessionId>, ApiName, Bytes)>,
     ) -> Option<OwnedClient<B>> {
         if !self.data.default_session.allowed_to(
-            &bonsaidb_resource_name(),
+            bonsaidb_resource_name(),
             &BonsaiAction::Server(ServerAction::Connect),
         ) {
             return None;

@@ -1449,8 +1449,8 @@ fn primitive_key_encoding_tests() -> anyhow::Result<()> {
 
 #[test]
 fn optional_key_encoding_tests() -> anyhow::Result<()> {
-    let some_string = (&Some("hello")).as_ord_bytes()?;
-    let empty_string = (&Some("")).as_ord_bytes()?;
+    let some_string = Some("hello").as_ord_bytes()?;
+    let empty_string = Some("").as_ord_bytes()?;
     let none_string = Option::<String>::None.as_ord_bytes()?;
     assert_eq!(
         Option::<String>::from_ord_bytes(&some_string)

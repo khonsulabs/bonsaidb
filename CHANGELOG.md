@@ -64,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `bonsaidb::server::Backend` now takes a `&self` parameter in all functions
   except `configure()`. Implementing `Default` for your `Backend` implementor
   will allow all existing code to continue working.
+- `Client::effective_permissions()` is no longer async.
 
 [#240]: https://github.com/khonsulabs/bonsaidb/issues/240
 
@@ -441,7 +442,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   currently doing more work than strictly necessary.
 - [#215][215]: `StorageConnection::delete_user` has been added, enabling
   deletions of users without directly interacting with the `admin` database.
-
 
 ### Changed
 

@@ -127,7 +127,7 @@ impl Storage {
                 )?;
             }
             for ((namespace, key), entry) in database.all_key_value_entries()? {
-                let full_name = format!("{}._key._{}", namespace.as_deref().unwrap_or(""), key);
+                let full_name = format!("{}._key._{key}", namespace.as_deref().unwrap_or(""));
                 location.store(
                     &schema,
                     database.name(),

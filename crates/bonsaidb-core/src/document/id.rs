@@ -48,16 +48,16 @@ impl Display for DocumentId {
             .find(|(_index, b)| *b != 0)
         {
             if first_nonzero_byte > 0 {
-                write!(f, "{:x}$", first_nonzero_byte)?;
+                write!(f, "{first_nonzero_byte:x}$")?;
             } else {
                 f.write_char('$')?;
             }
 
             for (index, byte) in self[first_nonzero_byte..].iter().enumerate() {
                 if index > 0 {
-                    write!(f, "{:02x}", byte)?;
+                    write!(f, "{byte:02x}")?;
                 } else {
-                    write!(f, "{:x}", byte)?;
+                    write!(f, "{byte:x}")?;
                 }
             }
             Ok(())

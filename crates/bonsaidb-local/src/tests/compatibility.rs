@@ -259,7 +259,7 @@ fn test_compatibility(dir: &str) {
             .unwrap_or_else(|_| String::from("./crates/bonsaidb-local")),
     );
 
-    let test_dir = TestDirectory::new(format!("v{}-compatibility.nebari", dir));
+    let test_dir = TestDirectory::new(format!("v{dir}-compatibility.nebari"));
     dir::copy(
         project_dir
             .join("src")

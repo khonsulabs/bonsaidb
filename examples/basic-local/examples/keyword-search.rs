@@ -128,7 +128,7 @@ fn keywords(source: &str) -> impl Iterator<Item = String> + '_ {
                 }
             }
 
-            (word.len() > 3).then(|| word)
+            (word.len() > 3).then_some(word)
         }
     }
 

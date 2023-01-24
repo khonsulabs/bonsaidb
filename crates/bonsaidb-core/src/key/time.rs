@@ -652,7 +652,7 @@ pub mod limited {
             let limited = LimitedResolutionDuration::<Resolution>::try_from(duration).unwrap();
             assert_eq!(limited.representation, expected_step);
             let encoded = limited.as_ord_bytes().unwrap();
-            println!("Encoded {:?} to {} bytes", limited, encoded.len());
+            println!("Encoded {limited:?} to {} bytes", encoded.len());
             let decoded = LimitedResolutionDuration::from_ord_bytes(&encoded).unwrap();
             assert_eq!(limited, decoded);
         }

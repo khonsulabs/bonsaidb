@@ -65,7 +65,6 @@ impl<B: Backend> ServerConfiguration<B> {
     }
 
     /// Returns a default configuration for the given backend and path.
-    #[must_use]
     pub fn new_with_backend<P: AsRef<Path>>(path: P, backend: B) -> Self {
         Self::default_for(backend).path(path)
     }

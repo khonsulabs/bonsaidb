@@ -53,7 +53,7 @@ impl Revision {
 
 impl Debug for Revision {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Revision({})", self)
+        write!(f, "Revision({self})")
     }
 }
 
@@ -62,7 +62,7 @@ impl Display for Revision {
         <u32 as Display>::fmt(&self.id, f)?;
         f.write_char('-')?;
         for byte in self.sha256 {
-            f.write_fmt(format_args!("{:02x}", byte))?;
+            f.write_fmt(format_args!("{byte:02x}"))?;
         }
         Ok(())
     }
@@ -122,7 +122,7 @@ fn revision_display_test() {
         "0-7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed"
     );
     assert_eq!(
-        format!("{:?}", first_revision),
+        format!("{first_revision:?}"),
         "Revision(0-7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed)"
     );
 }

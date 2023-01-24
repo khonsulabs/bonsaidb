@@ -179,7 +179,7 @@ impl ViewVersion {
     pub fn cleanup(&self, roots: &Roots<AnyFile>, view: &ViewName) -> Result<(), crate::Error> {
         if self.internal_version < 2 {
             // omitted entries was removed
-            roots.delete_tree(format!("view.{:#}.omitted", view))?;
+            roots.delete_tree(format!("view.{view:#}.omitted"))?;
         }
         Ok(())
     }

@@ -542,7 +542,7 @@ where
         let containing_path = self.containing_path();
         let ends_in_slash = self.containing_path().ends_with('/');
         let mut full_path = String::with_capacity(
-            containing_path.len() + if ends_in_slash { 0 } else { 1 } + self.name().len(),
+            containing_path.len() + usize::from(!ends_in_slash) + self.name().len(),
         );
         full_path.push_str(containing_path);
         if !ends_in_slash {

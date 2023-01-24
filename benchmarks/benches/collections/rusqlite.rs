@@ -22,14 +22,12 @@ pub(super) fn save_documents(group: &mut BenchmarkGroup<WallTime>, doc: &Resizab
         // for @ecton. See:
         // https://www.sqlite.org/pragma.html#pragma_journal_mode
         sqlite
-            .pragma_update(None, "journal_mode", &"TRUNCATE")
+            .pragma_update(None, "journal_mode", "TRUNCATE")
             .unwrap();
         // Sets synchronous to NORMAL, which "should" be safe and provides
         // better performance. See:
         // https://www.sqlite.org/pragma.html#pragma_synchronous
-        sqlite
-            .pragma_update(None, "synchronous", &"NORMAL")
-            .unwrap();
+        sqlite.pragma_update(None, "synchronous", "NORMAL").unwrap();
         sqlite
             .execute(
                 "create table save_documents (id integer primary key autoincrement, data BLOB)",

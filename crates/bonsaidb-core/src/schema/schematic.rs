@@ -67,7 +67,7 @@ impl Schematic {
                 self.collection_encryption_keys.insert(name.clone(), key);
             }
             self.collection_id_generators
-                .insert(name.clone(), Box::new(KeyIdGenerator::<C>::default()));
+                .insert(name.clone(), Box::<KeyIdGenerator<C>>::default());
             self.contained_collections.insert(name);
             C::define_views(self)
         }

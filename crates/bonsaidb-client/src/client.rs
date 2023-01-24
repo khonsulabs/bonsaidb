@@ -341,7 +341,7 @@ impl Client {
                 tokio,
                 subscribers,
             )),
-            other => Err(Error::InvalidUrl(format!("unsupported scheme {}", other))),
+            other => Err(Error::InvalidUrl(format!("unsupported scheme {other}"))),
         }
     }
 
@@ -541,7 +541,8 @@ impl Client {
 
     /// Returns the current effective permissions for the client. Returns None
     /// if unauthenticated.
-    pub async fn effective_permissions(&self) -> Option<Permissions> {
+    #[must_use]
+    pub fn effective_permissions(&self) -> Option<Permissions> {
         let effective_permissions = self.data.effective_permissions.lock();
         effective_permissions.clone()
     }

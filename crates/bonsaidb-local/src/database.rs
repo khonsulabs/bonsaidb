@@ -608,7 +608,7 @@ impl Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, operation, transaction, tree_index_map),
         fields(
             database = self.name(),
@@ -656,7 +656,7 @@ impl Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, operation, transaction, tree_index_map),
         fields(
             database = self.name(),
@@ -708,7 +708,7 @@ impl Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(operation, transaction, tree_index_map),
         fields(
             collection.name = operation.collection.name.as_ref(),
@@ -992,7 +992,7 @@ impl Connection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self),
         fields(
             database = self.name(),
@@ -1055,7 +1055,7 @@ impl Connection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self),
         fields(
             database = self.name(),
@@ -1070,7 +1070,7 @@ impl Connection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self),
         fields(
             database = self.name(),
@@ -1089,7 +1089,7 @@ impl Connection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self),
         fields(
             database = self.name(),
@@ -1110,7 +1110,7 @@ impl Connection for Database {
 
 impl LowLevelConnection for Database {
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self,  transaction),
         fields(
             database = self.name(),
@@ -1143,7 +1143,7 @@ impl LowLevelConnection for Database {
                     BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
                 ),
             };
-            self.check_permission(&resource, &action)?;
+            self.check_permission(resource, &action)?;
         }
 
         let mut eager_view_tasks = Vec::new();
@@ -1188,7 +1188,7 @@ impl LowLevelConnection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, collection),
         fields(
             database = self.name(),
@@ -1219,7 +1219,7 @@ impl LowLevelConnection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, collection),
         fields(
             database = self.name(),
@@ -1282,7 +1282,7 @@ impl LowLevelConnection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, collection),
         fields(
             database = self.name(),
@@ -1345,7 +1345,7 @@ impl LowLevelConnection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, collection),
         fields(
             database = self.name(),
@@ -1375,7 +1375,7 @@ impl LowLevelConnection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, collection),
         fields(
             database = self.name(),
@@ -1417,7 +1417,7 @@ impl LowLevelConnection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, collection),
         fields(
             database = self.name(),
@@ -1441,7 +1441,7 @@ impl LowLevelConnection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, view),
         fields(
             database = self.name(),
@@ -1479,7 +1479,7 @@ impl LowLevelConnection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, view),
         fields(
             database = self.name(),
@@ -1520,7 +1520,7 @@ impl LowLevelConnection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, view_name),
         fields(
             database = self.name(),
@@ -1555,7 +1555,7 @@ impl LowLevelConnection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, view_name),
         fields(
             database = self.name(),
@@ -1588,7 +1588,7 @@ impl LowLevelConnection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, view),
         fields(
             database = self.name(),
@@ -1738,7 +1738,7 @@ impl Drop for ContextData {
 }
 
 pub fn document_tree_name(collection: &CollectionName) -> String {
-    format!("collection.{:#}", collection)
+    format!("collection.{collection:#}")
 }
 
 pub struct DocumentIdRange(Range<DocumentId>);

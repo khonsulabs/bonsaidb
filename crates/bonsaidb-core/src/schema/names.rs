@@ -59,7 +59,7 @@ impl Name {
     /// ASCII, underscore, and hyphen.
     #[must_use]
     pub fn encoded(&self) -> String {
-        format!("{:#}", self)
+        format!("{self:#}")
     }
 }
 
@@ -245,7 +245,7 @@ pub trait Qualified: Display + Sized {
     /// safely parsed using [`Self::parse_encoded`].
     #[must_use]
     fn encoded(&self) -> String {
-        format!("{:#}", self)
+        format!("{self:#}")
     }
 }
 

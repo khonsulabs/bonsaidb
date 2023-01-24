@@ -257,7 +257,7 @@ impl Vault {
 
             File::create(master_keys_path)
                 .and_then(move |mut file| file.write_all(&encrypted_master_keys_payload))
-                .map_err(|err| Error::Initializing(format!("error saving vault key: {:?}", err)))?;
+                .map_err(|err| Error::Initializing(format!("error saving vault key: {err:?}")))?;
 
             Ok(Self {
                 _vault_public_key: PublicKey::P256(public),
@@ -279,7 +279,7 @@ impl Vault {
     ) -> Result<Self, Error> {
         // The vault has been initilized previously. Do not overwrite this file voluntarily.
         let encrypted_master_keys = std::fs::read(master_keys_path)
-            .map_err(|err| Error::Initializing(format!("error reading master keys: {:?}", err)))?;
+            .map_err(|err| Error::Initializing(format!("error reading master keys: {err:?}")))?;
         let mut encrypted_master_keys =
             bincode::deserialize::<HpkePayload>(&encrypted_master_keys)?;
         let PublicKeyEncryption::DhP256HkdfSha256ChaCha20 = &encrypted_master_keys.encryption;
@@ -357,7 +357,7 @@ impl Vault {
         permissions: Option<&Permissions>,
     ) -> Result<Vec<u8>, crate::Error> {
         if let Ok(payload) = VaultPayload::from_slice(payload).map_err(|err| {
-            Error::Encryption(format!("error deserializing encrypted payload: {:?}", err))
+            Error::Encryption(format!("error deserializing encrypted payload: {err:?}"))
         }) {
             self.decrypt(&payload, permissions)
         } else {
@@ -607,7 +607,7 @@ struct VaultPayload<'a> {
 impl<'a> VaultPayload<'a> {
     fn from_slice(bytes: &'a [u8]) -> Result<Self, Error> {
         bincode::deserialize(bytes).map_err(|err| {
-            Error::Encryption(format!("error deserializing encrypted payload: {:?}", err))
+            Error::Encryption(format!("error deserializing encrypted payload: {err:?}"))
         })
     }
 

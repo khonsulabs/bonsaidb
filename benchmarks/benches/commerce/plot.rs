@@ -59,25 +59,22 @@ pub fn overview_graph(
         .axis_desc_style(("sans-serif", 15, &TEXT_COLOR))
         .x_label_style(&TEXT_COLOR)
         .y_label_style(&TEXT_COLOR)
-        .light_line_style(&TEXT_COLOR.mix(0.1))
-        .bold_line_style(&TEXT_COLOR.mix(0.3))
+        .light_line_style(TEXT_COLOR.mix(0.1))
+        .bold_line_style(TEXT_COLOR.mix(0.3))
         .draw()
         .unwrap();
 
     for (backend, points) in results_by_backend {
         chart
-            .draw_series(LineSeries::new(
-                points.into_iter(),
-                &label_to_color(backend),
-            ))
+            .draw_series(LineSeries::new(points.into_iter(), label_to_color(backend)))
             .unwrap()
             .label(backend.to_string())
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &label_to_color(backend)));
+            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], label_to_color(backend)));
     }
     chart
         .configure_series_labels()
-        .border_style(&TEXT_COLOR)
-        .background_style(&BACKGROUND_COLOR)
+        .border_style(TEXT_COLOR)
+        .background_style(BACKGROUND_COLOR)
         .label_font(&TEXT_COLOR)
         .position(SeriesLabelPosition::UpperLeft)
         .draw()

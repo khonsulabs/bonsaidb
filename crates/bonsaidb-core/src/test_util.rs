@@ -379,7 +379,7 @@ impl Drop for TestDirectory {
     fn drop(&mut self) {
         if let Err(err) = std::fs::remove_dir_all(&self.0) {
             if err.kind() != ErrorKind::NotFound {
-                eprintln!("Failed to clean up temporary folder: {:?}", err);
+                eprintln!("Failed to clean up temporary folder: {err:?}");
             }
         }
     }
@@ -1342,7 +1342,7 @@ pub async fn bad_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> 
             assert_eq!(id.as_ref(), &DocumentId::from_u64(1));
             Ok(())
         }
-        other => panic!("expected DocumentNotFound from update but got: {:?}", other),
+        other => panic!("expected DocumentNotFound from update but got: {other:?}"),
     }
 }
 
@@ -1354,7 +1354,7 @@ pub fn blocking_bad_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
             assert_eq!(id.as_ref(), &DocumentId::from_u64(1));
             Ok(())
         }
-        other => panic!("expected DocumentNotFound from update but got: {:?}", other),
+        other => panic!("expected DocumentNotFound from update but got: {other:?}"),
     }
 }
 
@@ -2594,7 +2594,7 @@ pub async fn user_management_tests<C: AsyncConnection, S: AsyncStorageConnection
     server: S,
     server_name: &str,
 ) -> anyhow::Result<()> {
-    let username = format!("user-management-tests-{}", server_name);
+    let username = format!("user-management-tests-{server_name}");
     let user_id = server.create_user(&username).await?;
     // Test the default created user state.
     {
@@ -2607,11 +2607,11 @@ pub async fn user_management_tests<C: AsyncConnection, S: AsyncStorageConnection
         assert!(user.contents.roles.is_empty());
     }
 
-    let role = Role::named(format!("role-{}", server_name))
+    let role = Role::named(format!("role-{server_name}"))
         .push_into_async(admin)
         .await
         .unwrap();
-    let group = PermissionGroup::named(format!("group-{}", server_name))
+    let group = PermissionGroup::named(format!("group-{server_name}"))
         .push_into_async(admin)
         .await
         .unwrap();
@@ -2683,7 +2683,7 @@ pub fn blocking_user_management_tests<C: Connection, S: StorageConnection>(
     server: &S,
     server_name: &str,
 ) -> anyhow::Result<()> {
-    let username = format!("user-management-tests-{}", server_name);
+    let username = format!("user-management-tests-{server_name}");
     let user_id = server.create_user(&username)?;
     // Test the default created user state.
     {
@@ -2693,10 +2693,10 @@ pub fn blocking_user_management_tests<C: Connection, S: StorageConnection>(
         assert!(user.contents.roles.is_empty());
     }
 
-    let role = Role::named(format!("role-{}", server_name))
+    let role = Role::named(format!("role-{server_name}"))
         .push_into(admin)
         .unwrap();
-    let group = PermissionGroup::named(format!("group-{}", server_name))
+    let group = PermissionGroup::named(format!("group-{server_name}"))
         .push_into(admin)
         .unwrap();
 
@@ -2756,7 +2756,7 @@ pub async fn token_authentication_tests<C: AsyncConnection, S: AsyncStorageConne
     server: &S,
     server_name: &str,
 ) -> anyhow::Result<()> {
-    let username = format!("token-authentication-tests-{}", server_name);
+    let username = format!("token-authentication-tests-{server_name}");
     let user_id = server.create_user(&username).await?;
     let user_token =
         AuthenticationToken::create_async(IdentityReference::user(&username)?, admin).await?;
@@ -2769,7 +2769,7 @@ pub async fn token_authentication_tests<C: AsyncConnection, S: AsyncStorageConne
         assert_eq!(*id, user_id);
     }
 
-    let role = Role::named(format!("token-role-{}", server_name))
+    let role = Role::named(format!("token-role-{server_name}"))
         .push_into_async(admin)
         .await
         .unwrap();
@@ -2793,7 +2793,7 @@ pub fn blocking_token_authentication_tests<C: Connection, S: StorageConnection>(
     server: &S,
     server_name: &str,
 ) -> anyhow::Result<()> {
-    let username = format!("blocking-token-authentication-tests-{}", server_name);
+    let username = format!("blocking-token-authentication-tests-{server_name}");
     let user_id = server.create_user(&username)?;
     let user_token = AuthenticationToken::create(&IdentityReference::user(&username)?, admin)?;
 
@@ -2804,7 +2804,7 @@ pub fn blocking_token_authentication_tests<C: Connection, S: StorageConnection>(
         assert_eq!(*id, user_id);
     }
 
-    let role = Role::named(format!("token-role-{}", server_name))
+    let role = Role::named(format!("token-role-{server_name}"))
         .push_into(admin)
         .unwrap();
     let role_token = AuthenticationToken::create(&IdentityReference::role(role.header.id)?, admin)?;
