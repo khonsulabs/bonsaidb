@@ -187,7 +187,7 @@ pub trait CommandLine: Sized + Send + Sync {
 #[async_trait]
 impl CommandLine for NoBackend {
     type Backend = Self;
-    type Subcommand = Self;
+    type Subcommand = NoSubcommand;
 
     async fn configuration(&mut self) -> anyhow::Result<ServerConfiguration> {
         Ok(ServerConfiguration::default())
@@ -220,7 +220,7 @@ struct NoCommandLine<B: Backend> {
 #[async_trait]
 impl<B: Backend> CommandLine for NoCommandLine<B> {
     type Backend = B;
-    type Subcommand = NoBackend;
+    type Subcommand = NoSubcommand;
 
     async fn configuration(&mut self) -> anyhow::Result<ServerConfiguration<B>> {
         self.configuration
@@ -236,3 +236,7 @@ impl<B: Backend> CommandLine for NoCommandLine<B> {
         unreachable!()
     }
 }
+
+/// A [`Subcommand`] implementor that has no options.
+#[derive(clap::Subcommand, Debug)]
+pub enum NoSubcommand {}

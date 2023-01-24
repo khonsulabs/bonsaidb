@@ -315,10 +315,13 @@ impl PersistenceThreshold {
 }
 
 /// Storage configuration builder methods.
-pub trait Builder: Default {
+pub trait Builder: Sized {
     /// Creates a default configuration with `path` set.
     #[must_use]
-    fn new<P: AsRef<Path>>(path: P) -> Self {
+    fn new<P: AsRef<Path>>(path: P) -> Self
+    where
+        Self: Default,
+    {
         Self::default().path(path)
     }
     /// Registers the schema and returns self.

@@ -31,7 +31,10 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
     /// Invoked once after initialization during
     /// [`Server::open`/`CustomServer::open`](CustomServer::open).
     #[allow(unused_variables)]
-    async fn initialize(server: &CustomServer<Self>) -> Result<(), BackendError<Self::Error>> {
+    async fn initialize(
+        &self,
+        server: &CustomServer<Self>,
+    ) -> Result<(), BackendError<Self::Error>> {
         Ok(())
     }
 
@@ -39,6 +42,7 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
     #[allow(unused_variables)]
     #[must_use]
     async fn client_connected(
+        &self,
         client: &ConnectedClient<Self>,
         server: &CustomServer<Self>,
     ) -> Result<ConnectionHandling, BackendError<Self::Error>> {
@@ -54,6 +58,7 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
     /// A client disconnected from the server.
     #[allow(unused_variables)]
     async fn client_disconnected(
+        &self,
         client: ConnectedClient<Self>,
         server: &CustomServer<Self>,
     ) -> Result<(), BackendError<Self::Error>> {
@@ -68,6 +73,7 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
     /// A client successfully authenticated.
     #[allow(unused_variables)]
     async fn client_authenticated(
+        &self,
         client: ConnectedClient<Self>,
         session: &Session,
         server: &CustomServer<Self>,
@@ -82,9 +88,8 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
 }
 
 /// A [`Backend`] with no custom functionality.
-#[cfg_attr(feature = "cli", derive(clap::Subcommand))]
-#[derive(Debug)]
-pub enum NoBackend {}
+#[derive(Debug, Default)]
+pub struct NoBackend;
 
 impl Backend for NoBackend {
     type Error = Infallible;

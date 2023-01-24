@@ -98,6 +98,7 @@ pub type Server = CustomServer<NoBackend>;
 
 #[derive(Debug)]
 struct Data<B: Backend = NoBackend> {
+    backend: B,
     clients: RwLock<HashMap<u32, ConnectedClient<B>>>,
     request_processor: flume::Sender<ClientRequest<B>>,
     default_session: Session,
@@ -179,6 +180,7 @@ impl<B: Backend> CustomServer<B> {
         let server = Self {
             storage,
             data: Arc::new(Data {
+                backend: configuration.backend,
                 clients: RwLock::default(),
                 endpoint: RwLock::default(),
                 request_processor: request_sender,
@@ -197,7 +199,8 @@ impl<B: Backend> CustomServer<B> {
                 shutdown: Shutdown::new(),
             }),
         };
-        B::initialize(&server).await?;
+
+        server.data.backend.initialize(&server).await?;
         Ok(server)
     }
 
@@ -462,7 +465,7 @@ impl<B: Backend> CustomServer<B> {
             }
         };
 
-        match B::client_connected(&client, self).await {
+        match self.data.backend.client_connected(&client, self).await {
             Ok(ConnectionHandling::Accept) => Some(client),
             Ok(ConnectionHandling::Reject) => None,
             Err(err) => {
@@ -479,7 +482,7 @@ impl<B: Backend> CustomServer<B> {
             let mut clients = fast_async_write!(self.data.clients);
             clients.remove(&id)
         } {
-            if let Err(err) = B::client_disconnected(client, self).await {
+            if let Err(err) = self.data.backend.client_disconnected(client, self).await {
                 log::error!("[server] Error in `client_disconnected`: {err:?}");
             }
         }

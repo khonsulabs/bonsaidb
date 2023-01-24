@@ -29,7 +29,7 @@ use bonsaidb::{
 use serde::{Deserialize, Serialize};
 
 /// The `Backend` for the BonsaiDb server.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ExampleBackend;
 
 // ANCHOR: api-types

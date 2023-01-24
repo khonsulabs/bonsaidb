@@ -24,7 +24,7 @@ async fn main() -> anyhow::Result<()> {
     CliBackend.run().await
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct CliBackend;
 
 #[derive(Debug, Subcommand)]
@@ -38,7 +38,7 @@ impl Backend for CliBackend {
     type Error = Infallible;
     type ClientData = ();
 
-    async fn initialize(server: &CustomServer<Self>) -> Result<(), BackendError> {
+    async fn initialize(&self, server: &CustomServer<Self>) -> Result<(), BackendError> {
         server.create_database::<Shape>("shapes", true).await?;
         Ok(())
     }

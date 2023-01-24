@@ -24,6 +24,8 @@ use crate::{
 #[must_use]
 #[non_exhaustive]
 pub struct ServerConfiguration<B: Backend = NoBackend> {
+    /// The [`Backend`] for the server.
+    pub backend: B,
     /// The DNS name of the server.
     pub server_name: String,
     /// Number of sumultaneous requests a single client can have in flight at a
@@ -45,6 +47,29 @@ pub struct ServerConfiguration<B: Backend = NoBackend> {
 }
 
 impl<B: Backend> ServerConfiguration<B> {
+    /// Returns a default configuration for the given backend.
+    pub fn default_for(backend: B) -> Self {
+        Self {
+            backend,
+            server_name: String::from("bonsaidb"),
+            client_simultaneous_request_limit: 16,
+            // TODO this was arbitrarily picked, it probably should be higher,
+            // but it also should probably be based on the cpu's capabilities
+            request_workers: 16,
+            storage: bonsaidb_local::config::StorageConfiguration::default(),
+            default_permissions: DefaultPermissions::Permissions(Permissions::default()),
+            custom_apis: HashMap::default(),
+            #[cfg(feature = "acme")]
+            acme: AcmeConfiguration::default(),
+        }
+    }
+
+    /// Returns a default configuration for the given backend and path.
+    #[must_use]
+    pub fn new_with_backend<P: AsRef<Path>>(path: P, backend: B) -> Self {
+        Self::default_for(backend).path(path)
+    }
+
     /// Sets [`Self::server_name`](Self#structfield.server_name) to `server_name` and returns self.
     pub fn server_name(mut self, server_name: impl Into<String>) -> Self {
         self.server_name = server_name.into();
@@ -108,20 +133,12 @@ impl<B: Backend> ServerConfiguration<B> {
     }
 }
 
-impl<B: Backend> Default for ServerConfiguration<B> {
+impl<B> Default for ServerConfiguration<B>
+where
+    B: Backend + Default,
+{
     fn default() -> Self {
-        Self {
-            server_name: String::from("bonsaidb"),
-            client_simultaneous_request_limit: 16,
-            // TODO this was arbitrarily picked, it probably should be higher,
-            // but it also should probably be based on the cpu's capabilities
-            request_workers: 16,
-            storage: bonsaidb_local::config::StorageConfiguration::default(),
-            default_permissions: DefaultPermissions::Permissions(Permissions::default()),
-            custom_apis: HashMap::default(),
-            #[cfg(feature = "acme")]
-            acme: AcmeConfiguration::default(),
-        }
+        Self::default_for(B::default())
     }
 }
 

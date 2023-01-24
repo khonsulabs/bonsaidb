@@ -14,7 +14,7 @@ use bonsaidb_core::{api::ApiName, schema::Qualified};
 use bonsaidb_server::api::{HandlerResult, HandlerSession};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct CustomBackend;
 
 impl Backend for CustomBackend {
