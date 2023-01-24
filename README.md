@@ -3,7 +3,7 @@
 ![BonsaiDb forbids unsafe code](https://img.shields.io/badge/unsafe-forbid-success)
 ![BonsaiDb is considered alpha](https://img.shields.io/badge/status-alpha-orange)
 [![crate version](https://img.shields.io/crates/v/bonsaidb.svg)](https://crates.io/crates/bonsaidb)
-[![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/bonsaidb/Tests/main)](https://github.com/khonsulabs/bonsaidb/actions?query=workflow:Tests)
+[![Live Build Status](https://img.shields.io/github/actions/workflow/status/khonsulabs/bonsaidb/tests.yml?branch=main)](https://github.com/khonsulabs/bonsaidb/actions?query=workflow:Tests)
 [![HTML Coverage Report for `main`](https://dev.bonsaidb.io/main/coverage/badge.svg)](https://dev.bonsaidb.io/main/coverage/)
 [![Documentation for `main`](https://img.shields.io/badge/docs-main-informational)](https://dev.bonsaidb.io/main/docs/bonsaidb)
 
