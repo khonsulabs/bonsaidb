@@ -9,7 +9,7 @@ keywords = ["blobs", "bonsaidb", "files"]
 categories = ["data-structures", "database"]
 readme = "./README.md"
 homepage = "https://bonsaidb.io/"
-rust-version = "1.60"
+rust-version = "1.64"
 
 [features]
 async = ["tokio", "futures"]

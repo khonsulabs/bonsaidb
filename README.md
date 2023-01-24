@@ -97,7 +97,7 @@ Our user's guide is early in development, but is available at: <https://dev.bons
 ## Minimum Supported Rust Version (MSRV)
 
 While this project is alpha, we are actively adopting the current version of
-Rust. The current minimum version is `1.60`.
+Rust. The current minimum version is `1.64`.
 
 ## Feature Flags
 

@@ -15,7 +15,7 @@ WebSockets are an established protocol built atop TCP and HTTP.
 ## Minimum Supported Rust Version (MSRV)
 
 While this project is alpha, we are actively adopting the current version of
-Rust. The current minimum version is `1.60`.
+Rust. The current minimum version is `1.64`.
 
 ## WASM Support
 
