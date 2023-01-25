@@ -65,6 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   except `configure()`. Implementing `Default` for your `Backend` implementor
   will allow all existing code to continue working.
 - `Client::effective_permissions()` is no longer async.
+- `CustomServer::connected_clients()` is no longer async.
+- `CustomServer::broadcast()` is no longer async.
 
 [#240]: https://github.com/khonsulabs/bonsaidb/issues/240
 

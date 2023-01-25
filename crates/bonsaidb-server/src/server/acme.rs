@@ -111,7 +111,7 @@ impl<B: Backend> CustomServer<B> {
             let domains = vec![self.data.primary_domain.clone()];
             async_acme::rustls_helper::order(
                 |domain, key| {
-                    let mut auth_keys = self.data.alpn_keys.lock().unwrap();
+                    let mut auth_keys = self.data.alpn_keys.lock();
                     auth_keys.insert(domain, Arc::new(key));
                     Ok(())
                 },

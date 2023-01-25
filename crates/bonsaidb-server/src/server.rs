@@ -7,7 +7,6 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_lock::{Mutex, RwLock};
 use async_trait::async_trait;
 use bonsaidb_core::admin::{Admin, ADMIN_DATABASE_NAME};
 use bonsaidb_core::api;
@@ -23,11 +22,12 @@ use bonsaidb_core::permissions::Permissions;
 use bonsaidb_core::schema::{self, Nameable, NamedCollection, Schema};
 use bonsaidb_local::config::Builder;
 use bonsaidb_local::{AsyncStorage, Storage, StorageNonBlocking};
-use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
+use bonsaidb_utils::fast_async_lock;
 use derive_where::derive_where;
 use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
 use futures::{Future, StreamExt};
+use parking_lot::{Mutex, RwLock};
 use rustls::sign::CertifiedKey;
 use schema::SchemaName;
 #[cfg(not(windows))]
@@ -95,7 +95,7 @@ struct Data<B: Backend = NoBackend> {
     client_simultaneous_request_limit: usize,
     primary_tls_key: CachedCertifiedKey,
     primary_domain: String,
-    custom_apis: parking_lot::RwLock<HashMap<ApiName, Arc<dyn AnyHandler<B>>>>,
+    custom_apis: RwLock<HashMap<ApiName, Arc<dyn AnyHandler<B>>>>,
     #[cfg(feature = "acme")]
     acme: AcmeConfiguration,
     #[cfg(feature = "acme")]
@@ -104,7 +104,7 @@ struct Data<B: Backend = NoBackend> {
 }
 
 #[derive(Default)]
-struct CachedCertifiedKey(parking_lot::Mutex<Option<Arc<CertifiedKey>>>);
+struct CachedCertifiedKey(Mutex<Option<Arc<CertifiedKey>>>);
 
 impl Debug for CachedCertifiedKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -113,7 +113,7 @@ impl Debug for CachedCertifiedKey {
 }
 
 impl Deref for CachedCertifiedKey {
-    type Target = parking_lot::Mutex<Option<Arc<CertifiedKey>>>;
+    type Target = Mutex<Option<Arc<CertifiedKey>>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -170,7 +170,7 @@ impl<B: Backend> CustomServer<B> {
             storage,
             data: Arc::new(Data {
                 backend: configuration.backend,
-                clients: RwLock::default(),
+                clients: parking_lot::RwLock::default(),
                 endpoint: RwLock::default(),
                 request_processor: request_sender,
                 default_session: Session {
@@ -205,6 +205,12 @@ impl<B: Backend> CustomServer<B> {
     #[must_use]
     pub fn primary_domain(&self) -> &str {
         &self.data.primary_domain
+    }
+
+    /// Returns the [`Backend`] implementor for this server.
+    #[must_use]
+    pub fn backend(&self) -> &B {
+        &self.data.backend
     }
 
     /// Returns the administration database.
@@ -374,7 +380,7 @@ impl<B: Backend> CustomServer<B> {
         builder.set_server_key_pair(Some(keypair));
         let mut server = builder.build()?;
         {
-            let mut endpoint = fast_async_write!(self.data.endpoint);
+            let mut endpoint = self.data.endpoint.write();
             *endpoint = Some(server.clone());
         }
 
@@ -410,14 +416,15 @@ impl<B: Backend> CustomServer<B> {
     }
 
     /// Returns all of the currently connected clients.
-    pub async fn connected_clients(&self) -> Vec<ConnectedClient<B>> {
-        let clients = fast_async_read!(self.data.clients);
+    #[must_use]
+    pub fn connected_clients(&self) -> Vec<ConnectedClient<B>> {
+        let clients = self.data.clients.read();
         clients.values().cloned().collect()
     }
 
     /// Sends a custom API response to all connected clients.
-    pub async fn broadcast<Api: api::Api>(&self, response: &Api::Response) {
-        let clients = fast_async_read!(self.data.clients);
+    pub fn broadcast<Api: api::Api>(&self, response: &Api::Response) {
+        let clients = self.data.clients.read();
         for client in clients.values() {
             // TODO should this broadcast to all sessions too rather than only the global session?
             drop(client.send::<Api>(None, response));
@@ -439,7 +446,7 @@ impl<B: Backend> CustomServer<B> {
 
         let client = loop {
             let next_id = CONNECTED_CLIENT_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-            let mut clients = fast_async_write!(self.data.clients);
+            let mut clients = self.data.clients.write();
             if let hash_map::Entry::Vacant(e) = clients.entry(next_id) {
                 let client = OwnedClient::new(
                     next_id,
@@ -467,10 +474,12 @@ impl<B: Backend> CustomServer<B> {
     }
 
     async fn disconnect_client(&self, id: u32) {
-        if let Some(client) = {
-            let mut clients = fast_async_write!(self.data.clients);
+        let removed_client = {
+            let mut clients = self.data.clients.write();
             clients.remove(&id)
-        } {
+        };
+
+        if let Some(client) = removed_client {
             if let Err(err) = self.data.backend.client_disconnected(client, self).await {
                 log::error!("[server] Error in `client_disconnected`: {err:?}");
             }
@@ -696,7 +705,7 @@ impl<B: Backend> CustomServer<B> {
             ShuttingDown(flume::Receiver<()>),
         }
 
-        let shutdown_state = Arc::new(Mutex::new(SignalShutdownState::Running));
+        let shutdown_state = Arc::new(async_lock::Mutex::new(SignalShutdownState::Running));
         let flag = Arc::new(AtomicUsize::default());
         let register_hook = |flag: &Arc<AtomicUsize>| {
             signal_hook::flag::register_usize(SIGINT, flag.clone(), GRACEFUL_SHUTDOWN)?;
@@ -943,7 +952,7 @@ impl<B: Backend> AsyncStorageConnection for CustomServer<B> {
 }
 
 #[derive(Default)]
-struct AlpnKeys(Arc<std::sync::Mutex<HashMap<String, Arc<rustls::sign::CertifiedKey>>>>);
+struct AlpnKeys(Arc<Mutex<HashMap<String, Arc<rustls::sign::CertifiedKey>>>>);
 
 impl Debug for AlpnKeys {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -952,7 +961,7 @@ impl Debug for AlpnKeys {
 }
 
 impl Deref for AlpnKeys {
-    type Target = Arc<std::sync::Mutex<HashMap<String, Arc<rustls::sign::CertifiedKey>>>>;
+    type Target = Arc<Mutex<HashMap<String, Arc<rustls::sign::CertifiedKey>>>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

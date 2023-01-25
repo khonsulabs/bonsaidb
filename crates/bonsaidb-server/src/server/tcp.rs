@@ -184,7 +184,7 @@ impl<B: Backend> ResolvesServerCert for CustomServer<B> {
             .unwrap_or_default()
         {
             let server_name = client_hello.server_name()?.to_owned();
-            let keys = self.data.alpn_keys.lock().unwrap();
+            let keys = self.data.alpn_keys.lock();
             if let Some(key) = keys.get(AsRef::<str>::as_ref(&server_name)) {
                 log::info!("returning acme challenge");
                 return Some(key.clone());
