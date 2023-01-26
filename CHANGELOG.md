@@ -162,6 +162,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ```
 
   These new APIs are provided purely for style preference considerations.
+- `LimitedResolutionDuration` now has a function `checked_add()` supports
+  iter::Sum into `Option<LimitedResolutionDuration<T>>` or
+  `LimitedResolutionDuration<T>`. The option-wrapped version does a checked
+  operation, and the other will panic if the result of the operation is not
+  representable by the `LimitedResolutionDuration`.
 
 ### Changed
 

@@ -114,6 +114,7 @@ pub mod limited {
     use std::borrow::Cow;
     use std::fmt::{self, Debug, Display, Write};
     use std::hash::Hash;
+    use std::iter;
     use std::marker::PhantomData;
     use std::str::FromStr;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -188,6 +189,35 @@ pub mod limited {
         Negative(Duration),
     }
 
+    impl SignedDuration {
+        /// Adds the two durations, honoring the signs, and returns the result
+        /// if the duration is representable.
+        pub fn checked_add(self, other: Self) -> Option<Self> {
+            match (self, other) {
+                (SignedDuration::Positive(a), SignedDuration::Positive(b)) => {
+                    a.checked_add(b).map(SignedDuration::Positive)
+                }
+                (SignedDuration::Negative(a), SignedDuration::Negative(b)) => {
+                    a.checked_add(b).map(SignedDuration::Negative)
+                }
+                (SignedDuration::Positive(a), SignedDuration::Negative(b)) => {
+                    if let Some(result) = a.checked_sub(b) {
+                        Some(SignedDuration::Positive(result))
+                    } else {
+                        Some(SignedDuration::Negative(b - a))
+                    }
+                }
+                (SignedDuration::Negative(a), SignedDuration::Positive(b)) => {
+                    if let Some(result) = a.checked_sub(b) {
+                        Some(SignedDuration::Negative(result))
+                    } else {
+                        Some(SignedDuration::Positive(b - a))
+                    }
+                }
+            }
+        }
+    }
+
     impl<Resolution> LimitedResolutionDuration<Resolution>
     where
         Resolution: TimeResolution,
@@ -216,6 +246,21 @@ pub mod limited {
     impl<Resolution: TimeResolution> Display for LimitedResolutionDuration<Resolution> {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "{}{}", self.representation, Resolution::FORMAT_SUFFIX)
+        }
+    }
+
+    impl iter::Sum<SignedDuration> for Option<SignedDuration> {
+        fn sum<I: Iterator<Item = SignedDuration>>(mut iter: I) -> Self {
+            let first = iter.next();
+            iter.fold(first, |sum, duration| {
+                sum.and_then(|sum| sum.checked_add(duration))
+            })
+        }
+    }
+
+    impl iter::Sum<Self> for SignedDuration {
+        fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+            iter.sum::<Option<Self>>().expect("operation overflowed")
         }
     }
 
@@ -337,11 +382,105 @@ pub mod limited {
         }
     }
 
+    impl<Resolution> iter::Sum<LimitedResolutionDuration<Resolution>>
+        for Option<LimitedResolutionDuration<Resolution>>
+    where
+        Resolution: TimeResolution,
+    {
+        fn sum<I: Iterator<Item = LimitedResolutionDuration<Resolution>>>(mut iter: I) -> Self {
+            let first = iter
+                .next()
+                .and_then(|dur| Resolution::repr_to_duration(dur.representation).ok());
+            let duration = iter.fold(first, |sum, dur| {
+                sum.and_then(|sum| {
+                    Resolution::repr_to_duration(dur.representation)
+                        .ok()
+                        .and_then(|dur| sum.checked_add(dur))
+                })
+            });
+            duration.and_then(|dur| {
+                Resolution::duration_to_repr(dur)
+                    .ok()
+                    .map(LimitedResolutionDuration::new)
+            })
+        }
+    }
+
+    impl<Resolution> iter::Sum<Self> for LimitedResolutionDuration<Resolution>
+    where
+        Resolution: TimeResolution,
+    {
+        fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+            iter.sum::<Option<Self>>().expect("operation overflowed")
+        }
+    }
+
+    #[test]
+    fn limited_resolution_duration_sum() {
+        use super::Nanoseconds;
+        assert_eq!(
+            [
+                Nanoseconds::new(1),
+                Nanoseconds::new(2),
+                Nanoseconds::new(3),
+            ]
+            .into_iter()
+            .sum::<Nanoseconds>(),
+            Nanoseconds::new(6)
+        );
+        assert_eq!(
+            [
+                Nanoseconds::new(1),
+                Nanoseconds::new(2),
+                Nanoseconds::new(3),
+            ]
+            .into_iter()
+            .sum::<Option<Nanoseconds>>(),
+            Some(Nanoseconds::new(6))
+        );
+
+        assert_eq!(
+            [Nanoseconds::new(1), Nanoseconds::new(i64::MAX)]
+                .into_iter()
+                .sum::<Option<Nanoseconds>>(),
+            None
+        );
+
+        assert_eq!(
+            [Nanoseconds::new(i64::MAX), Nanoseconds::new(1)]
+                .into_iter()
+                .sum::<Option<Nanoseconds>>(),
+            None
+        );
+
+        assert_eq!(
+            [Nanoseconds::new(i64::MIN), Nanoseconds::new(-11)]
+                .into_iter()
+                .sum::<Option<Nanoseconds>>(),
+            None
+        );
+
+        assert_eq!(
+            [Nanoseconds::new(1), Nanoseconds::new(i64::MIN)]
+                .into_iter()
+                .sum::<Option<Nanoseconds>>(),
+            Some(Nanoseconds::new(i64::MIN + 1))
+        );
+        assert_eq!(
+            [Nanoseconds::new(i64::MIN), Nanoseconds::new(1)]
+                .into_iter()
+                .sum::<Option<Nanoseconds>>(),
+            Some(Nanoseconds::new(i64::MIN + 1))
+        );
+    }
+
     /// A [`TimeResolution`] implementation that preserves nanosecond
     /// resolution. Internally, the number of microseconds is represented as an
     /// `i64`, allowing a range of +/- ~292.5 years.
     #[derive(Debug)]
     pub enum Nanoseconds {}
+
+    const I64_MIN_ABS_AS_U64: u64 = 9_223_372_036_854_775_808;
 
     impl TimeResolution for Nanoseconds {
         type Representation = i64;
@@ -351,13 +490,12 @@ pub mod limited {
         fn repr_to_duration(value: Self::Representation) -> Result<SignedDuration, TimeError> {
             if let Ok(unsigned) = u64::try_from(value) {
                 Ok(SignedDuration::Positive(Duration::from_nanos(unsigned)))
-            } else if let Some(positive) = value
-                .checked_abs()
-                .and_then(|value| u64::try_from(value).ok())
-            {
-                Ok(SignedDuration::Negative(Duration::from_nanos(positive)))
             } else {
-                Err(TimeError::DeltaNotRepresentable)
+                let positive = value
+                    .checked_abs()
+                    .and_then(|value| u64::try_from(value).ok())
+                    .unwrap_or(I64_MIN_ABS_AS_U64);
+                Ok(SignedDuration::Negative(Duration::from_nanos(positive)))
             }
         }
 
@@ -366,9 +504,16 @@ pub mod limited {
                 SignedDuration::Positive(duration) => {
                     i64::try_from(duration.as_nanos()).map_err(|_| TimeError::DeltaNotRepresentable)
                 }
-                SignedDuration::Negative(duration) => i64::try_from(duration.as_nanos())
-                    .map(|repr| -repr)
-                    .map_err(|_| TimeError::DeltaNotRepresentable),
+                SignedDuration::Negative(duration) => {
+                    let nanos = duration.as_nanos();
+                    if let Ok(nanos) = i64::try_from(nanos) {
+                        Ok(-nanos)
+                    } else if nanos == u128::from(I64_MIN_ABS_AS_U64) {
+                        Ok(i64::MIN)
+                    } else {
+                        Err(TimeError::DeltaNotRepresentable)
+                    }
+                }
             }
         }
     }
@@ -387,13 +532,12 @@ pub mod limited {
         fn repr_to_duration(value: Self::Representation) -> Result<SignedDuration, TimeError> {
             if let Ok(unsigned) = u64::try_from(value) {
                 Ok(SignedDuration::Positive(Duration::from_micros(unsigned)))
-            } else if let Some(positive) = value
-                .checked_abs()
-                .and_then(|value| u64::try_from(value).ok())
-            {
-                Ok(SignedDuration::Negative(Duration::from_micros(positive)))
             } else {
-                Err(TimeError::DeltaNotRepresentable)
+                let positive = value
+                    .checked_abs()
+                    .and_then(|value| u64::try_from(value).ok())
+                    .unwrap_or(u64::MAX);
+                Ok(SignedDuration::Negative(Duration::from_micros(positive)))
             }
         }
 
@@ -427,13 +571,12 @@ pub mod limited {
         fn repr_to_duration(value: Self::Representation) -> Result<SignedDuration, TimeError> {
             if let Ok(unsigned) = u64::try_from(value) {
                 Ok(SignedDuration::Positive(Duration::from_millis(unsigned)))
-            } else if let Some(positive) = value
-                .checked_abs()
-                .and_then(|value| u64::try_from(value).ok())
-            {
-                Ok(SignedDuration::Negative(Duration::from_millis(positive)))
             } else {
-                Err(TimeError::DeltaNotRepresentable)
+                let positive = value
+                    .checked_abs()
+                    .and_then(|value| u64::try_from(value).ok())
+                    .unwrap_or(u64::MAX);
+                Ok(SignedDuration::Negative(Duration::from_millis(positive)))
             }
         }
 
@@ -467,13 +610,12 @@ pub mod limited {
         fn repr_to_duration(value: Self::Representation) -> Result<SignedDuration, TimeError> {
             if let Ok(unsigned) = u64::try_from(value) {
                 Ok(SignedDuration::Positive(Duration::from_secs(unsigned)))
-            } else if let Some(positive) = value
-                .checked_abs()
-                .and_then(|value| u64::try_from(value).ok())
-            {
-                Ok(SignedDuration::Negative(Duration::from_secs(positive)))
             } else {
-                Err(TimeError::DeltaNotRepresentable)
+                let positive = value
+                    .checked_abs()
+                    .and_then(|value| u64::try_from(value).ok())
+                    .unwrap_or(u64::MAX);
+                Ok(SignedDuration::Negative(Duration::from_secs(positive)))
             }
         }
 
