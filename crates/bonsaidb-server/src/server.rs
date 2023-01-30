@@ -756,6 +756,8 @@ impl<B: Backend> CustomServer<B> {
                         // Fully shut down.
                         return Ok(());
                     }
+                } else if self.data.shutdown.should_shutdown() {
+                    return Ok(());
                 }
 
                 tokio::time::sleep(Duration::from_millis(300)).await;

@@ -201,6 +201,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now checked and waited upon before allowing access to the view.
 - When querying a View with `AccessPolicy::UpdateAfter`, the update task is no
   longer blocked until complete.
+- `CustomServer::listen_for_shutdown()` now listens for
+  `CustomServer::shutdown()` in addition to operating system signals.
 
 ## v0.4.1
 

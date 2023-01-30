@@ -57,6 +57,10 @@ impl Shutdown {
         self.stop_watching().await;
         drop(self.sender.send(ShutdownState::Shutdown));
     }
+
+    pub fn should_shutdown(&self) -> bool {
+        matches!(&*self.sender.borrow(), ShutdownState::Shutdown)
+    }
 }
 
 pub struct ShutdownStateWatcher {
