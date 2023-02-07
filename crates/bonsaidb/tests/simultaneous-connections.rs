@@ -29,7 +29,7 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
 
     let mut tasks = Vec::new();
     for i in 0usize..10 {
-        tasks.push(test_one_client(client.clone(), format!("test{}", i)));
+        tasks.push(test_one_client(client.clone(), format!("test{i}")));
     }
 
     futures::future::join_all(tasks)

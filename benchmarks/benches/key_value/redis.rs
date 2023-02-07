@@ -7,7 +7,7 @@ pub fn read_blobs(c: &mut BenchmarkGroup<WallTime>, data: &[u8]) {
     let mut connection = match client.get_connection() {
         Ok(connection) => connection,
         Err(err) => {
-            eprintln!("Error connecting to redis: {:?}", err);
+            eprintln!("Error connecting to redis: {err:?}");
             return;
         }
     };
@@ -47,7 +47,7 @@ pub fn write_blobs(c: &mut BenchmarkGroup<WallTime>, data: &[u8]) {
     let mut connection = match client.get_connection() {
         Ok(connection) => connection,
         Err(err) => {
-            eprintln!("Error connecting to redis: {:?}", err);
+            eprintln!("Error connecting to redis: {err:?}");
             return;
         }
     };
@@ -90,7 +90,7 @@ pub fn increment(c: &mut BenchmarkGroup<WallTime>) {
     let mut connection = match client.get_connection() {
         Ok(connection) => connection,
         Err(err) => {
-            eprintln!("Error connecting to redis: {:?}", err);
+            eprintln!("Error connecting to redis: {err:?}");
             return;
         }
     };

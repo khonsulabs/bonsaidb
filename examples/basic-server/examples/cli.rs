@@ -73,12 +73,12 @@ impl CommandLine for CliBackend {
                         .with_key(&sides)
                         .reduce()
                         .await?;
-                    println!("Found {} shapes with {} sides", count, sides);
+                    println!("Found {count} shapes with {sides} sides");
                 } else {
                     let count = ShapesByNumberOfSides::entries_async(&database)
                         .reduce()
                         .await?;
-                    println!("Found {} shapes with any number of sides", count);
+                    println!("Found {count} shapes with any number of sides");
                 }
             }
         }

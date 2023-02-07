@@ -256,12 +256,9 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
 async fn ping_the_server(client: &Client, client_name: &str) -> Result<(), bonsaidb::core::Error> {
     match client.send_api_request_async(&Ping).await {
         Ok(Pong) => {
-            println!("Received Pong from server on {}", client_name);
+            println!("Received Pong from server on {client_name}");
         }
-        other => println!(
-            "Unexpected response from API call on {}: {:?}",
-            client_name, other
-        ),
+        other => println!("Unexpected response from API call on {client_name}: {other:?}",),
     }
 
     Ok(())

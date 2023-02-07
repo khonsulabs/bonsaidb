@@ -67,7 +67,7 @@ fn main() -> Result<(), bonsaidb::core::Error> {
 
     // What is returned is a list of entries containing the document id
     // (source), the key of the entry, and the value of the entry:
-    println!("Triangles: {:#?}", triangles);
+    println!("Triangles: {triangles:#?}");
 
     // If you want the associated documents, use query_with_collection_docs:
     for entry in &ShapesByNumberOfSides::entries(&db)

@@ -159,7 +159,7 @@ pub fn label_to_color(label: &str) -> RGBColor {
         "postgresql" => COLORS[3],
         "sqlite" => COLORS[4],
         "mongodb" => COLORS[5],
-        _ => panic!("Unknown label: {}", label),
+        _ => panic!("Unknown label: {label}"),
     }
 }
 

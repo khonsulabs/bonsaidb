@@ -90,7 +90,7 @@ mod websockets {
             let url = Url::parse("ws://localhost:6001")?;
             let client = Client::new(url.clone())?;
 
-            let dbname = format!("websockets-{}", test);
+            let dbname = format!("websockets-{test}");
             client
                 .create_database::<BasicSchema>(&dbname, false)
                 .await?;
@@ -145,7 +145,7 @@ mod websockets {
             let url = Url::parse("ws://localhost:6001")?;
             let client = Client::new(url)?;
 
-            let dbname = format!("blocking-websockets-{}", test);
+            let dbname = format!("blocking-websockets-{test}");
             client.create_database::<BasicSchema>(&dbname, false)?;
             let db = client.database::<BasicSchema>(&dbname)?;
 
@@ -213,14 +213,13 @@ mod bonsai {
             let certificate = initialize_shared_server().await;
 
             let url = Url::parse(&format!(
-                "bonsaidb://localhost:6000?server={}",
-                BASIC_SERVER_NAME
+                "bonsaidb://localhost:6000?server={BASIC_SERVER_NAME}"
             ))?;
             let client = Client::build(url.clone())
                 .with_certificate(certificate.clone())
                 .finish()?;
 
-            let dbname = format!("bonsai-{}", test);
+            let dbname = format!("bonsai-{test}");
             client
                 .create_database::<BasicSchema>(&dbname, false)
                 .await?;
@@ -242,7 +241,7 @@ mod bonsai {
             &self.client
         }
 
-        pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase> {
+        pub async fn connect(&self) -> anyhow::Result<RemoteDatabase> {
             Ok(self.db.clone())
         }
 
@@ -268,8 +267,7 @@ mod bonsai {
         let certificate = initialize_shared_server().await;
 
         let url = Url::parse(&format!(
-            "bonsaidb://localhost:6000?server={}",
-            BASIC_SERVER_NAME
+            "bonsaidb://localhost:6000?server={BASIC_SERVER_NAME}",
         ))?;
         let client = Client::build(url.clone())
             .with_certificate(certificate.clone())
@@ -295,8 +293,7 @@ async fn check_incompatible_client(client: Client) -> anyhow::Result<()> {
         Err(bonsaidb_core::Error::Other { error, .. }) => {
             assert!(
                 error.contains("protocol version"),
-                "unexpected error: {:?}",
-                error
+                "unexpected error: {error:?}",
             );
         }
         other => unreachable!(
@@ -316,7 +313,7 @@ async fn assume_permissions(
     statements: Vec<Statement>,
 ) -> anyhow::Result<RemoteDatabase> {
     use bonsaidb_core::connection::AsyncStorageConnection;
-    let username = format!("{}-{}", database_name, label);
+    let username = format!("{database_name}-{label}");
     let password = SensitiveString(
         rand::thread_rng()
             .sample_iter(&Alphanumeric)

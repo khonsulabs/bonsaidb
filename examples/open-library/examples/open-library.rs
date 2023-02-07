@@ -66,7 +66,7 @@ impl LibraryEntity for Author {
 
     async fn summarize(&self, database: &AsyncDatabase) -> anyhow::Result<()> {
         if let Some(name) = &self.name {
-            println!("Name: {}", name);
+            println!("Name: {name}");
         }
         if let Some(bio) = &self.bio {
             println!("Biography:\n{}", bio.value())
@@ -191,10 +191,10 @@ impl LibraryEntity for Edition {
 
     async fn summarize(&self, database: &AsyncDatabase) -> anyhow::Result<()> {
         if let Some(title) = &self.title {
-            println!("Title: {}", title);
+            println!("Title: {title}");
         }
         if let Some(subtitle) = &self.subtitle {
-            println!("Subtitle: {}", subtitle);
+            println!("Subtitle: {subtitle}");
         }
         let works = Work::get_multiple_async(
             &self
@@ -285,10 +285,10 @@ impl LibraryEntity for Work {
 
     async fn summarize(&self, database: &AsyncDatabase) -> anyhow::Result<()> {
         if let Some(title) = &self.title {
-            println!("Title: {}", title);
+            println!("Title: {title}");
         }
         if let Some(subtitle) = &self.subtitle {
-            println!("Subtitle: {}", subtitle);
+            println!("Subtitle: {subtitle}");
         }
         let editions = EditionsByWork::entries_async(database)
             .with_key(&self.key)
@@ -558,7 +558,7 @@ async fn import_from_tsv<
     let mut record_stream = receiver.into_stream().chunks(CHUNK_SIZE);
     while let Some(records) = record_stream.next().await {
         inserted += callback(records, database.clone()).await?;
-        println!("Imported records: {}", inserted);
+        println!("Imported records: {inserted}");
     }
 
     Ok(())

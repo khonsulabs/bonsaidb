@@ -195,7 +195,7 @@ async fn main() -> anyhow::Result<()> {
             .database::<Shape>("my-database")
             .await?;
         let shape_doc = Shape::new(3).push_into_async(&db).await?;
-        println!("Successully inserted document {:?}", shape_doc);
+        println!("Successully inserted document {shape_doc:?}");
 
         // The "basic-users" group and "administrators" groups do not give
         // permission to delete documents:

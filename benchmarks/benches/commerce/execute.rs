@@ -319,10 +319,7 @@ impl<'a> Benchmark<'a> {
         let number_of_agents = self.agents.unwrap_or_else(num_cpus::get);
         let shoppers = self.shoppers.unwrap_or(number_of_agents * 100);
 
-        println!(
-            "Running {} plans across {} agents",
-            shoppers, number_of_agents
-        );
+        println!("Running {shoppers} plans across {number_of_agents} agents",);
         // Generate plans to execute.
         let mut plans = Vec::with_capacity(shoppers);
         for _ in 0..shoppers {
@@ -671,13 +668,13 @@ fn stats_thread(
         )
         .unwrap();
         for (label, chart_data) in label_chart_data {
-            println!("Plotting {}: {:?}", label, metric);
-            let chart_path = plot_dir.join(format!("{}-{:?}.png", label, metric));
+            println!("Plotting {label}: {metric:?}");
+            let chart_path = plot_dir.join(format!("{label}-{metric:?}.png"));
             let chart_root = BitMapBackend::new(&chart_path, (800, 240)).into_drawing_area();
             chart_root.fill(&BACKGROUND_COLOR).unwrap();
             let mut chart = ChartBuilder::on(&chart_root)
                 .caption(
-                    format!("{}: {:?}", label, metric),
+                    format!("{label}: {metric:?}"),
                     ("sans-serif", 30., &TEXT_COLOR),
                 )
                 .margin_left(10)
@@ -719,12 +716,12 @@ fn stats_thread(
                 (label, running_data)
             })
             .collect::<BTreeMap<_, _>>();
-        let metric_chart_path = plot_dir.join(format!("{:?}.png", metric));
+        let metric_chart_path = plot_dir.join(format!("{metric:?}.png"));
         let metric_chart_root =
             BitMapBackend::new(&metric_chart_path, (800, 480)).into_drawing_area();
         metric_chart_root.fill(&BACKGROUND_COLOR).unwrap();
         let mut metric_chart = ChartBuilder::on(&metric_chart_root)
-            .caption(format!("{:?}", metric), ("sans-serif", 30., &TEXT_COLOR))
+            .caption(format!("{metric:?}"), ("sans-serif", 30., &TEXT_COLOR))
             .margin_left(10)
             .margin_right(50)
             .margin_bottom(10)
@@ -787,7 +784,7 @@ fn stats_thread(
             .table()
             .title(vec![
                 "Backend".cell(),
-                format!("Total Execution Time across {} agents", number_of_agents).cell(),
+                format!("Total Execution Time across {number_of_agents} agents").cell(),
             ]),
     )
     .unwrap();

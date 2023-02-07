@@ -92,7 +92,7 @@ fn main() {
     match dotenv::dotenv() {
         Ok(_) => {}
         Err(dotenv::Error::Io(err)) if err.kind() == ErrorKind::NotFound => {}
-        Err(other) => panic!("Error with .env file: {}", other),
+        Err(other) => panic!("Error with .env file: {other}"),
     }
     let tera = Arc::new(tera::Tera::new("benches/commerce/templates/**/*").unwrap());
     let options = Options::parse();
@@ -219,17 +219,11 @@ fn run_standard_benchmarks(
     let mut summaries = BTreeMap::<usize, Vec<BTreeMap<&'static str, Duration>>>::new();
     for (dataset_label, data_config) in &initial_datasets {
         for (plan_label, shopper_config) in &shopper_plans {
-            println!(
-                "Running standard benchmark {}-{}",
-                dataset_label, plan_label
-            );
+            println!("Running standard benchmark {dataset_label}-{plan_label}");
             for &concurrency in &number_of_agents {
                 let summaries = summaries.entry(concurrency).or_default();
                 let measurements = execute::Benchmark {
-                    label: format!(
-                        "{}, {}, {} agent(s)",
-                        dataset_label, plan_label, concurrency
-                    ),
+                    label: format!("{dataset_label}, {plan_label}, {concurrency} agent(s)",),
                     seed: Some(0),
                     agents: Some(concurrency),
                     shoppers: Some(shoppers),
@@ -238,20 +232,14 @@ fn run_standard_benchmarks(
                 }
                 .execute(
                     name_filter,
-                    format!(
-                        "./commerce-bench/{}-{}/{}/",
-                        dataset_label, plan_label, concurrency
-                    ),
+                    format!("./commerce-bench/{dataset_label}-{plan_label}/{concurrency}/"),
                     tera.clone(),
                 );
                 datasets.push(DataSet {
                     size: dataset_label.to_string(),
                     pattern: plan_label.to_string(),
                     concurrency: concurrency.to_string(),
-                    path: format!(
-                        "{}-{}/{}/index.html",
-                        dataset_label, plan_label, concurrency
-                    ),
+                    path: format!("{dataset_label}-{plan_label}/{concurrency}/index.html"),
                     results: measurements
                         .iter()
                         .map(|(k, v)| (k.to_string(), format_nanoseconds(v.as_nanos() as f64)))

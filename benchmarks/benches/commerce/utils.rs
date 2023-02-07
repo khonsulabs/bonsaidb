@@ -36,11 +36,11 @@ pub fn format_nanoseconds(nanoseconds: f64) -> String {
 
 fn format_float(value: f64, suffix: &str) -> String {
     if value < 10. {
-        format!("{:.3}{}", value, suffix)
+        format!("{value:.3}{suffix}")
     } else if value < 100. {
-        format!("{:.2}{}", value, suffix)
+        format!("{value:.2}{suffix}")
     } else {
-        format!("{:.1}{}", value, suffix)
+        format!("{value:.1}{suffix}")
     }
 }
 
