@@ -319,7 +319,7 @@ impl<'a> Benchmark<'a> {
         let number_of_agents = self.agents.unwrap_or_else(num_cpus::get);
         let shoppers = self.shoppers.unwrap_or(number_of_agents * 100);
 
-        println!("Running {shoppers} plans across {number_of_agents} agents",);
+        println!("Running {shoppers} plans across {number_of_agents} agents");
         // Generate plans to execute.
         let mut plans = Vec::with_capacity(shoppers);
         for _ in 0..shoppers {

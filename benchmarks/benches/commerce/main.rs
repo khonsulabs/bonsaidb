@@ -223,7 +223,7 @@ fn run_standard_benchmarks(
             for &concurrency in &number_of_agents {
                 let summaries = summaries.entry(concurrency).or_default();
                 let measurements = execute::Benchmark {
-                    label: format!("{dataset_label}, {plan_label}, {concurrency} agent(s)",),
+                    label: format!("{dataset_label}, {plan_label}, {concurrency} agent(s)"),
                     seed: Some(0),
                     agents: Some(concurrency),
                     shoppers: Some(shoppers),

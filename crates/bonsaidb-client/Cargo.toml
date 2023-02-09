@@ -10,7 +10,7 @@ keywords = ["document-database", "database"]
 categories = ["database-implementations"]
 readme = "../../README.md"
 homepage = "https://bonsaidb.io/"
-rust-version = "1.60"
+rust-version = "1.65"
 
 [features]
 default = ["full"]
@@ -60,7 +60,7 @@ wasm-bindgen = "0.2"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 fabruic = { version = "0.0.1-dev.5" }
 tokio = { version = "1.16.1", features = ["sync", "macros"] }
-tokio-tungstenite = { version = "0.16", optional = true, features = [
+tokio-tungstenite = { version = "0.18", optional = true, features = [
     "rustls-tls-native-roots",
 ] }
 

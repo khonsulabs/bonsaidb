@@ -578,10 +578,7 @@ impl<B: Backend> CustomServer<B> {
                 )
                 .is_ok()
             {
-                let payload = match request_receiver.recv_async().await {
-                    Ok(payload) => payload,
-                    Err(_) => break,
-                };
+                let Ok(payload) = request_receiver.recv_async().await else { break };
                 let session_id = payload.session_id;
                 let id = payload.id;
                 let task_sender = response_sender.clone();

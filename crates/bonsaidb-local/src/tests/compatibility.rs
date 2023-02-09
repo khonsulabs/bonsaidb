@@ -223,7 +223,7 @@ fn test_basic(db: &Database) {
             changes
                 .collections
                 .contains(&Basic::collection_name())
-                .then(|| &changes.documents)
+                .then_some(&changes.documents)
         })
     });
     assert_eq!(basic_transactions.count(), 5);

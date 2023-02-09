@@ -10,7 +10,7 @@ keywords = ["document-database", "database"]
 categories = ["database-implementations"]
 readme = "../../README.md"
 homepage = "https://bonsaidb.io/"
-rust-version = "1.60"
+rust-version = "1.65"
 
 [lib]
 proc-macro = true
@@ -26,7 +26,7 @@ syn = "1"
 trybuild = "1.0.54"
 
 [dev-dependencies]
-compiletest_rs = "0.7"
+compiletest_rs = "0.9"
 transmog-bincode = "0.1.0-dev.2"
 
 [dev-dependencies.bonsaidb]

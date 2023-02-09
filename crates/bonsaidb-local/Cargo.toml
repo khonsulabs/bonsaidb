@@ -10,7 +10,7 @@ keywords = ["document-database", "database"]
 categories = ["database-implementations", "database"]
 readme = "./README.md"
 homepage = "https://bonsaidb.io/"
-rust-version = "1.60"
+rust-version = "1.65"
 
 [lib]
 
@@ -62,7 +62,7 @@ transmog-versions = "0.1.0"
 bincode = "1.3"
 flume = "0.10"
 itertools = "0.10"
-clap = { version = "3", optional = true, features = ["derive"] }
+clap = { version = "4.1.4", optional = true, features = ["derive"] }
 rand = "0.8"
 byteorder = "1"
 futures = { version = "0.3.19", optional = true }

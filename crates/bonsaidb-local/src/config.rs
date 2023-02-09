@@ -270,7 +270,7 @@ impl KeyValuePersistence {
                             break;
                         }
                     }
-                    (shortest_duration < Duration::MAX).then(|| shortest_duration)
+                    (shortest_duration < Duration::MAX).then_some(shortest_duration)
                 }
             }
         }

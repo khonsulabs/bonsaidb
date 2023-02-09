@@ -802,13 +802,7 @@ pub fn background_worker(
             }
         };
 
-        let key_value_state = match key_value_state.upgrade() {
-            Some(state) => state,
-            None => {
-                // The last reference has been dropped.
-                break;
-            }
-        };
+        let Some(key_value_state) = key_value_state.upgrade() else { break };
 
         if perform_operations {
             let mut state = key_value_state.lock();

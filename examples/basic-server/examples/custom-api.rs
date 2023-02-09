@@ -258,7 +258,7 @@ async fn ping_the_server(client: &Client, client_name: &str) -> Result<(), bonsa
         Ok(Pong) => {
             println!("Received Pong from server on {client_name}");
         }
-        other => println!("Unexpected response from API call on {client_name}: {other:?}",),
+        other => println!("Unexpected response from API call on {client_name}: {other:?}"),
     }
 
     Ok(())

@@ -923,7 +923,7 @@ impl StorageConnection for StorageInstance {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, schema),
         fields(
             schema.authority = schema.authority.as_ref(),
@@ -1592,16 +1592,14 @@ impl StorageNonBlocking for Storage {
             return Err(bonsaidb_core::Error::InvalidCredentials);
         }
 
-        let session_id = match session.id {
-            Some(id) => id,
-            None => {
+        let Some(session_id) = session.id
+            else {
                 return Ok(Self {
                     instance: self.instance.clone(),
                     authentication: None,
                     effective_session: Some(Arc::new(session)),
                 })
-            }
-        };
+            };
 
         let session_data = self.instance.data.sessions.read();
         // TODO better error

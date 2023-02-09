@@ -52,12 +52,11 @@ impl<B: Backend> CustomServer<B> {
             return response;
         }
 
-        let sec_websocket_key = if let Some(key) = request.headers_mut().remove(SEC_WEBSOCKET_KEY) {
-            key
-        } else {
-            *response.status_mut() = StatusCode::BAD_REQUEST;
-            return response;
-        };
+        let Some(sec_websocket_key) = request.headers_mut().remove(SEC_WEBSOCKET_KEY)
+            else {
+                *response.status_mut() = StatusCode::BAD_REQUEST;
+                return response;
+            };
 
         let task_self = self.clone();
         tokio::spawn(async move {
@@ -110,14 +109,9 @@ impl<B: Backend> CustomServer<B> {
         let (message_sender, message_receiver) = flume::unbounded();
 
         let (api_response_sender, api_response_receiver) = flume::unbounded();
-        let client = if let Some(client) = self
+        let Some(client) = self
             .initialize_client(Transport::WebSocket, peer_address, api_response_sender)
-            .await
-        {
-            client
-        } else {
-            return;
-        };
+            .await else { return };
         let task_sender = response_sender.clone();
         tokio::spawn(async move {
             while let Ok((session_id, name, value)) = api_response_receiver.recv_async().await {
@@ -192,12 +186,14 @@ impl<B: Backend> CustomServer<B> {
 
 #[cfg(feature = "hyper")]
 fn compute_websocket_accept_header(key: &[u8]) -> hyper::header::HeaderValue {
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use base64::Engine;
     use sha1::{Digest, Sha1};
 
     let mut digest = Sha1::default();
     digest.update(key);
     digest.update(&b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"[..]);
-    let encoded = base64::encode(digest.finalize());
+    let encoded = BASE64.encode(digest.finalize());
     hyper::header::HeaderValue::from_str(&encoded).expect("base64 is a valid value")
 }
 

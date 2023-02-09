@@ -28,19 +28,19 @@ bonsaidb = { path = "../crates/bonsaidb", version = "0.4.0", features = [
     "test-util",
 ] }
 futures = "0.3"
-criterion = { version = "0.3", features = ["async_tokio", "html_reports"] }
+criterion = { version = "0.4.0", features = ["async_tokio", "html_reports"] }
 anyhow = "1"
 tokio = { version = "1.16.1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 ubyte = "0.10"
-env_logger = "0.9"
+env_logger = "0.10"
 rusqlite = { version = "0.26", optional = true }
 sqlx = { version = "0.5", optional = true, default-features = false, features = [
     "runtime-tokio-rustls",
 ] }
 fake = "2"
 rand = { version = "0.8", features = ["small_rng"] }
-clap = { version = "3", features = ["derive"] }
+clap = { version = "4.1.4", features = ["derive"] }
 flume = "0.10"
 num_cpus = "1"
 cli-table = "0.4"
