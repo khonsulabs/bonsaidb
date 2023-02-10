@@ -8,6 +8,7 @@ use flume::Receiver;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
+use tokio_tungstenite::tungstenite::handshake::client::generate_key;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use url::Url;
@@ -30,6 +31,11 @@ pub async fn reconnecting_client_loop(
         let (stream, _) = match tokio_tungstenite::connect_async(
             tokio_tungstenite::tungstenite::handshake::client::Request::get(url.as_str())
                 .header("Sec-WebSocket-Protocol", protocol_version)
+                .header("Sec-WebSocket-Version", "13")
+                .header("Sec-WebSocket-Key", generate_key())
+                .header("Host", url.host_str().expect("no host"))
+                .header("Connection", "Upgrade")
+                .header("Upgrade", "websocket")
                 .body(())
                 .unwrap(),
         )
