@@ -39,10 +39,7 @@ async fn create_websocket(
     subscribers.clear();
 
     // Receive the next/initial request when we are reconnecting.
-    let initial_request = match request_receiver.recv_async().await {
-        Ok(r) => r,
-        Err(_) => return,
-    };
+    let Ok(initial_request) = request_receiver.recv_async().await else { return };
 
     // In wasm we're not going to have a real loop. We're going create a
     // websocket and store it in JS. This will allow us to get around Send/Sync
