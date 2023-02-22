@@ -203,6 +203,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer blocked until complete.
 - `CustomServer::listen_for_shutdown()` now listens for
   `CustomServer::shutdown()` in addition to operating system signals.
+- `Client` will no longer return a `Session` from a previous connection. Because
+  the `Client` automatically reconnects, the `Session`s are no longer
+  authenticated.
+- `CustomServer::shutdown` now fully shuts down the server by forcefully
+  disconnecting clients after the optional grace period has elapsed.
+  Additionally, QUIC-connected workers are sent the proper disconnection
+  notification.
 
 ## v0.4.1
 

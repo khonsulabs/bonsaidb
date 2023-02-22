@@ -58,7 +58,7 @@ impl RemoteDatabase {
 
 impl HasSession for RemoteDatabase {
     fn session(&self) -> Option<&Session> {
-        Some(&self.session)
+        self.client.session()
     }
 }
 

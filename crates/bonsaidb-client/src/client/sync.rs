@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use bonsaidb_core::admin::{Admin, ADMIN_DATABASE_NAME};
@@ -24,6 +25,7 @@ use tokio::runtime::{Handle, Runtime};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
+use crate::client::ClientSession;
 use crate::{Client, RemoteDatabase, RemoteSubscriber};
 
 impl StorageConnection for Client {
@@ -114,7 +116,10 @@ impl StorageConnection for Client {
             self.send_api_request(&bonsaidb_core::networking::Authenticate { authentication })?;
         Ok(Self {
             data: self.data.clone(),
-            session: Arc::new(session),
+            session: ClientSession {
+                session: Arc::new(session),
+                connection_id: self.data.connection_counter.load(Ordering::SeqCst),
+            },
         })
     }
 
@@ -125,7 +130,10 @@ impl StorageConnection for Client {
         let session = self.send_api_request(&AssumeIdentity(identity.into_owned()))?;
         Ok(Self {
             data: self.data.clone(),
-            session: Arc::new(session),
+            session: ClientSession {
+                session: Arc::new(session),
+                connection_id: self.data.connection_counter.load(Ordering::SeqCst),
+            },
         })
     }
 

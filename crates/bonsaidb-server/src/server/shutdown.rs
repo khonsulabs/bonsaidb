@@ -63,6 +63,7 @@ impl Shutdown {
     }
 }
 
+#[derive(Clone)]
 pub struct ShutdownStateWatcher {
     receiver: watch::Receiver<ShutdownState>,
 }

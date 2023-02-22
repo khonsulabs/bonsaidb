@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use bonsaidb_core::api::ApiName;
@@ -23,6 +24,7 @@ pub async fn reconnecting_client_loop(
     request_receiver: Receiver<PendingRequest>,
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
+    connection_counter: Arc<AtomicU32>,
 ) -> Result<(), Error> {
     if url.port().is_none() && url.scheme() == "bonsaidb" {
         let _ = url.set_port(Some(5645));
@@ -30,6 +32,7 @@ pub async fn reconnecting_client_loop(
 
     subscribers.clear();
     while let Ok(request) = request_receiver.recv_async().await {
+        connection_counter.fetch_add(1, Ordering::SeqCst);
         if let Err((failed_request, err)) = connect_and_process(
             &url,
             protocol_version,
@@ -118,6 +121,8 @@ async fn process_requests(
             client_request,
         );
     }
+
+    drop(payload_sender.finish());
 
     // Return an error to make sure try_join returns.
     Err(Error::Disconnected)

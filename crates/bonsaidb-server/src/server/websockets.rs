@@ -156,9 +156,10 @@ impl<B: Backend> CustomServer<B> {
         let (request_sender, request_receiver) =
             flume::bounded::<Payload>(self.data.client_simultaneous_request_limit);
         let task_self = self.clone();
+        let Some(shutdown) = self.data.shutdown.watcher().await else { return };
         tokio::spawn(async move {
             task_self
-                .handle_client_requests(client.clone(), request_receiver, response_sender)
+                .handle_client_requests(client.clone(), request_receiver, response_sender, shutdown)
                 .await;
         });
 

@@ -19,6 +19,7 @@ pub fn spawn_client(
     request_receiver: Receiver<PendingRequest>,
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
+    connection_counter: Arc<AtomicU32>,
 ) {
     wasm_bindgen_futures::spawn_local(create_websocket(
         url,
@@ -26,6 +27,7 @@ pub fn spawn_client(
         request_receiver,
         custom_apis,
         subscribers,
+        connection_counter,
     ));
 }
 
@@ -35,12 +37,14 @@ async fn create_websocket(
     request_receiver: Receiver<PendingRequest>,
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
+    connection_counter: Arc<AtomicU32>,
 ) {
     subscribers.clear();
 
     // Receive the next/initial request when we are reconnecting.
     let Ok(initial_request) = request_receiver.recv_async().await else { return };
 
+    connection_counter.fetch_add(1, Ordering::SeqCst);
     // In wasm we're not going to have a real loop. We're going create a
     // websocket and store it in JS. This will allow us to get around Send/Sync
     // issues since each access of the websocket can pull it from js.
@@ -58,6 +62,7 @@ async fn create_websocket(
                 request_receiver,
                 custom_apis.clone(),
                 subscribers,
+                connection_counter,
             );
             return;
         }
@@ -99,6 +104,7 @@ async fn create_websocket(
         initial_request,
         custom_apis.clone(),
         subscribers.clone(),
+        connection_counter.clone(),
     );
     ws.set_onclose(Some(onclose_callback.as_ref().unchecked_ref()));
 }
@@ -257,6 +263,7 @@ fn on_close_callback(
     initial_request: Arc<Mutex<Option<PendingRequest>>>,
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
+    connection_counter: Arc<AtomicU32>,
 ) -> JsValue {
     Closure::once_into_js(move |c: CloseEvent| {
         let _ = shutdown.send(());
@@ -282,6 +289,7 @@ fn on_close_callback(
             request_receiver,
             custom_apis.clone(),
             subscribers,
+            connection_counter,
         );
     })
 }

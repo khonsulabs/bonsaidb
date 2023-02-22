@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use bonsaidb_core::api::ApiName;
@@ -23,11 +24,13 @@ pub async fn reconnecting_client_loop(
     request_receiver: Receiver<PendingRequest>,
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
+    connection_counter: Arc<AtomicU32>,
 ) -> Result<(), Error> {
     while let Ok(request) = {
         subscribers.clear();
         request_receiver.recv_async().await
     } {
+        connection_counter.fetch_add(1, Ordering::SeqCst);
         let (stream, _) = match tokio_tungstenite::connect_async(
             tokio_tungstenite::tungstenite::handshake::client::Request::get(url.as_str())
                 .header("Sec-WebSocket-Protocol", protocol_version)
