@@ -31,7 +31,7 @@ required-features = ["server", "client"]
 
 [[test]]
 name = "sessions"
-required-features = ["server", "client", "async"]
+required-features = ["server", "client", "async", "password-hashing"]
 
 [features]
 default = []
