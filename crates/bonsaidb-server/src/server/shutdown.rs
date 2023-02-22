@@ -3,7 +3,6 @@ use std::time::Duration;
 use async_lock::Mutex;
 use bonsaidb_utils::fast_async_lock;
 use tokio::sync::watch;
-use tokio::time::Instant;
 
 #[derive(Debug)]
 pub struct Shutdown {
@@ -41,15 +40,15 @@ impl Shutdown {
 
     pub async fn graceful_shutdown(&self, timeout: Duration) {
         self.stop_watching().await;
-        if self.sender.send(ShutdownState::GracefulShutdown).is_ok() {
-            let timeout = tokio::time::sleep_until(Instant::now() + timeout);
-            if !tokio::select! {
-                _ = self.sender.closed() => true,
-                _ = timeout => false,
-            } {
-                // Failed to gracefully shut down
-                self.shutdown().await;
-            }
+        if self.sender.send(ShutdownState::GracefulShutdown).is_ok()
+            && tokio::time::timeout(timeout, self.sender.closed())
+                .await
+                .is_err()
+        {
+            // Failed to gracefully shut down. If we gracefully shut down, there
+            // are no watchers remaining, therefore updating the state doesn't
+            // matter.
+            self.shutdown().await;
         }
     }
 

@@ -10,11 +10,44 @@ use bonsaidb::local::config::Builder;
 use bonsaidb::server::{DefaultPermissions, Server, ServerConfiguration};
 use bonsaidb_core::connection::{AsyncStorageConnection, HasSession, SensitiveString};
 use bonsaidb_core::schema::SerializedCollection;
+use futures::Future;
 
 #[tokio::test]
-async fn sessions() -> anyhow::Result<()> {
+#[cfg(feature = "websockets")]
+async fn websockets() -> anyhow::Result<()> {
+    test_sessions(
+        "sessions-ws.bonsaidb",
+        "ws://localhost:12345",
+        |server| async move {
+            server
+                .listen_for_websockets_on("0.0.0.0:12345", false)
+                .await
+                .unwrap();
+        },
+    )
+    .await
+}
+
+#[tokio::test]
+async fn quic() -> anyhow::Result<()> {
+    test_sessions(
+        "sessions-quic.bonsaidb",
+        "bonsaidb://localhost:12346",
+        |server| async move {
+            server.listen_on(12346).await.unwrap();
+        },
+    )
+    .await
+}
+
+async fn test_sessions<F, Fut>(dir_name: &str, connect_addr: &str, listen: F) -> anyhow::Result<()>
+where
+    F: Fn(Server) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    env_logger::init();
     println!("here");
-    let dir = TestDirectory::new("sessions.bonsaidb");
+    let dir = TestDirectory::new(dir_name);
     let server = Server::open(
         ServerConfiguration::new(&dir)
             .default_permissions(DefaultPermissions::AllowAll)
@@ -43,13 +76,8 @@ async fn sessions() -> anyhow::Result<()> {
         async move {
             // Start listening
             println!("Listening");
-            tokio::spawn({
-                let server = server.clone();
-                async move {
-                    server.listen_on(12346).await.unwrap();
-                    println!("Stopped listening.");
-                }
-            });
+
+            tokio::spawn(listen(server.clone()));
 
             // Wait for the client to signal that we can disconnect.
             reboot.notified().await;
@@ -72,11 +100,11 @@ async fn sessions() -> anyhow::Result<()> {
 
             println!("Server listening again.");
             rebooted.notify_one();
-            server.listen_on(12346).await.unwrap();
+            listen(server).await;
         }
     });
 
-    let client = Client::build(Url::parse("bonsaidb://localhost:12346")?)
+    let client = Client::build(Url::parse(connect_addr)?)
         .with_certificate(certificate.clone())
         .finish()?;
 

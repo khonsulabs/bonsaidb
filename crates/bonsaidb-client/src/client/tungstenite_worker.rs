@@ -26,10 +26,16 @@ pub async fn reconnecting_client_loop(
     subscribers: SubscriberMap,
     connection_counter: Arc<AtomicU32>,
 ) -> Result<(), Error> {
+    let mut pending_error = None;
     while let Ok(request) = {
         subscribers.clear();
         request_receiver.recv_async().await
     } {
+        if let Some(pending_error) = pending_error.take() {
+            drop(request.responder.send(Err(pending_error)));
+            continue;
+        }
+
         connection_counter.fetch_add(1, Ordering::SeqCst);
         let (stream, _) = match tokio_tungstenite::connect_async(
             tokio_tungstenite::tungstenite::handshake::client::Request::get(url.as_str())
@@ -75,10 +81,16 @@ pub async fn reconnecting_client_loop(
         ) {
             // Our socket was disconnected, clear the outstanding requests before returning.
             let mut outstanding_requests = fast_async_lock!(outstanding_requests);
-            for (_, pending) in outstanding_requests.drain() {
-                drop(pending.responder.send(Err(Error::Disconnected)));
-            }
             log::error!("Error on socket {:?}", err);
+            pending_error = Some(err);
+            for (_, pending) in outstanding_requests.drain() {
+                let error = if let Some(pending_error) = pending_error.take() {
+                    pending_error
+                } else {
+                    Error::Disconnected
+                };
+                drop(pending.responder.send(Err(error)));
+            }
         }
     }
 
