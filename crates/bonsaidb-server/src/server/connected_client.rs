@@ -296,9 +296,8 @@ impl<B: Backend> Drop for OwnedClient<B> {
     fn drop(&mut self) {
         let id = self.client.data.id;
         let server = self.server.take().unwrap();
-        self.runtime.spawn(async move {
-            server.disconnect_client(id).await;
-        });
+        self.runtime
+            .spawn(async move { server.disconnect_client(id).await });
     }
 }
 

@@ -6,16 +6,22 @@ use std::time::Duration;
 
 use clap::Args;
 
-use crate::{Backend, BackendError, CustomServer, TcpService};
+use crate::{Backend, BackendError, BonsaiListenConfig, CustomServer, TcpService};
 
 /// Execute the server
 #[derive(Args, Debug)]
 pub struct Serve<B: Backend> {
-    /// The UDP port for the BonsaiDb protocol. Defaults to UDP port 5645 (not
-    /// an [officially registered
+    /// The socket address to listen for the BonsaiDb protocol. Defaults to a
+    /// localhost IP address for UDP port 5645 (not an [officially registered
     /// port](https://github.com/khonsulabs/bonsaidb/issues/48)).
     #[clap(short = 'l', long = "listen-on")]
-    pub listen_on: Option<u16>,
+    pub listen_on: Option<SocketAddr>,
+
+    /// If this option is specified, the `SO_REUSEADDR` flag will be set on the
+    /// underlying socket. See [`BonsaiListenConfig::reuse_address`] for more
+    /// information.
+    #[clap(long = "reuse-address")]
+    pub reuse_address: Option<bool>,
 
     #[cfg(any(feature = "websockets", feature = "acme"))]
     /// The bind port and address for HTTP traffic. Defaults to TCP port 80.
@@ -50,7 +56,11 @@ impl<B: Backend> Serve<B> {
         // Try to initialize a logger, but ignore it if it fails. This API is
         // public and another logger may already be installed.
         drop(env_logger::try_init());
-        let listen_on = self.listen_on.unwrap_or(5645);
+        let mut config = BonsaiListenConfig::default();
+        if let Some(address) = self.listen_on {
+            config.address = address;
+        }
+        config.reuse_address = self.reuse_address.unwrap_or(false);
 
         #[cfg(any(feature = "websockets", feature = "acme"))]
         {
@@ -86,7 +96,7 @@ impl<B: Backend> Serve<B> {
         }
 
         let task_server = server.clone();
-        tokio::task::spawn(async move { task_server.listen_on(listen_on).await });
+        tokio::task::spawn(async move { task_server.listen_on(config).await });
 
         server.listen_for_shutdown().await?;
 

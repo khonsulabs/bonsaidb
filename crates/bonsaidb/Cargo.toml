@@ -29,6 +29,10 @@ required-features = ["server", "client"]
 name = "apis"
 required-features = ["server", "client"]
 
+[[test]]
+name = "sessions"
+required-features = ["server", "client", "async", "password-hashing"]
+
 [features]
 default = []
 full = ["local-full", "server-full", "client-full", "files"]

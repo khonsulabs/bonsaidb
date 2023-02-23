@@ -192,6 +192,7 @@ pub mod limited {
     impl SignedDuration {
         /// Adds the two durations, honoring the signs, and returns the result
         /// if the duration is representable.
+        #[must_use]
         pub fn checked_add(self, other: Self) -> Option<Self> {
             match (self, other) {
                 (SignedDuration::Positive(a), SignedDuration::Positive(b)) => {

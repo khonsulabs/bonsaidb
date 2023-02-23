@@ -34,7 +34,7 @@ pub use config::{
 };
 
 pub use self::backend::{Backend, BackendError, ConnectionHandling, NoBackend};
-pub use self::config::{DefaultPermissions, ServerConfiguration};
+pub use self::config::{BonsaiListenConfig, DefaultPermissions, ServerConfiguration};
 pub use self::error::Error;
 pub use self::server::{
     ApplicationProtocols, ConnectedClient, CustomServer, HttpService, LockedClientDataGuard, Peer,

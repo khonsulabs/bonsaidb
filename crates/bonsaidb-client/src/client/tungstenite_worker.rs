@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use bonsaidb_core::api::ApiName;
@@ -14,7 +15,9 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use url::Url;
 
 use super::PendingRequest;
-use crate::client::{AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap};
+use crate::client::{
+    disconnect_pending_requests, AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap,
+};
 use crate::Error;
 
 pub async fn reconnecting_client_loop(
@@ -23,11 +26,19 @@ pub async fn reconnecting_client_loop(
     request_receiver: Receiver<PendingRequest>,
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
+    connection_counter: Arc<AtomicU32>,
 ) -> Result<(), Error> {
+    let mut pending_error = None;
     while let Ok(request) = {
         subscribers.clear();
         request_receiver.recv_async().await
     } {
+        if let Some(pending_error) = pending_error.take() {
+            drop(request.responder.send(Err(pending_error)));
+            continue;
+        }
+
+        connection_counter.fetch_add(1, Ordering::SeqCst);
         let (stream, _) = match tokio_tungstenite::connect_async(
             tokio_tungstenite::tungstenite::handshake::client::Request::get(url.as_str())
                 .header("Sec-WebSocket-Protocol", protocol_version)
@@ -71,11 +82,9 @@ pub async fn reconnecting_client_loop(
             response_processor(receiver, outstanding_requests.clone(), &custom_apis,)
         ) {
             // Our socket was disconnected, clear the outstanding requests before returning.
-            let mut outstanding_requests = fast_async_lock!(outstanding_requests);
-            for (_, pending) in outstanding_requests.drain() {
-                drop(pending.responder.send(Err(Error::Disconnected)));
-            }
             log::error!("Error on socket {:?}", err);
+            pending_error = Some(err);
+            disconnect_pending_requests(&outstanding_requests, &mut pending_error).await;
         }
     }
 

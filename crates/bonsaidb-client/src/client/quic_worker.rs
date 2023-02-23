@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use bonsaidb_core::api::ApiName;
@@ -10,7 +11,9 @@ use futures::StreamExt;
 use url::Url;
 
 use super::PendingRequest;
-use crate::client::{AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap};
+use crate::client::{
+    disconnect_pending_requests, AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap,
+};
 use crate::Error;
 
 /// This function will establish a connection and try to keep it active. If an
@@ -23,14 +26,21 @@ pub async fn reconnecting_client_loop(
     request_receiver: Receiver<PendingRequest>,
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
+    connection_counter: Arc<AtomicU32>,
 ) -> Result<(), Error> {
     if url.port().is_none() && url.scheme() == "bonsaidb" {
         let _ = url.set_port(Some(5645));
     }
 
     subscribers.clear();
+    let mut pending_error = None;
     while let Ok(request) = request_receiver.recv_async().await {
-        if let Err((failed_request, err)) = connect_and_process(
+        if let Some(pending_error) = pending_error.take() {
+            drop(request.responder.send(Err(pending_error)));
+            continue;
+        }
+        connection_counter.fetch_add(1, Ordering::SeqCst);
+        if let Err((failed_request, Some(err))) = connect_and_process(
             &url,
             protocol_version,
             certificate.as_ref(),
@@ -42,8 +52,9 @@ pub async fn reconnecting_client_loop(
         {
             if let Some(failed_request) = failed_request {
                 drop(failed_request.responder.send(Err(err)));
+            } else {
+                pending_error = Some(err);
             }
-            continue;
         }
     }
 
@@ -57,11 +68,11 @@ async fn connect_and_process(
     initial_request: PendingRequest,
     request_receiver: &Receiver<PendingRequest>,
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
-) -> Result<(), (Option<PendingRequest>, Error)> {
+) -> Result<(), (Option<PendingRequest>, Option<Error>)> {
     let (_connection, payload_sender, payload_receiver) =
         match connect(url, certificate, protocol_version).await {
             Ok(result) => result,
-            Err(err) => return Err((Some(initial_request), err)),
+            Err(err) => return Err((Some(initial_request), Some(err))),
         };
 
     let outstanding_requests = OutstandingRequestMapHandle::default();
@@ -72,7 +83,7 @@ async fn connect_and_process(
     ));
 
     if let Err(err) = payload_sender.send(&initial_request.request) {
-        return Err((Some(initial_request), Error::from(err)));
+        return Err((Some(initial_request), Some(Error::from(err))));
     }
 
     {
@@ -94,12 +105,10 @@ async fn connect_and_process(
         ),
         async { request_processor.await.map_err(|_| Error::Disconnected)? }
     ) {
+        let mut pending_error = Some(err);
         // Our socket was disconnected, clear the outstanding requests before returning.
-        let mut outstanding_requests = fast_async_lock!(outstanding_requests);
-        for (_, pending) in outstanding_requests.drain() {
-            drop(pending.responder.send(Err(Error::Disconnected)));
-        }
-        return Err((None, err));
+        disconnect_pending_requests(&outstanding_requests, &mut pending_error).await;
+        return Err((None, pending_error));
     }
 
     Ok(())
@@ -118,6 +127,8 @@ async fn process_requests(
             client_request,
         );
     }
+
+    drop(payload_sender.finish());
 
     // Return an error to make sure try_join returns.
     Err(Error::Disconnected)

@@ -348,6 +348,7 @@ impl NamedCollection for Unique {
     type ByNameView = UniqueValue;
 }
 
+#[derive(Debug)]
 pub struct TestDirectory(pub PathBuf);
 
 impl TestDirectory {

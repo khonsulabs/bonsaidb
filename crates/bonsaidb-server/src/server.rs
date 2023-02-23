@@ -42,8 +42,8 @@ use crate::config::AcmeConfiguration;
 use crate::dispatch::{register_api_handlers, ServerDispatcher};
 use crate::error::Error;
 use crate::hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain};
-use crate::server::shutdown::{Shutdown, ShutdownState};
-use crate::{Backend, BackendError, NoBackend, ServerConfiguration};
+use crate::server::shutdown::{Shutdown, ShutdownState, ShutdownStateWatcher};
+use crate::{Backend, BackendError, BonsaiListenConfig, NoBackend, ServerConfiguration};
 
 #[cfg(feature = "acme")]
 pub mod acme;
@@ -91,7 +91,6 @@ struct Data<B: Backend = NoBackend> {
     clients: RwLock<HashMap<u32, ConnectedClient<B>>>,
     request_processor: flume::Sender<ClientRequest<B>>,
     default_session: Session,
-    endpoint: RwLock<Option<Endpoint>>,
     client_simultaneous_request_limit: usize,
     primary_tls_key: CachedCertifiedKey,
     primary_domain: String,
@@ -171,7 +170,6 @@ impl<B: Backend> CustomServer<B> {
             data: Arc::new(Data {
                 backend: configuration.backend,
                 clients: parking_lot::RwLock::default(),
-                endpoint: RwLock::default(),
                 request_processor: request_sender,
                 default_session: Session {
                     permissions: default_permissions,
@@ -369,20 +367,18 @@ impl<B: Backend> CustomServer<B> {
 
     /// Listens for incoming client connections. Does not return until the
     /// server shuts down.
-    pub async fn listen_on(&self, port: u16) -> Result<(), Error> {
+    pub async fn listen_on(&self, config: impl Into<BonsaiListenConfig>) -> Result<(), Error> {
+        let config = config.into();
         let certificate = self.tls_certificate().await?;
         let keypair =
             KeyPair::from_parts(certificate.certificate_chain, certificate.private_key.0)?;
         let mut builder = Endpoint::builder();
         builder.set_protocols([CURRENT_PROTOCOL_VERSION.as_bytes().to_vec()]);
-        builder.set_address(([0; 8], port).into());
+        builder.set_address(config.address);
         builder.set_max_idle_timeout(None)?;
         builder.set_server_key_pair(Some(keypair));
+        builder.set_reuse_address(config.reuse_address);
         let mut server = builder.build()?;
-        {
-            let mut endpoint = self.data.endpoint.write();
-            *endpoint = Some(server.clone());
-        }
 
         let mut shutdown_watcher = self
             .data
@@ -397,7 +393,6 @@ impl<B: Backend> CustomServer<B> {
                 if matches!(shutdown_state, ShutdownState::GracefulShutdown) {
                     server.wait_idle().await;
                 }
-                drop(server.close());
                 None
             },
             msg = server.next() => msg
@@ -530,13 +525,13 @@ impl<B: Backend> CustomServer<B> {
                                     break;
                                 }
                             }
-                            let _ = connection.close().await;
                         });
 
                         let task_self = self.clone();
+                        let Some(shutdown) = self.data.shutdown.watcher().await else { return Ok(()) };
                         tokio::spawn(async move {
                             if let Err(err) = task_self
-                                .handle_stream(disconnector, sender, receiver)
+                                .handle_stream(disconnector, sender, receiver, shutdown)
                                 .await
                             {
                                 log::error!("[server] Error handling stream: {err:?}");
@@ -561,6 +556,7 @@ impl<B: Backend> CustomServer<B> {
         client: ConnectedClient<B>,
         request_receiver: flume::Receiver<Payload>,
         response_sender: flume::Sender<Payload>,
+        mut shutdown: ShutdownStateWatcher,
     ) {
         let notify = Arc::new(Notify::new());
         let requests_in_queue = Arc::new(AtomicUsize::new(0));
@@ -578,7 +574,22 @@ impl<B: Backend> CustomServer<B> {
                 )
                 .is_ok()
             {
-                let Ok(payload) = request_receiver.recv_async().await else { break };
+                let payload = 'payload: loop {
+                    tokio::select! {
+                        payload = request_receiver.recv_async() => {
+                            if let Ok(payload) = payload {
+                                break 'payload payload
+                            }
+
+                            return
+                        },
+                        state = shutdown.wait_for_shutdown() => {
+                            if matches!(state, ShutdownState::Shutdown | ShutdownState::GracefulShutdown) {
+                                return
+                            }
+                        }
+                    }
+                };
                 let session_id = payload.session_id;
                 let id = payload.id;
                 let task_sender = response_sender.clone();
@@ -651,12 +662,31 @@ impl<B: Backend> CustomServer<B> {
         client: OwnedClient<B>,
         sender: fabruic::Sender<Payload>,
         mut receiver: fabruic::Receiver<Payload>,
+        mut shutdown: ShutdownStateWatcher,
     ) -> Result<(), Error> {
         let (payload_sender, payload_receiver) = flume::unbounded();
-        tokio::spawn(async move {
-            while let Ok(payload) = payload_receiver.recv_async().await {
-                if sender.send(&payload).is_err() {
-                    break;
+        tokio::spawn({
+            let mut shutdown = shutdown.clone();
+            async move {
+                'stream: loop {
+                    let payload = loop {
+                        tokio::select! {
+                            payload = payload_receiver.recv_async() => {
+                                if let Ok(payload) = payload {
+                                    break payload
+                                }
+                                break 'stream
+                            }
+                            shutdown = shutdown.wait_for_shutdown() => {
+                                if matches!(shutdown, ShutdownState::Shutdown | ShutdownState::GracefulShutdown) {
+                                    break 'stream
+                                }
+                            }
+                        }
+                    };
+                    if sender.send(&payload).is_err() {
+                        break;
+                    }
                 }
             }
         });
@@ -664,17 +694,41 @@ impl<B: Backend> CustomServer<B> {
         let (request_sender, request_receiver) =
             flume::bounded::<Payload>(self.data.client_simultaneous_request_limit);
         let task_self = self.clone();
-        tokio::spawn(async move {
-            task_self
-                .handle_client_requests(client.clone(), request_receiver, payload_sender)
-                .await;
+        tokio::spawn({
+            let shutdown = shutdown.clone();
+            async move {
+                task_self
+                    .handle_client_requests(
+                        client.clone(),
+                        request_receiver,
+                        payload_sender,
+                        shutdown,
+                    )
+                    .await;
+            }
         });
 
-        while let Some(payload) = receiver.next().await {
+        loop {
+            let payload = loop {
+                tokio::select! {
+                    payload = receiver.next() => {
+                        if let Some(payload) = payload {
+                            break payload
+                        }
+
+                        receiver.finish().await?;
+
+                        return Ok(());
+                    }
+                    shutdown = shutdown.wait_for_shutdown() => {
+                        if matches!(shutdown, ShutdownState::Shutdown | ShutdownState::GracefulShutdown) {
+                            return Ok(());
+                        }
+                    }
+                }
+            };
             drop(request_sender.send_async(payload?).await);
         }
-
-        Ok(())
     }
 
     /// Shuts the server down. If a `timeout` is provided, the server will stop

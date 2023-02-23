@@ -67,6 +67,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Client::effective_permissions()` is no longer async.
 - `CustomServer::connected_clients()` is no longer async.
 - `CustomServer::broadcast()` is no longer async.
+- `CustomServer::listen_on` now takes `impl Into<BonsaiListenConfig>` instead of
+  just a u16 parameter specifying the port. `BonsaiListenConfig` implements
+  `From<u16>` to minimize code breakage.
 
 [#240]: https://github.com/khonsulabs/bonsaidb/issues/240
 
@@ -167,6 +170,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `LimitedResolutionDuration<T>`. The option-wrapped version does a checked
   operation, and the other will panic if the result of the operation is not
   representable by the `LimitedResolutionDuration`.
+- `BonsaiListenConfig` is a new structure that controls the settings of the
+  BonsaiDb network protocol server socket. This structure currently allows
+  specifying the specific `SocketAddr` to listen on and whether the
+  `SO_REUSEADDR` flag should be specified on the underlying socket.
 
 ### Changed
 
@@ -203,6 +210,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer blocked until complete.
 - `CustomServer::listen_for_shutdown()` now listens for
   `CustomServer::shutdown()` in addition to operating system signals.
+- `Client` will no longer return a `Session` from a previous connection. Because
+  the `Client` automatically reconnects, the `Session`s are no longer
+  authenticated.
+- `CustomServer::shutdown` now fully shuts down the server by forcefully
+  disconnecting clients after the optional grace period has elapsed.
+  Additionally, QUIC-connected workers are sent the proper disconnection
+  notification.
 
 ## v0.4.1
 

@@ -63,7 +63,7 @@ fn core_path() -> Path {
     invalid_field = r#"Only `authority = "some-authority"`, `name = "some-name"`, `views = [SomeView, AnotherView]`, `primary_key = u64`, `natural_id = |contents: &Self| Some(contents.id)`, serialization = SerializationFormat` and `core = bonsaidb::core` are supported attributes"#
 )]
 struct CollectionAttribute {
-    authority: Option<String>,
+    authority: Option<Expr>,
     #[attribute(
         missing = r#"You need to specify the collection name via `#[collection(name = "name")]`"#
     )]
@@ -318,7 +318,7 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 struct SchemaAttribute {
     #[attribute(missing = r#"You need to specify the schema name via `#[schema(name = "name")]`"#)]
     name: String,
-    authority: Option<String>,
+    authority: Option<Expr>,
     #[attribute(default)]
     #[attribute(
         expected = r#"Specify the `collections` like so: `collections = [SomeCollection, AnotherCollection]`"#
@@ -672,7 +672,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 struct ApiAttribute {
     #[attribute(missing = r#"You need to specify the api name via `#[api(name = "name")]`"#)]
     name: String,
-    authority: Option<String>,
+    authority: Option<Expr>,
     #[attribute(expected = r#"Specify the response type like so: `response = ResponseType`"#)]
     response: Option<Type>,
     #[attribute(expected = r#"Specify the error type like so: `error = ErrorType`"#)]
@@ -761,7 +761,7 @@ struct FileConfigAttribute {
     metadata: Option<Type>,
     #[attribute(expected = r#"Specify the block size like so: `block_size = 65_536`"#)]
     block_size: Option<usize>,
-    authority: Option<String>,
+    authority: Option<Expr>,
     files_name: Option<String>,
     blocks_name: Option<String>,
     #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]

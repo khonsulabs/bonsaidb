@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bonsaidb_core::api::ApiName;
@@ -10,7 +11,10 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{CloseEvent, ErrorEvent, MessageEvent, WebSocket};
 
-use crate::client::{AnyApiCallback, OutstandingRequestMapHandle, PendingRequest, SubscriberMap};
+use crate::client::{
+    disconnect_pending_requests, AnyApiCallback, OutstandingRequestMapHandle, PendingRequest,
+    SubscriberMap,
+};
 use crate::Error;
 
 pub fn spawn_client(
@@ -19,6 +23,8 @@ pub fn spawn_client(
     request_receiver: Receiver<PendingRequest>,
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
+    connection_counter: Arc<AtomicU32>,
+    pending_error: Option<Error>,
 ) {
     wasm_bindgen_futures::spawn_local(create_websocket(
         url,
@@ -26,6 +32,8 @@ pub fn spawn_client(
         request_receiver,
         custom_apis,
         subscribers,
+        connection_counter,
+        pending_error,
     ));
 }
 
@@ -35,12 +43,20 @@ async fn create_websocket(
     request_receiver: Receiver<PendingRequest>,
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
+    connection_counter: Arc<AtomicU32>,
+    pending_error: Option<Error>,
 ) {
     subscribers.clear();
 
     // Receive the next/initial request when we are reconnecting.
-    let Ok(initial_request) = request_receiver.recv_async().await else { return };
+    let Ok(mut initial_request) = request_receiver.recv_async().await else { return };
+    if let Some(error) = pending_error {
+        drop(initial_request.responder.send(Err(error)));
+        let Ok(next_request) = request_receiver.recv_async().await else { return };
+        initial_request = next_request;
+    }
 
+    connection_counter.fetch_add(1, Ordering::SeqCst);
     // In wasm we're not going to have a real loop. We're going create a
     // websocket and store it in JS. This will allow us to get around Send/Sync
     // issues since each access of the websocket can pull it from js.
@@ -58,6 +74,8 @@ async fn create_websocket(
                 request_receiver,
                 custom_apis.clone(),
                 subscribers,
+                connection_counter,
+                None,
             );
             return;
         }
@@ -83,7 +101,7 @@ async fn create_websocket(
     );
     ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
 
-    let onmessage_callback = on_message_callback(outstanding_requests, custom_apis.clone());
+    let onmessage_callback = on_message_callback(outstanding_requests.clone(), custom_apis.clone());
     ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
 
     let onerror_callback =
@@ -97,8 +115,10 @@ async fn create_websocket(
         shutdown_sender,
         ws.clone(),
         initial_request,
+        outstanding_requests,
         custom_apis.clone(),
         subscribers.clone(),
+        connection_counter.clone(),
     );
     ws.set_onclose(Some(onclose_callback.as_ref().unchecked_ref()));
 }
@@ -255,34 +275,42 @@ fn on_close_callback(
     shutdown: flume::Sender<()>,
     ws: WebSocket,
     initial_request: Arc<Mutex<Option<PendingRequest>>>,
+    outstanding_requests: OutstandingRequestMapHandle,
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
+    connection_counter: Arc<AtomicU32>,
 ) -> JsValue {
     Closure::once_into_js(move |c: CloseEvent| {
         let _ = shutdown.send(());
         ws.set_onclose(None);
 
+        let mut pending_error = Some(Error::from(WebSocketError(format!(
+            "connection closed ({}). Reason: {:?}",
+            c.code(),
+            c.reason()
+        ))));
+
         if let Some(initial_request) = take_initial_request(&initial_request) {
             drop(
                 initial_request
                     .responder
-                    .send(Err(Error::from(WebSocketError(format!(
-                        "connection closed ({}). Reason: {:?}",
-                        c.code(),
-                        c.reason()
-                    ))))),
+                    .send(Err(pending_error.take().expect("this is the first check"))),
             );
-        } else {
-            log::error!("websocket closed ({}): {:?}", c.code(), c.reason());
         }
 
-        spawn_client(
-            url,
-            protocol_version,
-            request_receiver,
-            custom_apis.clone(),
-            subscribers,
-        );
+        wasm_bindgen_futures::spawn_local(async move {
+            disconnect_pending_requests(&outstanding_requests, &mut pending_error).await;
+
+            spawn_client(
+                url,
+                protocol_version,
+                request_receiver,
+                custom_apis.clone(),
+                subscribers,
+                connection_counter,
+                pending_error,
+            );
+        });
     })
 }
 

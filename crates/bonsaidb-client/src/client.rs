@@ -73,7 +73,26 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 
 /// Client for connecting to a BonsaiDb server.
 ///
+/// ## How this type automatically reconnects
 ///
+/// This type is designed to automatically reconnect if the underlying network
+/// connection has been lost. When a disconnect happens, the error that caused
+/// the disconnection will be returned to at least one requestor. If multiple
+/// pending requests are outstanding, all remaining pending requests will have
+/// an [`Error::Disconnected`] returned. This allows the application to detect
+/// when a networking issue has arisen.
+///
+/// If the disconnect happens while the client is completely idle, the next
+/// request will report the disconnection error. The subsequent request will
+/// cause the client to begin reconnecting again.
+///
+/// When unauthenticated, this reconnection behavior is mostly transparent --
+/// disconnection errors can be shown to the user, and service will be restored
+/// automatically. However, when dealing with authentication, the client does
+/// not store credentials to be able to send them again when reconnecting. This
+/// means that the existing client handles will lose their authentication when
+/// the network connection is broken. The current authentication status can be
+/// checked using [`HasSession::session()`].
 ///
 /// ## Connecting via QUIC
 ///
@@ -205,13 +224,13 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 #[derive(Debug, Clone)]
 pub struct Client {
     pub(crate) data: Arc<Data>,
-    session: Arc<Session>,
+    session: ClientSession,
 }
 
 impl Drop for Client {
     fn drop(&mut self) {
-        if Arc::strong_count(&self.session) == 1 {
-            if let Some(session_id) = self.session.id {
+        if self.session_is_current() && Arc::strong_count(&self.session.session) == 1 {
+            if let Some(session_id) = self.session.session.id {
                 // Final reference to an authenticated session
                 drop(self.invoke_api_request(&LogOutSession(session_id)));
             }
@@ -232,6 +251,7 @@ pub struct Data {
     _worker: CancellableHandle<Result<(), Error>>,
     effective_permissions: Mutex<Option<Permissions>>,
     schemas: Mutex<HashMap<TypeId, Arc<Schematic>>>,
+    connection_counter: Arc<AtomicU32>,
     request_id: AtomicU32,
     subscribers: SubscriberMap,
     #[cfg(feature = "test-util")]
@@ -351,6 +371,7 @@ impl Client {
         subscribers: SubscriberMap,
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
+        let connection_counter = Arc::new(AtomicU32::default());
 
         let worker = sync::spawn_client(
             quic_worker::reconnecting_client_loop(
@@ -360,6 +381,7 @@ impl Client {
                 request_receiver,
                 Arc::new(custom_apis),
                 subscribers.clone(),
+                connection_counter.clone(),
             ),
             tokio,
         );
@@ -376,13 +398,14 @@ impl Client {
                     background_task_running: background_task_running.clone(),
                 },
                 schemas: Mutex::default(),
+                connection_counter,
                 request_id: AtomicU32::default(),
                 effective_permissions: Mutex::default(),
                 subscribers,
                 #[cfg(feature = "test-util")]
                 background_task_running,
             }),
-            session: Arc::new(Session::default()),
+            session: ClientSession::default(),
         }
     }
 
@@ -395,6 +418,7 @@ impl Client {
         subscribers: SubscriberMap,
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
+        let connection_counter = Arc::new(AtomicU32::default());
 
         let worker = sync::spawn_client(
             tungstenite_worker::reconnecting_client_loop(
@@ -403,6 +427,7 @@ impl Client {
                 request_receiver,
                 Arc::new(custom_apis),
                 subscribers.clone(),
+                connection_counter.clone(),
             ),
             tokio,
         );
@@ -421,12 +446,13 @@ impl Client {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
+                connection_counter,
                 effective_permissions: Mutex::default(),
                 subscribers,
                 #[cfg(feature = "test-util")]
                 background_task_running,
             }),
-            session: Arc::new(Session::default()),
+            session: ClientSession::default(),
         }
     }
 
@@ -438,6 +464,7 @@ impl Client {
         subscribers: SubscriberMap,
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
+        let connection_counter = Arc::new(AtomicU32::default());
 
         wasm_websocket_worker::spawn_client(
             Arc::new(url),
@@ -445,6 +472,8 @@ impl Client {
             request_receiver,
             Arc::new(custom_apis),
             subscribers.clone(),
+            connection_counter.clone(),
+            None,
         );
 
         #[cfg(feature = "test-util")]
@@ -461,12 +490,13 @@ impl Client {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
+                connection_counter,
                 effective_permissions: Mutex::default(),
                 subscribers,
                 #[cfg(feature = "test-util")]
                 background_task_running,
             }),
-            session: Arc::new(Session::default()),
+            session: ClientSession::default(),
         }
     }
 
@@ -479,7 +509,7 @@ impl Client {
         let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
         self.data.request_sender.send(PendingRequest {
             request: Payload {
-                session_id: self.session.id,
+                session_id: self.session.session.id,
                 id: Some(id),
                 name,
                 value: Ok(bytes),
@@ -596,11 +626,16 @@ impl Client {
             schematic,
         ))
     }
+
+    fn session_is_current(&self) -> bool {
+        self.session.session.id.is_none()
+            || self.data.connection_counter.load(Ordering::SeqCst) == self.session.connection_id
+    }
 }
 
 impl HasSession for Client {
     fn session(&self) -> Option<&Session> {
-        Some(&self.session)
+        self.session_is_current().then_some(&self.session.session)
     }
 }
 
@@ -696,7 +731,10 @@ impl AsyncStorageConnection for Client {
             .await?;
         Ok(Self {
             data: self.data.clone(),
-            session: Arc::new(session),
+            session: ClientSession {
+                session: Arc::new(session),
+                connection_id: self.data.connection_counter.load(Ordering::SeqCst),
+            },
         })
     }
 
@@ -709,7 +747,10 @@ impl AsyncStorageConnection for Client {
             .await?;
         Ok(Self {
             data: self.data.clone(),
-            session: Arc::new(session),
+            session: ClientSession {
+                session: Arc::new(session),
+                connection_id: self.data.connection_counter.load(Ordering::SeqCst),
+            },
         })
     }
 
@@ -923,5 +964,25 @@ impl<Api: api::Api> AnyApiCallback for ApiCallback<Api> {
                 log::error!("error deserializing api: {err}");
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ClientSession {
+    session: Arc<Session>,
+    connection_id: u32,
+}
+
+async fn disconnect_pending_requests(
+    outstanding_requests: &OutstandingRequestMapHandle,
+    pending_error: &mut Option<Error>,
+) {
+    let mut outstanding_requests = fast_async_lock!(outstanding_requests);
+    for (_, pending) in outstanding_requests.drain() {
+        drop(
+            pending
+                .responder
+                .send(Err(pending_error.take().unwrap_or(Error::Disconnected))),
+        );
     }
 }

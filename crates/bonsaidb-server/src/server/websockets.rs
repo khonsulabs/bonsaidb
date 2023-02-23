@@ -1,7 +1,11 @@
-use bonsaidb_core::networking::CURRENT_PROTOCOL_VERSION;
+use bonsaidb_core::networking::{Payload, CURRENT_PROTOCOL_VERSION};
+use futures::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_tungstenite::tungstenite::Message;
 
-use crate::{Backend, CustomServer, Error};
+use crate::server::connected_client::OwnedClient;
+use crate::server::shutdown::{ShutdownState, ShutdownStateWatcher};
+use crate::{Backend, CustomServer, Error, Transport};
 
 impl<B: Backend> CustomServer<B> {
     /// Listens for websocket connections on `addr`.
@@ -98,11 +102,12 @@ impl<B: Backend> CustomServer<B> {
         connection: S,
         peer_address: std::net::SocketAddr,
     ) {
-        use bonsaidb_core::networking::Payload;
-        use futures::{SinkExt, StreamExt};
-        use tokio_tungstenite::tungstenite::Message;
-
-        use crate::Transport;
+        let mut shutdown = self
+            .data
+            .shutdown
+            .watcher()
+            .await
+            .expect("watcher shut down");
 
         let (mut sender, mut receiver) = connection.split();
         let (response_sender, response_receiver) = flume::unbounded();
@@ -155,32 +160,64 @@ impl<B: Backend> CustomServer<B> {
 
         let (request_sender, request_receiver) =
             flume::bounded::<Payload>(self.data.client_simultaneous_request_limit);
-        let task_self = self.clone();
-        tokio::spawn(async move {
-            task_self
-                .handle_client_requests(client.clone(), request_receiver, response_sender)
-                .await;
-        });
 
-        while let Some(payload) = receiver.next().await {
-            match payload {
-                Ok(Message::Binary(binary)) => match bincode::deserialize::<Payload>(&binary) {
-                    Ok(payload) => drop(request_sender.send_async(payload).await),
-                    Err(err) => {
-                        log::error!("[server] error decoding message: {:?}", err);
-                        break;
+        self.spawn_client_request_handler(client, request_receiver, response_sender, &shutdown);
+
+        loop {
+            tokio::select! {
+                payload = receiver.next() => {
+                    if let Some(payload) = payload {
+                        match payload {
+                            Ok(Message::Binary(binary)) => match bincode::deserialize::<Payload>(&binary) {
+                                Ok(payload) => drop(request_sender.send_async(payload).await),
+                                Err(err) => {
+                                    log::error!("[server] error decoding message: {:?}", err);
+                                    break;
+                                }
+                            },
+                            Ok(Message::Close(_)) => break,
+                            Ok(Message::Ping(payload)) => {
+                                drop(message_sender.send(Message::Pong(payload)));
+                            }
+                            other => {
+                                log::error!("[server] unexpected message: {:?}", other);
+                                break;
+                            }
+                        }
+                    } else {
+                        return;
                     }
                 },
-                Ok(Message::Close(_)) => break,
-                Ok(Message::Ping(payload)) => {
-                    drop(message_sender.send(Message::Pong(payload)));
-                }
-                other => {
-                    log::error!("[server] unexpected message: {:?}", other);
-                    break;
+                shutdown = shutdown.wait_for_shutdown() => {
+                    if matches!(shutdown, ShutdownState::Shutdown) {
+                        return;
+                    }
                 }
             }
         }
+    }
+
+    fn spawn_client_request_handler(
+        &self,
+        client: OwnedClient<B>,
+        request_receiver: flume::Receiver<Payload>,
+        response_sender: flume::Sender<Payload>,
+        shutdown: &ShutdownStateWatcher,
+    ) {
+        tokio::spawn({
+            let task_self = self.clone();
+            let shutdown = shutdown.clone();
+            async move {
+                task_self
+                    .handle_client_requests(
+                        client.clone(),
+                        request_receiver,
+                        response_sender,
+                        shutdown,
+                    )
+                    .await;
+            }
+        });
     }
 }
 
