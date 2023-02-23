@@ -23,6 +23,7 @@ members = [
 # transmog-pot = { git = "https://github.com/khonsulabs/transmog.git", branch = "main" }
 # pot = { path = "../pot/pot", version = "1.0.0-rc.2" }
 # fabruic = { path = "../fabruic", version = "0.0.1-dev.3" }
+fabruic = { git = "https://github.com/khonsulabs/fabruic", branch = "reuse-address" }
 # actionable = { git = "https://github.com/khonsulabs/actionable.git", branch = "main" }
 # actionable = { path = "../actionable/actionable", version = "0.2" }
 # circulate = { path = "../circulate", version = "0.2" }

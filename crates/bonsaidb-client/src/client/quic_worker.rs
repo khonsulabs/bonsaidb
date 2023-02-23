@@ -31,7 +31,12 @@ pub async fn reconnecting_client_loop(
     }
 
     subscribers.clear();
+    let mut pending_error = None;
     while let Ok(request) = request_receiver.recv_async().await {
+        if let Some(pending_error) = pending_error.take() {
+            drop(request.responder.send(Err(pending_error)));
+            continue;
+        }
         connection_counter.fetch_add(1, Ordering::SeqCst);
         if let Err((failed_request, err)) = connect_and_process(
             &url,
@@ -45,8 +50,9 @@ pub async fn reconnecting_client_loop(
         {
             if let Some(failed_request) = failed_request {
                 drop(failed_request.responder.send(Err(err)));
+            } else {
+                pending_error = Some(err);
             }
-            continue;
         }
     }
 

@@ -376,6 +376,8 @@ impl<B: Backend> CustomServer<B> {
         builder.set_address(([0; 8], port).into());
         builder.set_max_idle_timeout(None)?;
         builder.set_server_key_pair(Some(keypair));
+        // TODO this should be an option.
+        builder.set_reuse_address(true);
         let mut server = builder.build()?;
 
         let mut shutdown_watcher = self

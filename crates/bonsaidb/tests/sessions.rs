@@ -45,7 +45,7 @@ where
     F: Fn(Server) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    env_logger::init();
+    drop(env_logger::try_init());
     println!("here");
     let dir = TestDirectory::new(dir_name);
     let server = Server::open(
