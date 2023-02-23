@@ -11,7 +11,9 @@ use futures::StreamExt;
 use url::Url;
 
 use super::PendingRequest;
-use crate::client::{AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap};
+use crate::client::{
+    disconnect_pending_requests, AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap,
+};
 use crate::Error;
 
 /// This function will establish a connection and try to keep it active. If an
@@ -38,7 +40,7 @@ pub async fn reconnecting_client_loop(
             continue;
         }
         connection_counter.fetch_add(1, Ordering::SeqCst);
-        if let Err((failed_request, err)) = connect_and_process(
+        if let Err((failed_request, Some(err))) = connect_and_process(
             &url,
             protocol_version,
             certificate.as_ref(),
@@ -66,11 +68,11 @@ async fn connect_and_process(
     initial_request: PendingRequest,
     request_receiver: &Receiver<PendingRequest>,
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
-) -> Result<(), (Option<PendingRequest>, Error)> {
+) -> Result<(), (Option<PendingRequest>, Option<Error>)> {
     let (_connection, payload_sender, payload_receiver) =
         match connect(url, certificate, protocol_version).await {
             Ok(result) => result,
-            Err(err) => return Err((Some(initial_request), err)),
+            Err(err) => return Err((Some(initial_request), Some(err))),
         };
 
     let outstanding_requests = OutstandingRequestMapHandle::default();
@@ -81,7 +83,7 @@ async fn connect_and_process(
     ));
 
     if let Err(err) = payload_sender.send(&initial_request.request) {
-        return Err((Some(initial_request), Error::from(err)));
+        return Err((Some(initial_request), Some(Error::from(err))));
     }
 
     {
@@ -103,12 +105,10 @@ async fn connect_and_process(
         ),
         async { request_processor.await.map_err(|_| Error::Disconnected)? }
     ) {
+        let mut pending_error = Some(err);
         // Our socket was disconnected, clear the outstanding requests before returning.
-        let mut outstanding_requests = fast_async_lock!(outstanding_requests);
-        for (_, pending) in outstanding_requests.drain() {
-            drop(pending.responder.send(Err(Error::Disconnected)));
-        }
-        return Err((None, err));
+        disconnect_pending_requests(&outstanding_requests, &mut pending_error).await;
+        return Err((None, pending_error));
     }
 
     Ok(())

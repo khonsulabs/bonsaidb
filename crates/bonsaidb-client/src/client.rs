@@ -73,7 +73,26 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 
 /// Client for connecting to a BonsaiDb server.
 ///
+/// ## How this type automatically reconnects
 ///
+/// This type is designed to automatically reconnect if the underlying network
+/// connection has been lost. When a disconnect happens, the error that caused
+/// the disconnection will be returned to at least one requestor. If multiple
+/// pending requests are outstanding, all remaining pending requests will have
+/// an [`Error::Disconnected`] returned. This allows the application to detect
+/// when a networking issue has arisen.
+///
+/// If the disconnect happens while the client is completely idle, the next
+/// request will report the disconnection error. The subsequent request will
+/// cause the client to begin reconnecting again.
+///
+/// When unauthenticated, this reconnection behavior is mostly transparent --
+/// disconnection errors can be shown to the user, and service will be restored
+/// automatically. However, when dealing with authentication, the client does
+/// not store credentials to be able to send them again when reconnecting. This
+/// means that the existing client handles will lose their authentication when
+/// the network connection is broken. The current authentication status can be
+/// checked using [`HasSession::session()`].
 ///
 /// ## Connecting via QUIC
 ///
@@ -454,6 +473,7 @@ impl Client {
             Arc::new(custom_apis),
             subscribers.clone(),
             connection_counter.clone(),
+            None,
         );
 
         #[cfg(feature = "test-util")]
@@ -951,4 +971,18 @@ impl<Api: api::Api> AnyApiCallback for ApiCallback<Api> {
 pub struct ClientSession {
     session: Arc<Session>,
     connection_id: u32,
+}
+
+async fn disconnect_pending_requests(
+    outstanding_requests: &OutstandingRequestMapHandle,
+    pending_error: &mut Option<Error>,
+) {
+    let mut outstanding_requests = fast_async_lock!(outstanding_requests);
+    for (_, pending) in outstanding_requests.drain() {
+        drop(
+            pending
+                .responder
+                .send(Err(pending_error.take().unwrap_or(Error::Disconnected))),
+        );
+    }
 }

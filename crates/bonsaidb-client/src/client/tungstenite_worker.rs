@@ -15,7 +15,9 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use url::Url;
 
 use super::PendingRequest;
-use crate::client::{AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap};
+use crate::client::{
+    disconnect_pending_requests, AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap,
+};
 use crate::Error;
 
 pub async fn reconnecting_client_loop(
@@ -80,17 +82,9 @@ pub async fn reconnecting_client_loop(
             response_processor(receiver, outstanding_requests.clone(), &custom_apis,)
         ) {
             // Our socket was disconnected, clear the outstanding requests before returning.
-            let mut outstanding_requests = fast_async_lock!(outstanding_requests);
             log::error!("Error on socket {:?}", err);
             pending_error = Some(err);
-            for (_, pending) in outstanding_requests.drain() {
-                let error = if let Some(pending_error) = pending_error.take() {
-                    pending_error
-                } else {
-                    Error::Disconnected
-                };
-                drop(pending.responder.send(Err(error)));
-            }
+            disconnect_pending_requests(&outstanding_requests, &mut pending_error).await;
         }
     }
 
