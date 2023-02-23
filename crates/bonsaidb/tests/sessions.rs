@@ -10,6 +10,7 @@ use bonsaidb::local::config::Builder;
 use bonsaidb::server::{DefaultPermissions, Server, ServerConfiguration};
 use bonsaidb_core::connection::{AsyncStorageConnection, HasSession, SensitiveString};
 use bonsaidb_core::schema::SerializedCollection;
+use bonsaidb_server::BonsaiListenConfig;
 use futures::Future;
 
 #[tokio::test]
@@ -34,7 +35,10 @@ async fn quic() -> anyhow::Result<()> {
         "sessions-quic.bonsaidb",
         "bonsaidb://localhost:12346",
         |server| async move {
-            server.listen_on(12346).await.unwrap();
+            server
+                .listen_on(BonsaiListenConfig::from(12346).reuse_address(true))
+                .await
+                .unwrap();
         },
     )
     .await

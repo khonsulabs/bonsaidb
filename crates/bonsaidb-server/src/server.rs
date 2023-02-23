@@ -43,7 +43,7 @@ use crate::dispatch::{register_api_handlers, ServerDispatcher};
 use crate::error::Error;
 use crate::hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain};
 use crate::server::shutdown::{Shutdown, ShutdownState, ShutdownStateWatcher};
-use crate::{Backend, BackendError, NoBackend, ServerConfiguration};
+use crate::{Backend, BackendError, BonsaiListenConfig, NoBackend, ServerConfiguration};
 
 #[cfg(feature = "acme")]
 pub mod acme;
@@ -367,17 +367,17 @@ impl<B: Backend> CustomServer<B> {
 
     /// Listens for incoming client connections. Does not return until the
     /// server shuts down.
-    pub async fn listen_on(&self, port: u16) -> Result<(), Error> {
+    pub async fn listen_on(&self, config: impl Into<BonsaiListenConfig>) -> Result<(), Error> {
+        let config = config.into();
         let certificate = self.tls_certificate().await?;
         let keypair =
             KeyPair::from_parts(certificate.certificate_chain, certificate.private_key.0)?;
         let mut builder = Endpoint::builder();
         builder.set_protocols([CURRENT_PROTOCOL_VERSION.as_bytes().to_vec()]);
-        builder.set_address(([0; 8], port).into());
+        builder.set_address(config.address);
         builder.set_max_idle_timeout(None)?;
         builder.set_server_key_pair(Some(keypair));
-        // TODO this should be an option.
-        builder.set_reuse_address(true);
+        builder.set_reuse_address(config.reuse_address);
         let mut server = builder.build()?;
 
         let mut shutdown_watcher = self

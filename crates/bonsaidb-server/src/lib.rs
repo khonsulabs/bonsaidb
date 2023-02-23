@@ -30,7 +30,8 @@ mod server;
 
 #[cfg(feature = "acme")]
 pub use config::{
-    AcmeConfiguration, LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECTORY,
+    AcmeConfiguration, BonsaiListenConfig, LETS_ENCRYPT_PRODUCTION_DIRECTORY,
+    LETS_ENCRYPT_STAGING_DIRECTORY,
 };
 
 pub use self::backend::{Backend, BackendError, ConnectionHandling, NoBackend};

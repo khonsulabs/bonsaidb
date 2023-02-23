@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -277,5 +278,57 @@ impl<B: Backend> Builder for ServerConfiguration<B> {
     fn argon(mut self, argon: bonsaidb_local::config::ArgonConfiguration) -> Self {
         self.storage.argon = argon;
         self
+    }
+}
+
+/// Configuration for the BonsaiDb network protocol.
+///
+/// The BonsaiDb network protocol is built using QUIC, which uses UDP instead of
+/// TCP.
+#[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
+pub struct BonsaiListenConfig {
+    /// The socket port to listen for connections on.
+    pub address: SocketAddr,
+
+    /// If this is set to true, the `SO_REUSEADDR` flag will be set on the
+    /// listening socket.
+    ///
+    /// This informs the operating system that it should allow reusing the exact
+    /// same address/port combination in the future, which enables restarting a
+    /// BonsaiDb network protocol listener without restarting the process
+    /// itself. In general, this is not needed for users in regular deployments,
+    /// and is more useful for specific kinds of testing.
+    pub reuse_address: bool,
+}
+
+impl Default for BonsaiListenConfig {
+    fn default() -> Self {
+        Self {
+            address: SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, 5465, 0, 0)),
+            reuse_address: false,
+        }
+    }
+}
+
+impl BonsaiListenConfig {
+    /// Sets the port for the socket address, and returns the updated config.
+    #[must_use]
+    pub fn port(mut self, port: u16) -> Self {
+        self.address.set_port(port);
+        self
+    }
+
+    /// Sets the [`reuse_address`](Self::reuse_address) flag.
+    #[must_use]
+    pub const fn reuse_address(mut self, reuse_address: bool) -> Self {
+        self.reuse_address = reuse_address;
+        self
+    }
+}
+
+impl From<u16> for BonsaiListenConfig {
+    fn from(value: u16) -> Self {
+        Self::default().port(value)
     }
 }
