@@ -30,12 +30,11 @@ mod server;
 
 #[cfg(feature = "acme")]
 pub use config::{
-    AcmeConfiguration, BonsaiListenConfig, LETS_ENCRYPT_PRODUCTION_DIRECTORY,
-    LETS_ENCRYPT_STAGING_DIRECTORY,
+    AcmeConfiguration, LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECTORY,
 };
 
 pub use self::backend::{Backend, BackendError, ConnectionHandling, NoBackend};
-pub use self::config::{DefaultPermissions, ServerConfiguration};
+pub use self::config::{BonsaiListenConfig, DefaultPermissions, ServerConfiguration};
 pub use self::error::Error;
 pub use self::server::{
     ApplicationProtocols, ConnectedClient, CustomServer, HttpService, LockedClientDataGuard, Peer,
