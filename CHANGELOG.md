@@ -70,6 +70,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CustomServer::listen_on` now takes `impl Into<BonsaiListenConfig>` instead of
   just a u16 parameter specifying the port. `BonsaiListenConfig` implements
   `From<u16>` to minimize code breakage.
+- The command-line `Serve` type has had its `listen-on` field changed to a
+  `SocketAddr` type to reflect the support for `BonsaiListenConfig`. The full
+  address and port must be specified when providing a `listen-on` argument now.
 
 [#240]: https://github.com/khonsulabs/bonsaidb/issues/240
 

@@ -113,7 +113,7 @@ async fn test() -> anyhow::Result<()> {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.spawn(async {
             CliBackend
-                .run_from(["executable", "server", "serve", "--listen-on", "6004"])
+                .run_from(["executable", "server", "serve", "--listen-on", "[::1]:6004"])
                 .await
                 .unwrap();
         });
