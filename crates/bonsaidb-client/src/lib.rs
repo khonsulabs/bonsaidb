@@ -25,8 +25,7 @@ mod error;
 pub use fabruic;
 
 pub use self::builder::Builder;
-pub use self::client::{
-    ApiCallback, AsyncClient, AsyncRemoteDatabase, AsyncRemoteSubscriber, BlockingClient,
-    BlockingRemoteDatabase, BlockingRemoteSubscriber,
-};
+pub use self::client::{ApiCallback, AsyncClient, AsyncRemoteDatabase, AsyncRemoteSubscriber};
+#[cfg(not(target_arch = "wasm32"))]
+pub use self::client::{BlockingClient, BlockingRemoteDatabase, BlockingRemoteSubscriber};
 pub use self::error::{ApiError, Error};

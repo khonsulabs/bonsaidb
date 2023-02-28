@@ -12,9 +12,12 @@ use tokio::runtime::Handle;
 use url::Url;
 
 use crate::client::{AnyApiCallback, ApiCallback};
-use crate::{AsyncClient, BlockingClient, Error};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::BlockingClient;
+use crate::{AsyncClient, Error};
 
 pub struct Async;
+#[cfg(not(target_arch = "wasm32"))]
 pub struct Blocking;
 
 /// Builds a new [`Client`] with custom settings.
@@ -100,6 +103,7 @@ impl<AsyncMode> Builder<AsyncMode> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Builder<Blocking> {
     /// Finishes building the client for use in a blocking (not async) context.
     pub fn build(self) -> Result<BlockingClient, Error> {

@@ -32,6 +32,7 @@ use tokio::{runtime::Handle, task::JoinHandle};
 use url::Url;
 
 pub use self::remote_database::{AsyncRemoteDatabase, AsyncRemoteSubscriber};
+#[cfg(not(target_arch = "wasm32"))]
 pub use self::sync::{BlockingClient, BlockingRemoteDatabase, BlockingRemoteSubscriber};
 use crate::builder::Async;
 use crate::error::Error;
@@ -526,6 +527,7 @@ impl AsyncClient {
         result_receiver.recv_async().await?
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn send_request(&self, name: ApiName, bytes: Bytes) -> Result<Bytes, Error> {
         let result_receiver = self.send_request_without_confirmation(name, bytes)?;
 
@@ -544,7 +546,7 @@ impl AsyncClient {
         response.map_err(ApiError::Api)
     }
 
-    /// Sends an api `request`.
+    #[cfg(not(target_arch = "wasm32"))]
     fn send_blocking_api_request<Api: api::Api>(
         &self,
         request: &Api,
