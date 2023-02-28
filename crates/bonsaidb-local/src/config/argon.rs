@@ -25,7 +25,7 @@ impl SystemDefault for ArgonConfiguration {
         let cpu_count = u32::try_from(
             system
                 .physical_core_count()
-                .unwrap_or_else(|| system.processors().len()),
+                .unwrap_or_else(|| system.cpus().len()),
         )
         .expect("cpu count returned unexpectedly large value");
         let mut hashers = (cpu_count + 3) / 4;

@@ -21,9 +21,8 @@
 //! let directory = TestDirectory::new("bonsaidb-keystorage-s3-basic");
 //! let configuration = StorageConfiguration::new(&directory)
 //!     .vault_key_storage(
-//!         S3VaultKeyStorage::new("bucket_name").endpoint(Endpoint::immutable(
-//!             Uri::try_from("https://s3.us-west-001.backblazeb2.com").unwrap(),
-//!         )),
+//!         S3VaultKeyStorage::new("bucket_name")
+//!             .endpoint("https://s3.us-west-001.backblazeb2.com"),
 //!     )
 //!     .default_encryption_key(KeyId::Master);
 //! # }
@@ -53,7 +52,7 @@ use std::future::Future;
 use async_trait::async_trait;
 use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_s3::types::ByteStream;
-use aws_sdk_s3::{Client, Endpoint, Region};
+use aws_sdk_s3::{Client, Region};
 use bonsaidb_local::vault::{KeyPair, VaultKeyStorage};
 use bonsaidb_local::StorageId;
 use tokio::runtime::{self, Handle, Runtime};
@@ -68,7 +67,7 @@ pub struct S3VaultKeyStorage {
     /// The S3 endpoint to use. If not specified, the endpoint will be
     /// determined automatically. This field can be used to support non-AWS S3
     /// providers.
-    pub endpoint: Option<Endpoint>,
+    pub endpoint: Option<String>,
     /// The AWS region to use. If not specified, the region will be determined
     /// by the aws sdk.
     pub region: Option<Region>,
@@ -133,8 +132,8 @@ impl S3VaultKeyStorage {
 
     /// Sets the endpoint to use. See [`Self::endpoint`] for more information.
     #[allow(clippy::missing_const_for_fn)] // destructors
-    pub fn endpoint(mut self, endpoint: Endpoint) -> Self {
-        self.endpoint = Some(endpoint);
+    pub fn endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.endpoint = Some(endpoint.into());
         self
     }
 
@@ -155,7 +154,7 @@ impl S3VaultKeyStorage {
         if let Some(endpoint) = self.endpoint.clone() {
             Client::from_conf(
                 aws_sdk_s3::Config::builder()
-                    .endpoint_resolver(endpoint)
+                    .endpoint_url(endpoint)
                     .region(region_provider.region().await)
                     .credentials_provider(config.credentials_provider().unwrap().clone())
                     .build(),
@@ -201,14 +200,17 @@ impl VaultKeyStorage for S3VaultKeyStorage {
                         .map_err(|err| anyhow::anyhow!(err.to_string()))?;
                     Ok(Some(key))
                 }
-                Err(aws_smithy_client::SdkError::ServiceError {
-                    err:
+                Err(aws_smithy_client::SdkError::ServiceError(err))
+                    if matches!(
+                        err.err(),
                         aws_sdk_s3::error::GetObjectError {
                             kind: aws_sdk_s3::error::GetObjectErrorKind::NoSuchKey(_),
                             ..
-                        },
-                    ..
-                }) => Ok(None),
+                        }
+                    ) =>
+                {
+                    Ok(None)
+                }
                 Err(err) => Err(anyhow::anyhow!(err)),
             }
         })
@@ -240,7 +242,6 @@ async fn basic_test() {
     use bonsaidb_core::test_util::{Basic, BasicSchema, TestDirectory};
     use bonsaidb_local::config::{Builder, StorageConfiguration};
     use bonsaidb_local::AsyncStorage;
-    use http::Uri;
     drop(dotenv::dotenv());
 
     let bucket = env_var!("S3_BUCKET");
@@ -251,7 +252,7 @@ async fn basic_test() {
     let configuration = |prefix| {
         let mut vault_key_storage = S3VaultKeyStorage {
             bucket: bucket.clone(),
-            endpoint: Some(Endpoint::immutable(Uri::try_from(&endpoint).unwrap())),
+            endpoint: Some(endpoint.clone()),
             ..S3VaultKeyStorage::default()
         };
         if let Some(prefix) = prefix {
@@ -301,7 +302,6 @@ fn blocking_test() {
     use bonsaidb_core::test_util::{Basic, BasicSchema, TestDirectory};
     use bonsaidb_local::config::{Builder, StorageConfiguration};
     use bonsaidb_local::Storage;
-    use http::Uri;
     drop(dotenv::dotenv());
 
     let bucket = env_var!("S3_BUCKET");
@@ -312,7 +312,7 @@ fn blocking_test() {
     let configuration = |prefix| {
         let mut vault_key_storage = S3VaultKeyStorage {
             bucket: bucket.clone(),
-            endpoint: Some(Endpoint::immutable(Uri::try_from(&endpoint).unwrap())),
+            endpoint: Some(endpoint.clone()),
             ..S3VaultKeyStorage::default()
         };
         if let Some(prefix) = prefix {

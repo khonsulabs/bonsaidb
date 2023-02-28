@@ -32,7 +32,7 @@ pub fn encode_composite_field<'a, K: Key<'a>, T: KeyEncoding<'a, K>, Bytes: Writ
     let t2 = T::as_ord_bytes(value).map_err(CompositeKeyError::new)?;
     if T::LENGTH.is_none() {
         (t2.len() as u64)
-            .encode_variable(bytes)
+            .encode_variable(&mut *bytes)
             .map_err(CompositeKeyError::new)?;
     }
     bytes.write_all(&t2)?;

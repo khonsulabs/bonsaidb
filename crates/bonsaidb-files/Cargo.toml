@@ -22,7 +22,7 @@ required-features = ["async"]
 bonsaidb-macros = { path = "../bonsaidb-macros", version = "=0.4.0" }
 bonsaidb-core = { version = "0.4.0", path = "../bonsaidb-core" }
 bonsaidb-utils = { version = "0.4.0", path = "../bonsaidb-utils" }
-derive-where = "=1.0.0-rc.2"
+derive-where = "1.0.0"
 serde = { version = "1", features = ["derive"] }
 parking_lot = "0.12.0"
 lru = "0.9.0"

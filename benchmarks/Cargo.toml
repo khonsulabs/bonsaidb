@@ -19,7 +19,7 @@ compression = ["bonsaidb/compression"]
 mongo = ["mongodb"]
 
 [dependencies]
-redis = { version = "0.21", optional = true, features = ["tokio-comp"] }
+redis = { version = "0.22.3", optional = true, features = ["tokio-comp"] }
 bonsaidb = { path = "../crates/bonsaidb", version = "0.4.0", features = [
     "client",
     "server",
@@ -34,8 +34,8 @@ tokio = { version = "1.16.1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 ubyte = "0.10"
 env_logger = "0.10"
-rusqlite = { version = "0.26", optional = true }
-sqlx = { version = "0.5", optional = true, default-features = false, features = [
+rusqlite = { version = "0.27", optional = true }
+sqlx = { version = "0.6.2", optional = true, default-features = false, features = [
     "runtime-tokio-rustls",
 ] }
 fake = "2"

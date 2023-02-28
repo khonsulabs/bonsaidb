@@ -7,7 +7,7 @@ use std::time::Duration;
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::permissions::Permissions;
 use bonsaidb_core::schema::{Schema, SchemaName};
-use sysinfo::{RefreshKind, System, SystemExt};
+use sysinfo::{CpuRefreshKind, RefreshKind, System, SystemExt};
 
 use crate::storage::{DatabaseOpener, StorageSchemaOpener};
 #[cfg(feature = "encryption")]
@@ -81,7 +81,9 @@ pub struct StorageConfiguration {
 
 impl Default for StorageConfiguration {
     fn default() -> Self {
-        let system_specs = RefreshKind::new().with_cpu().with_memory();
+        let system_specs = RefreshKind::new()
+            .with_cpu(CpuRefreshKind::new())
+            .with_memory();
         let mut system = System::new_with_specifics(system_specs);
         system.refresh_specifics(system_specs);
         Self {
@@ -134,7 +136,7 @@ impl SystemDefault for Tasks {
         let num_cpus = system
             .physical_core_count()
             .unwrap_or(0)
-            .max(system.processors().len())
+            .max(system.cpus().len())
             .max(1);
         Self {
             worker_count: num_cpus * 2,
@@ -446,7 +448,9 @@ impl Builder for StorageConfiguration {
 pub(crate) trait SystemDefault: Sized {
     fn default_for(system: &System) -> Self;
     fn default() -> Self {
-        let system_specs = RefreshKind::new().with_cpu().with_memory();
+        let system_specs = RefreshKind::new()
+            .with_cpu(CpuRefreshKind::new())
+            .with_memory();
         let mut system = System::new_with_specifics(system_specs);
         system.refresh_specifics(system_specs);
         Self::default_for(&system)

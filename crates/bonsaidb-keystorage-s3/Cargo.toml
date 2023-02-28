@@ -13,9 +13,9 @@ homepage = "https://bonsaidb.io/"
 rust-version = "1.65"
 
 [dependencies]
-aws-sdk-s3 = { version = "0.9.0" }
-aws-config = { version = "0.9.0" }
-aws-smithy-client = { version = "0.39.0" }
+aws-sdk-s3 = { version = "0.24.0" }
+aws-config = { version = "0.54.1" }
+aws-smithy-client = { version = "0.54.4" }
 bonsaidb-local = { version = "0.4.0", path = "../bonsaidb-local", default-features = false, features = [
     "encryption",
 ] }

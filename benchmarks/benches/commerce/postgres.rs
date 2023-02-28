@@ -39,13 +39,13 @@ impl Backend for Postgres {
         conn.execute(
             r#"CREATE TABLE customers (
             id SERIAL PRIMARY KEY,
-            name TEXT, 
-            email TEXT, 
-            address TEXT, 
-            city TEXT, 
-            region TEXT, 
-            country TEXT, 
-            postal_code TEXT, 
+            name TEXT,
+            email TEXT,
+            address TEXT,
+            city TEXT,
+            region TEXT,
+            country TEXT,
+            postal_code TEXT,
             phone TEXT
         )"#,
         )
@@ -79,12 +79,12 @@ impl Backend for Postgres {
             .await
             .unwrap();
         conn.execute(
-            r#"CREATE MATERIALIZED VIEW 
-                    product_ratings 
-                AS 
-                    SELECT 
+            r#"CREATE MATERIALIZED VIEW
+                    product_ratings
+                AS
+                    SELECT
                         product_id,
-                        sum(rating)::int as total_rating, 
+                        sum(rating)::int as total_rating,
                         count(rating)::int as ratings
                     FROM
                         product_reviews
@@ -188,7 +188,7 @@ impl Operator<Load, u32> for PostgresOperator {
         for (id, category) in &operation.initial_data.categories {
             let mut args = PgArguments::default();
             args.reserve(2, 0);
-            args.add(*id);
+            args.add(*id as i32);
             args.add(&category.name);
             tx.execute(insert_category.query_with(args)).await.unwrap();
         }
@@ -204,14 +204,14 @@ impl Operator<Load, u32> for PostgresOperator {
         for (&id, product) in &operation.initial_data.products {
             let mut args = PgArguments::default();
             args.reserve(2, 0);
-            args.add(id);
+            args.add(id as i32);
             args.add(&product.name);
             tx.execute(insert_product.query_with(args)).await.unwrap();
             for &category_id in &product.category_ids {
                 let mut args = PgArguments::default();
                 args.reserve(2, 0);
-                args.add(id);
-                args.add(category_id);
+                args.add(id as i32);
+                args.add(category_id as i32);
                 tx.execute(insert_product_category.query_with(args))
                     .await
                     .unwrap();
@@ -225,7 +225,7 @@ impl Operator<Load, u32> for PostgresOperator {
         for (id, customer) in &operation.initial_data.customers {
             let mut args = PgArguments::default();
             args.reserve(9, 0);
-            args.add(*id);
+            args.add(*id as i32);
             args.add(&customer.name);
             args.add(&customer.email);
             args.add(&customer.address);
@@ -250,14 +250,14 @@ impl Operator<Load, u32> for PostgresOperator {
         for (&id, order) in &operation.initial_data.orders {
             let mut args = PgArguments::default();
             args.reserve(2, 0);
-            args.add(id);
-            args.add(order.customer_id);
+            args.add(id as i32);
+            args.add(order.customer_id as i32);
             tx.execute(insert_order.query_with(args)).await.unwrap();
             for &product_id in &order.product_ids {
                 let mut args = PgArguments::default();
                 args.reserve(2, 0);
-                args.add(id);
-                args.add(product_id);
+                args.add(id as i32);
+                args.add(product_id as i32);
                 tx.execute(insert_order_product.query_with(args))
                     .await
                     .unwrap();
@@ -271,9 +271,9 @@ impl Operator<Load, u32> for PostgresOperator {
         for review in &operation.initial_data.reviews {
             let mut args = PgArguments::default();
             args.reserve(4, 0);
-            args.add(review.product_id);
-            args.add(review.customer_id);
-            args.add(review.rating as u32);
+            args.add(review.product_id as i32);
+            args.add(review.customer_id as i32);
+            args.add(review.rating as i32);
             args.add(&review.review);
             tx.execute(insert_review.query_with(args)).await.unwrap();
         }
@@ -348,8 +348,8 @@ impl Operator<AddProductToCart, u32> for PostgresOperator {
 
         let mut args = PgArguments::default();
         args.reserve(2, 0);
-        args.add(cart);
-        args.add(product);
+        args.add(cart as i32);
+        args.add(product as i32);
 
         tx.execute(statement.query_with(args)).await.unwrap();
         tx.commit().await.unwrap();
@@ -371,16 +371,16 @@ impl Operator<FindProduct, u32> for PostgresOperator {
         let statement = conn
             .prepare(
                 r#"
-                SELECT 
-                    id, 
-                    name, 
+                SELECT
+                    id,
+                    name,
                     category_id,
                     commerce_bench.product_ratings.total_rating as "total_rating: Option<i32>",
                     commerce_bench.product_ratings.ratings as "ratings: Option<i32>"
-                FROM 
-                    commerce_bench.products 
-                LEFT OUTER JOIN commerce_bench.product_categories ON 
-                    commerce_bench.product_categories.product_id = id 
+                FROM
+                    commerce_bench.products
+                LEFT OUTER JOIN commerce_bench.product_categories ON
+                    commerce_bench.product_categories.product_id = id
                 LEFT OUTER JOIN commerce_bench.product_ratings ON
                     commerce_bench.product_ratings.product_id = id
                 WHERE name = $1
@@ -440,16 +440,16 @@ impl Operator<LookupProduct, u32> for PostgresOperator {
         let statement = conn
             .prepare(
                 r#"
-                    SELECT 
-                        id, 
-                        name, 
+                    SELECT
+                        id,
+                        name,
                         category_id,
                         commerce_bench.product_ratings.total_rating as "total_rating: Option<i32>",
                         commerce_bench.product_ratings.ratings as "ratings: Option<i32>"
-                    FROM 
-                        commerce_bench.products 
-                    LEFT OUTER JOIN commerce_bench.product_categories ON 
-                        commerce_bench.product_categories.product_id = id 
+                    FROM
+                        commerce_bench.products
+                    LEFT OUTER JOIN commerce_bench.product_categories ON
+                        commerce_bench.product_categories.product_id = id
                     LEFT OUTER JOIN commerce_bench.product_ratings ON
                         commerce_bench.product_ratings.product_id = id
                     WHERE id = $1
@@ -461,7 +461,7 @@ impl Operator<LookupProduct, u32> for PostgresOperator {
 
         let mut args = PgArguments::default();
         args.reserve(1, 0);
-        args.add(operation.id);
+        args.add(operation.id as i32);
 
         let mut results = conn.fetch(statement.query_with(args));
         let mut id: Option<i32> = None;
@@ -521,7 +521,7 @@ impl Operator<Checkout, u32> for PostgresOperator {
             .unwrap();
         let mut args = PgArguments::default();
         args.reserve(1, 0);
-        args.add(operation.customer_id);
+        args.add(operation.customer_id as i32);
         let result = tx.fetch_one(statement.query_with(args)).await.unwrap();
         let order_id: i32 = result.get(0);
 
@@ -574,9 +574,9 @@ impl Operator<ReviewProduct, u32> for PostgresOperator {
         let statement = tx
             .prepare(
                 r#"INSERT INTO commerce_bench.product_reviews (
-                        product_id, 
-                        customer_id, 
-                        rating, 
+                        product_id,
+                        customer_id,
+                        rating,
                         review)
                     VALUES ($1, $2, $3, $4)
                     ON CONFLICT (customer_id, product_id) DO UPDATE SET rating = $3, review = $4"#,
@@ -586,9 +586,9 @@ impl Operator<ReviewProduct, u32> for PostgresOperator {
 
         let mut args = PgArguments::default();
         args.reserve(4, 0);
-        args.add(product);
-        args.add(operation.customer_id);
-        args.add(operation.rating as u32);
+        args.add(product as i32);
+        args.add(operation.customer_id as i32);
+        args.add(operation.rating as i32);
         args.add(&operation.review);
 
         tx.execute(statement.query_with(args)).await.unwrap();
