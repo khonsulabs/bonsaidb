@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use bonsaidb::client::url::Url;
-use bonsaidb::client::{ApiError, Client};
+use bonsaidb::client::{ApiError, AsyncClient};
 use bonsaidb::core::actionable::Permissions;
 use bonsaidb::core::api::{Api, ApiName, Infallible};
 use bonsaidb::core::async_trait::async_trait;
@@ -183,16 +183,16 @@ async fn main() -> anyhow::Result<()> {
     {
         // To connect over websockets, use the websocket scheme.
         tasks.push(invoke_apis(
-            Client::build(Url::parse("ws://localhost:8080")?).finish()?,
+            AsyncClient::build(Url::parse("ws://localhost:8080")?).build()?,
             "websockets",
         ));
     }
 
     // To connect over QUIC, use the bonsaidb scheme.
     tasks.push(invoke_apis(
-        Client::build(Url::parse("bonsaidb://localhost")?)
+        AsyncClient::build(Url::parse("bonsaidb://localhost")?)
             .with_certificate(certificate)
-            .finish()?,
+            .build()?,
         "bonsaidb",
     ));
 
@@ -207,13 +207,13 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::core::Error> {
+async fn invoke_apis(client: AsyncClient, client_name: &str) -> Result<(), bonsaidb::core::Error> {
     ping_the_server(&client, client_name).await?;
 
     // Calling DoSomethingSimple and DoSomethingCustom will check permissions, which our client currently doesn't have access to.
     assert!(matches!(
         client
-            .send_api_request_async(&IncrementCounter { amount: 1 })
+            .send_api_request(&IncrementCounter { amount: 1 })
             .await,
         Err(ApiError::Client(bonsaidb::client::Error::Core(
             bonsaidb::core::Error::PermissionDenied(_)
@@ -221,7 +221,7 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
     ));
     assert!(matches!(
         client
-            .send_api_request_async(&IncrementCounter { amount: 1 })
+            .send_api_request(&IncrementCounter { amount: 1 })
             .await,
         Err(ApiError::Client(bonsaidb::client::Error::Core(
             bonsaidb::core::Error::PermissionDenied(_)
@@ -238,13 +238,13 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
         .unwrap();
     assert!(matches!(
         authenticated_client
-            .send_api_request_async(&IncrementCounter { amount: 1 })
+            .send_api_request(&IncrementCounter { amount: 1 })
             .await,
         Ok(Counter(_))
     ));
     assert!(matches!(
         authenticated_client
-            .send_api_request_async(&IncrementCounter { amount: 1 })
+            .send_api_request(&IncrementCounter { amount: 1 })
             .await,
         Ok(Counter(_))
     ));
@@ -253,8 +253,11 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
 }
 
 // ANCHOR: api-call
-async fn ping_the_server(client: &Client, client_name: &str) -> Result<(), bonsaidb::core::Error> {
-    match client.send_api_request_async(&Ping).await {
+async fn ping_the_server(
+    client: &AsyncClient,
+    client_name: &str,
+) -> Result<(), bonsaidb::core::Error> {
+    match client.send_api_request(&Ping).await {
         Ok(Pong) => {
             println!("Received Pong from server on {client_name}");
         }

@@ -73,6 +73,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The command-line `Serve` type has had its `listen-on` field changed to a
   `SocketAddr` type to reflect the support for `BonsaiListenConfig`. The full
   address and port must be specified when providing a `listen-on` argument now.
+- `Client` has been renamed to `AsyncClient`, and a new type, `BlockingClient`
+  has been added. This splits the `Client` into two separate parts: an `async`
+  version and a blocking version. This makes it less likely to accidentally call
+  a blocking method in an async context.
+
+  `Client::send_api_request_async` has been renamed to `send_api_request`.
+
+  This change has also been introduced to `RemoteDatabase` and
+  `RemoteSubscriber`: both async and blocking versions are available.
 
 [#240]: https://github.com/khonsulabs/bonsaidb/issues/240
 

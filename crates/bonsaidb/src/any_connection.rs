@@ -1,4 +1,4 @@
-use bonsaidb_client::{Client, RemoteDatabase};
+use bonsaidb_client::{AsyncClient, AsyncRemoteDatabase};
 use bonsaidb_core::async_trait::async_trait;
 use bonsaidb_core::connection::{
     self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
@@ -19,7 +19,7 @@ pub enum AnyServerConnection<B: Backend> {
     /// A local server.
     Local(CustomServer<B>),
     /// A server accessed with a [`Client`].
-    Networked(Client),
+    Networked(AsyncClient),
 }
 
 impl<B: Backend> HasSession for AnyServerConnection<B> {
@@ -238,7 +238,7 @@ pub enum AnyDatabase<B: Backend = NoBackend> {
     /// A local database.
     Local(ServerDatabase<B>),
     /// A networked database accessed with a [`Client`].
-    Networked(RemoteDatabase),
+    Networked(AsyncRemoteDatabase),
 }
 
 impl<B: Backend> HasSession for AnyDatabase<B> {

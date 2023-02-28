@@ -1,11 +1,13 @@
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use bonsaidb_core::admin::{Admin, ADMIN_DATABASE_NAME};
+use bonsaidb_core::api;
 use bonsaidb_core::arc_bytes::serde::Bytes;
 use bonsaidb_core::connection::{
-    AccessPolicy, Connection, Database, IdentityReference, LowLevelConnection, Range,
-    SerializedQueryKey, Sort, StorageConnection,
+    AccessPolicy, Connection, Database, HasSchema, HasSession, IdentityReference,
+    LowLevelConnection, Range, SerializedQueryKey, Sort, StorageConnection,
 };
 use bonsaidb_core::document::{DocumentId, Header, OwnedDocument};
 use bonsaidb_core::keyvalue::KeyValue;
@@ -15,7 +17,7 @@ use bonsaidb_core::networking::{
     CreateUser, DeleteDatabase, DeleteDocs, DeleteUser, ExecuteKeyOperation, Get, GetMultiple,
     LastTransactionId, List, ListAvailableSchemas, ListDatabases, ListExecutedTransactions,
     ListHeaders, Publish, PublishToAll, Query, QueryWithDocs, Reduce, ReduceGrouped, SubscribeTo,
-    UnsubscribeFrom,
+    UnsubscribeFrom, CURRENT_PROTOCOL_VERSION,
 };
 use bonsaidb_core::pubsub::{AsyncSubscriber, PubSub, Receiver, Subscriber};
 use bonsaidb_core::schema::view::map;
@@ -24,23 +26,104 @@ use futures::Future;
 use tokio::runtime::{Handle, Runtime};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
+use url::Url;
 
+use crate::builder::Blocking;
 use crate::client::ClientSession;
-use crate::{Client, RemoteDatabase, RemoteSubscriber};
+use crate::{ApiError, AsyncClient, AsyncRemoteDatabase, AsyncRemoteSubscriber, Builder, Error};
 
-impl StorageConnection for Client {
+/// A BonsaiDb client that blocks the current thread when performing requests.
+#[derive(Debug, Clone)]
+pub struct BlockingClient(pub(crate) AsyncClient);
+
+impl BlockingClient {
+    /// Returns a builder for a new client connecting to `url`.
+    pub fn build(url: Url) -> Builder<Blocking> {
+        Builder::new(url)
+    }
+
+    /// Initialize a client connecting to `url`. This client can be shared by
+    /// cloning it. All requests are done asynchronously over the same
+    /// connection.
+    ///
+    /// If the client has an error connecting, the first request made will
+    /// present that error. If the client disconnects while processing requests,
+    /// all requests being processed will exit and return
+    /// [`Error::Disconnected`]. The client will automatically try reconnecting.
+    ///
+    /// The goal of this design of this reconnection strategy is to make it
+    /// easier to build resilliant apps. By allowing existing Client instances
+    /// to recover and reconnect, each component of the apps built can adopt a
+    /// "retry-to-recover" design, or "abort-and-fail" depending on how critical
+    /// the database is to operation.
+    pub fn new(url: Url) -> Result<Self, Error> {
+        AsyncClient::new_from_parts(
+            url,
+            CURRENT_PROTOCOL_VERSION,
+            HashMap::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            None,
+            #[cfg(not(target_arch = "wasm32"))]
+            Handle::try_current().ok(),
+        )
+        .map(Self)
+    }
+
+    /// Sends an api `request`.
+    pub fn send_api_request<Api: api::Api>(
+        &self,
+        request: &Api,
+    ) -> Result<Api::Response, ApiError<Api::Error>> {
+        self.0.send_blocking_api_request(request)
+    }
+
+    /// Sends an api `request` without waiting for a result. The response from
+    /// the server will be ignored.
+    pub fn invoke_api_request<Api: api::Api>(&self, request: &Api) -> Result<(), Error> {
+        let request = Bytes::from(pot::to_vec(request).map_err(Error::from)?);
+        self.0
+            .send_request_without_confirmation(Api::name(), request)
+            .map(|_| ())
+    }
+
+    /// Returns a reference to an async-compatible version of this client.
+    #[must_use]
+    pub fn as_async(&self) -> &AsyncClient {
+        &self.0
+    }
+}
+
+impl From<AsyncClient> for BlockingClient {
+    fn from(client: AsyncClient) -> Self {
+        Self(client)
+    }
+}
+
+impl From<BlockingClient> for AsyncClient {
+    fn from(client: BlockingClient) -> Self {
+        client.0
+    }
+}
+
+impl StorageConnection for BlockingClient {
     type Authenticated = Self;
-    type Database = RemoteDatabase;
+    type Database = BlockingRemoteDatabase;
 
     fn admin(&self) -> Self::Database {
-        self.remote_database::<Admin>(ADMIN_DATABASE_NAME).unwrap()
+        BlockingRemoteDatabase(
+            self.0
+                .remote_database::<Admin>(ADMIN_DATABASE_NAME)
+                .unwrap(),
+        )
     }
 
     fn database<DB: bonsaidb_core::schema::Schema>(
         &self,
         name: &str,
     ) -> Result<Self::Database, bonsaidb_core::Error> {
-        self.remote_database::<DB>(name)
+        self.0
+            .remote_database::<DB>(name)
+            .map(BlockingRemoteDatabase)
     }
 
     fn create_database_with_schema(
@@ -114,13 +197,13 @@ impl StorageConnection for Client {
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         let session =
             self.send_api_request(&bonsaidb_core::networking::Authenticate { authentication })?;
-        Ok(Self {
-            data: self.data.clone(),
+        Ok(Self(AsyncClient {
+            data: self.0.data.clone(),
             session: ClientSession {
                 session: Arc::new(session),
-                connection_id: self.data.connection_counter.load(Ordering::SeqCst),
+                connection_id: self.0.data.connection_counter.load(Ordering::SeqCst),
             },
-        })
+        }))
     }
 
     fn assume_identity(
@@ -128,13 +211,13 @@ impl StorageConnection for Client {
         identity: IdentityReference<'_>,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         let session = self.send_api_request(&AssumeIdentity(identity.into_owned()))?;
-        Ok(Self {
-            data: self.data.clone(),
+        Ok(Self(AsyncClient {
+            data: self.0.data.clone(),
             session: ClientSession {
                 session: Arc::new(session),
-                connection_id: self.data.connection_counter.load(Ordering::SeqCst),
+                connection_id: self.0.data.connection_counter.load(Ordering::SeqCst),
             },
-        })
+        }))
     }
 
     fn add_permission_group_to_user<
@@ -210,11 +293,22 @@ impl StorageConnection for Client {
     }
 }
 
-impl Connection for RemoteDatabase {
-    type Storage = Client;
+impl HasSession for BlockingClient {
+    fn session(&self) -> Option<&bonsaidb_core::connection::Session> {
+        self.0.session()
+    }
+}
+
+/// A remote database that blocks the current thread when performing its
+/// requests.
+#[derive(Debug, Clone)]
+pub struct BlockingRemoteDatabase(AsyncRemoteDatabase);
+
+impl Connection for BlockingRemoteDatabase {
+    type Storage = BlockingClient;
 
     fn storage(&self) -> Self::Storage {
-        self.client.clone()
+        BlockingClient(self.0.client.clone())
     }
 
     fn list_executed_transactions(
@@ -222,41 +316,47 @@ impl Connection for RemoteDatabase {
         starting_id: Option<u64>,
         result_limit: Option<u32>,
     ) -> Result<Vec<bonsaidb_core::transaction::Executed>, bonsaidb_core::Error> {
-        Ok(self.client.send_api_request(&ListExecutedTransactions {
-            database: self.name.to_string(),
-            starting_id,
-            result_limit,
-        })?)
+        Ok(self
+            .0
+            .client
+            .send_blocking_api_request(&ListExecutedTransactions {
+                database: self.0.name.to_string(),
+                starting_id,
+                result_limit,
+            })?)
     }
 
     fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
-        Ok(self.client.send_api_request(&LastTransactionId {
-            database: self.name.to_string(),
-        })?)
+        Ok(self
+            .0
+            .client
+            .send_blocking_api_request(&LastTransactionId {
+                database: self.0.name.to_string(),
+            })?)
     }
 
     fn compact(&self) -> Result<(), bonsaidb_core::Error> {
-        self.send_api_request(&Compact {
-            database: self.name.to_string(),
+        self.0.send_blocking_api_request(&Compact {
+            database: self.0.name.to_string(),
         })?;
         Ok(())
     }
 
     fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
-        self.send_api_request(&CompactKeyValueStore {
-            database: self.name.to_string(),
+        self.0.send_blocking_api_request(&CompactKeyValueStore {
+            database: self.0.name.to_string(),
         })?;
         Ok(())
     }
 }
 
-impl LowLevelConnection for RemoteDatabase {
+impl LowLevelConnection for BlockingRemoteDatabase {
     fn apply_transaction(
         &self,
         transaction: bonsaidb_core::transaction::Transaction,
     ) -> Result<Vec<bonsaidb_core::transaction::OperationResult>, bonsaidb_core::Error> {
-        Ok(self.client.send_api_request(&ApplyTransaction {
-            database: self.name.to_string(),
+        Ok(self.0.client.send_blocking_api_request(&ApplyTransaction {
+            database: self.0.name.to_string(),
             transaction,
         })?)
     }
@@ -266,8 +366,8 @@ impl LowLevelConnection for RemoteDatabase {
         id: bonsaidb_core::document::DocumentId,
         collection: &CollectionName,
     ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
-        Ok(self.client.send_api_request(&Get {
-            database: self.name.to_string(),
+        Ok(self.0.client.send_blocking_api_request(&Get {
+            database: self.0.name.to_string(),
             collection: collection.clone(),
             id,
         })?)
@@ -278,8 +378,8 @@ impl LowLevelConnection for RemoteDatabase {
         ids: &[bonsaidb_core::document::DocumentId],
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        Ok(self.client.send_api_request(&GetMultiple {
-            database: self.name.to_string(),
+        Ok(self.0.client.send_blocking_api_request(&GetMultiple {
+            database: self.0.name.to_string(),
             collection: collection.clone(),
             ids: ids.to_vec(),
         })?)
@@ -292,8 +392,8 @@ impl LowLevelConnection for RemoteDatabase {
         limit: Option<u32>,
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        Ok(self.client.send_api_request(&List {
-            database: self.name.to_string(),
+        Ok(self.0.client.send_blocking_api_request(&List {
+            database: self.0.name.to_string(),
             collection: collection.clone(),
             ids,
             order,
@@ -308,8 +408,8 @@ impl LowLevelConnection for RemoteDatabase {
         limit: Option<u32>,
         collection: &CollectionName,
     ) -> Result<Vec<Header>, bonsaidb_core::Error> {
-        Ok(self.client.send_api_request(&ListHeaders(List {
-            database: self.name.to_string(),
+        Ok(self.0.client.send_blocking_api_request(&ListHeaders(List {
+            database: self.0.name.to_string(),
             collection: collection.clone(),
             ids,
             order,
@@ -322,8 +422,8 @@ impl LowLevelConnection for RemoteDatabase {
         ids: Range<bonsaidb_core::document::DocumentId>,
         collection: &CollectionName,
     ) -> Result<u64, bonsaidb_core::Error> {
-        Ok(self.client.send_api_request(&Count {
-            database: self.name.to_string(),
+        Ok(self.0.client.send_blocking_api_request(&Count {
+            database: self.0.name.to_string(),
             collection: collection.clone(),
             ids,
         })?)
@@ -333,8 +433,8 @@ impl LowLevelConnection for RemoteDatabase {
         &self,
         collection: CollectionName,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.send_api_request(&CompactCollection {
-            database: self.name.to_string(),
+        self.0.send_blocking_api_request(&CompactCollection {
+            database: self.0.name.to_string(),
             name: collection,
         })?;
         Ok(())
@@ -348,8 +448,8 @@ impl LowLevelConnection for RemoteDatabase {
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<map::Serialized>, bonsaidb_core::Error> {
-        Ok(self.client.send_api_request(&Query {
-            database: self.name.to_string(),
+        Ok(self.0.client.send_blocking_api_request(&Query {
+            database: self.0.name.to_string(),
             view: view.clone(),
             key,
             order,
@@ -367,14 +467,17 @@ impl LowLevelConnection for RemoteDatabase {
         access_policy: AccessPolicy,
     ) -> Result<bonsaidb_core::schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error>
     {
-        Ok(self.client.send_api_request(&QueryWithDocs(Query {
-            database: self.name.to_string(),
-            view: view.clone(),
-            key,
-            order,
-            limit,
-            access_policy,
-        }))?)
+        Ok(self
+            .0
+            .client
+            .send_blocking_api_request(&QueryWithDocs(Query {
+                database: self.0.name.to_string(),
+                view: view.clone(),
+                key,
+                order,
+                limit,
+                access_policy,
+            }))?)
     }
 
     fn reduce_by_name(
@@ -384,9 +487,10 @@ impl LowLevelConnection for RemoteDatabase {
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, bonsaidb_core::Error> {
         Ok(self
+            .0
             .client
-            .send_api_request(&Reduce {
-                database: self.name.to_string(),
+            .send_blocking_api_request(&Reduce {
+                database: self.0.name.to_string(),
                 view: view.clone(),
                 key,
                 access_policy,
@@ -401,12 +505,15 @@ impl LowLevelConnection for RemoteDatabase {
         access_policy: AccessPolicy,
     ) -> Result<Vec<bonsaidb_core::schema::view::map::MappedSerializedValue>, bonsaidb_core::Error>
     {
-        Ok(self.client.send_api_request(&ReduceGrouped(Reduce {
-            database: self.name.to_string(),
-            view: view.clone(),
-            key,
-            access_policy,
-        }))?)
+        Ok(self
+            .0
+            .client
+            .send_blocking_api_request(&ReduceGrouped(Reduce {
+                database: self.0.name.to_string(),
+                view: view.clone(),
+                key,
+                access_policy,
+            }))?)
     }
 
     fn delete_docs_by_name(
@@ -415,8 +522,8 @@ impl LowLevelConnection for RemoteDatabase {
         key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<u64, bonsaidb_core::Error> {
-        Ok(self.client.send_api_request(&DeleteDocs {
-            database: self.name.to_string(),
+        Ok(self.0.client.send_blocking_api_request(&DeleteDocs {
+            database: self.0.name.to_string(),
             view: view.clone(),
             key,
             access_policy,
@@ -424,28 +531,40 @@ impl LowLevelConnection for RemoteDatabase {
     }
 }
 
-impl PubSub for RemoteDatabase {
-    type Subscriber = RemoteSubscriber;
+impl HasSession for BlockingRemoteDatabase {
+    fn session(&self) -> Option<&bonsaidb_core::connection::Session> {
+        self.0.session()
+    }
+}
+
+impl HasSchema for BlockingRemoteDatabase {
+    fn schematic(&self) -> &bonsaidb_core::schema::Schematic {
+        self.0.schematic()
+    }
+}
+
+impl PubSub for BlockingRemoteDatabase {
+    type Subscriber = BlockingRemoteSubscriber;
 
     fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
-        let subscriber_id = self.client.send_api_request(&CreateSubscriber {
-            database: self.name.to_string(),
+        let subscriber_id = self.0.client.send_blocking_api_request(&CreateSubscriber {
+            database: self.0.name.to_string(),
         })?;
 
         let (sender, receiver) = flume::unbounded();
-        self.client.register_subscriber(subscriber_id, sender);
-        Ok(RemoteSubscriber {
-            client: self.client.clone(),
-            database: self.name.clone(),
+        self.0.client.register_subscriber(subscriber_id, sender);
+        Ok(BlockingRemoteSubscriber(AsyncRemoteSubscriber {
+            client: self.0.client.clone(),
+            database: self.0.name.clone(),
             id: subscriber_id,
             receiver: Receiver::new(receiver),
             tokio: None,
-        })
+        }))
     }
 
     fn publish_bytes(&self, topic: Vec<u8>, payload: Vec<u8>) -> Result<(), bonsaidb_core::Error> {
-        self.client.send_api_request(&Publish {
-            database: self.name.to_string(),
+        self.0.client.send_blocking_api_request(&Publish {
+            database: self.0.name.to_string(),
             topic: Bytes::from(topic),
             payload: Bytes::from(payload),
         })?;
@@ -458,8 +577,8 @@ impl PubSub for RemoteDatabase {
         payload: Vec<u8>,
     ) -> Result<(), bonsaidb_core::Error> {
         let topics = topics.into_iter().map(Bytes::from).collect();
-        self.client.send_api_request(&PublishToAll {
-            database: self.name.to_string(),
+        self.0.client.send_blocking_api_request(&PublishToAll {
+            database: self.0.name.to_string(),
             topics,
             payload: Bytes::from(payload),
         })?;
@@ -467,40 +586,48 @@ impl PubSub for RemoteDatabase {
     }
 }
 
-impl Subscriber for RemoteSubscriber {
+/// A remote PubSub [`Subscriber`] that blocks the current thread when
+/// performing requests.
+#[derive(Debug)]
+pub struct BlockingRemoteSubscriber(AsyncRemoteSubscriber);
+
+impl Subscriber for BlockingRemoteSubscriber {
     fn subscribe_to_bytes(&self, topic: Vec<u8>) -> Result<(), bonsaidb_core::Error> {
-        self.client.send_api_request(&SubscribeTo {
-            database: self.database.to_string(),
-            subscriber_id: self.id,
+        self.0.client.send_blocking_api_request(&SubscribeTo {
+            database: self.0.database.to_string(),
+            subscriber_id: self.0.id,
             topic: Bytes::from(topic),
         })?;
         Ok(())
     }
 
     fn unsubscribe_from_bytes(&self, topic: &[u8]) -> Result<(), bonsaidb_core::Error> {
-        self.client.send_api_request(&UnsubscribeFrom {
-            database: self.database.to_string(),
-            subscriber_id: self.id,
+        self.0.client.send_blocking_api_request(&UnsubscribeFrom {
+            database: self.0.database.to_string(),
+            subscriber_id: self.0.id,
             topic: Bytes::from(topic),
         })?;
         Ok(())
     }
 
     fn receiver(&self) -> &Receiver {
-        AsyncSubscriber::receiver(self)
+        AsyncSubscriber::receiver(&self.0)
     }
 }
 
-impl KeyValue for RemoteDatabase {
+impl KeyValue for BlockingRemoteDatabase {
     fn execute_key_operation(
         &self,
         op: bonsaidb_core::keyvalue::KeyOperation,
     ) -> Result<bonsaidb_core::keyvalue::Output, bonsaidb_core::Error> {
-        Ok(self.client.send_api_request(&ExecuteKeyOperation {
-            database: self.name.to_string(),
+        Ok(self
+            .0
+            .client
+            .send_blocking_api_request(&ExecuteKeyOperation {
+                database: self.0.name.to_string(),
 
-            op,
-        })?)
+                op,
+            })?)
     }
 }
 

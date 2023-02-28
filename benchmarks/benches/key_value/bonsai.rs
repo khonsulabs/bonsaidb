@@ -2,7 +2,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use bonsaidb::client::url::Url;
-use bonsaidb::client::{Client, RemoteDatabase};
+use bonsaidb::client::{AsyncClient, AsyncRemoteDatabase};
 use bonsaidb::core::connection::AsyncStorageConnection;
 use bonsaidb::core::keyvalue::AsyncKeyValue;
 use bonsaidb::local::config::{Builder, KeyValuePersistence, PersistenceThreshold};
@@ -161,7 +161,7 @@ async fn initialize_server(persist_changes: bool) -> Server {
 fn initialize_networked_server(
     runtime: &Runtime,
     persist_changes: bool,
-) -> (RemoteDatabase, RemoteDatabase) {
+) -> (AsyncRemoteDatabase, AsyncRemoteDatabase) {
     let server = runtime.block_on(initialize_server(persist_changes));
     let certificate = runtime
         .block_on(async { server.certificate_chain().await.unwrap() })
@@ -179,16 +179,16 @@ fn initialize_networked_server(
     let quic_database = runtime.block_on(async {
         // Allow the server time to start listening
         tokio::time::sleep(Duration::from_millis(1000)).await;
-        let client = Client::build(Url::parse("bonsaidb://localhost:7022").unwrap())
+        let client = AsyncClient::build(Url::parse("bonsaidb://localhost:7022").unwrap())
             .with_certificate(certificate)
-            .finish()
+            .build()
             .unwrap();
         client.database::<()>("key-value").await.unwrap()
     });
     let ws_database = runtime.block_on(async {
         // Allow the server time to start listening
-        let client = Client::build(Url::parse("ws://localhost:7023").unwrap())
-            .finish()
+        let client = AsyncClient::build(Url::parse("ws://localhost:7023").unwrap())
+            .build()
             .unwrap();
         client.database::<()>("key-value").await.unwrap()
     });

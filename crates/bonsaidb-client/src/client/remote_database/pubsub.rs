@@ -7,23 +7,23 @@ use bonsaidb_core::networking::{
 };
 use bonsaidb_core::pubsub::{AsyncPubSub, AsyncSubscriber, Receiver};
 
-use crate::Client;
+use crate::AsyncClient;
 
 #[async_trait]
-impl AsyncPubSub for super::RemoteDatabase {
-    type Subscriber = RemoteSubscriber;
+impl AsyncPubSub for super::AsyncRemoteDatabase {
+    type Subscriber = AsyncRemoteSubscriber;
 
     async fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
         let subscriber_id = self
             .client
-            .send_api_request_async(&CreateSubscriber {
+            .send_api_request(&CreateSubscriber {
                 database: self.name.to_string(),
             })
             .await?;
 
         let (sender, receiver) = flume::unbounded();
         self.client.register_subscriber(subscriber_id, sender);
-        Ok(RemoteSubscriber {
+        Ok(AsyncRemoteSubscriber {
             client: self.client.clone(),
             database: self.name.clone(),
             id: subscriber_id,
@@ -39,7 +39,7 @@ impl AsyncPubSub for super::RemoteDatabase {
         payload: Vec<u8>,
     ) -> Result<(), bonsaidb_core::Error> {
         self.client
-            .send_api_request_async(&Publish {
+            .send_api_request(&Publish {
                 database: self.name.to_string(),
                 topic: Bytes::from(topic),
                 payload: Bytes::from(payload),
@@ -55,7 +55,7 @@ impl AsyncPubSub for super::RemoteDatabase {
     ) -> Result<(), bonsaidb_core::Error> {
         let topics = topics.into_iter().map(Bytes::from).collect();
         self.client
-            .send_api_request_async(&PublishToAll {
+            .send_api_request(&PublishToAll {
                 database: self.name.to_string(),
                 topics,
                 payload: Bytes::from(payload),
@@ -67,8 +67,8 @@ impl AsyncPubSub for super::RemoteDatabase {
 
 /// A `PubSub` subscriber from a remote server.
 #[derive(Debug)]
-pub struct RemoteSubscriber {
-    pub(crate) client: Client,
+pub struct AsyncRemoteSubscriber {
+    pub(crate) client: AsyncClient,
     pub(crate) database: Arc<String>,
     pub(crate) id: u64,
     pub(crate) receiver: Receiver,
@@ -77,10 +77,10 @@ pub struct RemoteSubscriber {
 }
 
 #[async_trait]
-impl AsyncSubscriber for RemoteSubscriber {
+impl AsyncSubscriber for AsyncRemoteSubscriber {
     async fn subscribe_to_bytes(&self, topic: Vec<u8>) -> Result<(), bonsaidb_core::Error> {
         self.client
-            .send_api_request_async(&SubscribeTo {
+            .send_api_request(&SubscribeTo {
                 database: self.database.to_string(),
                 subscriber_id: self.id,
                 topic: Bytes::from(topic),
@@ -91,7 +91,7 @@ impl AsyncSubscriber for RemoteSubscriber {
 
     async fn unsubscribe_from_bytes(&self, topic: &[u8]) -> Result<(), bonsaidb_core::Error> {
         self.client
-            .send_api_request_async(&UnsubscribeFrom {
+            .send_api_request(&UnsubscribeFrom {
                 database: self.database.to_string(),
                 subscriber_id: self.id,
                 topic: Bytes::from(topic),
@@ -106,7 +106,7 @@ impl AsyncSubscriber for RemoteSubscriber {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl Drop for RemoteSubscriber {
+impl Drop for AsyncRemoteSubscriber {
     fn drop(&mut self) {
         let client = self.client.clone();
         let database = self.database.to_string();
@@ -121,7 +121,7 @@ impl Drop for RemoteSubscriber {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl Drop for RemoteSubscriber {
+impl Drop for AsyncRemoteSubscriber {
     fn drop(&mut self) {
         if let Some(tokio) = &self.tokio {
             let client = self.client.clone();

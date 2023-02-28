@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use bonsaidb::client::url::Url;
-use bonsaidb::client::{Client, RemoteDatabase};
+use bonsaidb::client::{AsyncClient, AsyncRemoteDatabase};
 use bonsaidb::core::actionable::Permissions;
 use bonsaidb::core::admin::{Admin, PermissionGroup, ADMIN_DATABASE_NAME};
 use bonsaidb::core::circulate::flume;
@@ -72,14 +72,15 @@ fn run_shared_server(certificate_sender: flume::Sender<Certificate>) -> anyhow::
 
 #[cfg(feature = "websockets")]
 mod websockets {
+    use bonsaidb_client::{BlockingClient, BlockingRemoteDatabase};
     use tokio::runtime::Runtime;
 
     use super::*;
 
     struct WebsocketTestHarness {
-        client: Client,
+        client: AsyncClient,
         url: Url,
-        db: RemoteDatabase,
+        db: AsyncRemoteDatabase,
     }
 
     impl WebsocketTestHarness {
@@ -88,7 +89,7 @@ mod websockets {
 
             initialize_shared_server().await;
             let url = Url::parse("ws://localhost:6001")?;
-            let client = Client::new(url.clone())?;
+            let client = AsyncClient::new(url.clone())?;
 
             let dbname = format!("websockets-{test}");
             client
@@ -103,11 +104,11 @@ mod websockets {
             "websocket"
         }
 
-        pub fn server(&self) -> &Client {
+        pub fn server(&self) -> &AsyncClient {
             &self.client
         }
 
-        pub async fn connect(&self) -> anyhow::Result<RemoteDatabase> {
+        pub async fn connect(&self) -> anyhow::Result<AsyncRemoteDatabase> {
             Ok(self.db.clone())
         }
 
@@ -116,8 +117,8 @@ mod websockets {
             &self,
             permissions: Vec<Statement>,
             label: &str,
-        ) -> anyhow::Result<RemoteDatabase> {
-            let client = Client::new(self.url.clone())?;
+        ) -> anyhow::Result<AsyncRemoteDatabase> {
+            let client = AsyncClient::new(self.url.clone())?;
             assume_permissions(client, label, self.db.name(), permissions).await
         }
 
@@ -132,9 +133,9 @@ mod websockets {
     bonsaidb_core::define_async_kv_test_suite!(WebsocketTestHarness);
 
     struct BlockingWebsocketTestHarness {
-        client: Client,
+        client: BlockingClient,
         // url: Url,
-        db: RemoteDatabase,
+        db: BlockingRemoteDatabase,
     }
 
     impl BlockingWebsocketTestHarness {
@@ -143,7 +144,7 @@ mod websockets {
             let runtime = Runtime::new()?;
             runtime.block_on(initialize_shared_server());
             let url = Url::parse("ws://localhost:6001")?;
-            let client = Client::new(url)?;
+            let client = BlockingClient::new(url)?;
 
             let dbname = format!("blocking-websockets-{test}");
             client.create_database::<BasicSchema>(&dbname, false)?;
@@ -156,11 +157,11 @@ mod websockets {
             "websocket-blocking"
         }
 
-        pub fn server(&self) -> &Client {
+        pub fn server(&self) -> &BlockingClient {
             &self.client
         }
 
-        pub fn connect(&self) -> anyhow::Result<RemoteDatabase> {
+        pub fn connect(&self) -> anyhow::Result<BlockingRemoteDatabase> {
             Ok(self.db.clone())
         }
 
@@ -184,10 +185,10 @@ mod websockets {
         let certificate = initialize_shared_server().await;
 
         let url = Url::parse("ws://localhost:6001")?;
-        let client = Client::build(url.clone())
+        let client = AsyncClient::build(url.clone())
             .with_certificate(certificate.clone())
             .with_protocol_version(INCOMPATIBLE_PROTOCOL_VERSION)
-            .finish()?;
+            .build()?;
 
         check_incompatible_client(client).await
     }
@@ -201,10 +202,10 @@ mod websockets {
 mod bonsai {
     use super::*;
     struct BonsaiTestHarness {
-        client: Client,
+        client: AsyncClient,
         url: Url,
         certificate: Certificate,
-        db: RemoteDatabase,
+        db: AsyncRemoteDatabase,
     }
 
     impl BonsaiTestHarness {
@@ -215,9 +216,9 @@ mod bonsai {
             let url = Url::parse(&format!(
                 "bonsaidb://localhost:6000?server={BASIC_SERVER_NAME}"
             ))?;
-            let client = Client::build(url.clone())
+            let client = AsyncClient::build(url.clone())
                 .with_certificate(certificate.clone())
-                .finish()?;
+                .build()?;
 
             let dbname = format!("bonsai-{test}");
             client
@@ -237,11 +238,11 @@ mod bonsai {
             "bonsai"
         }
 
-        pub fn server(&self) -> &'_ Client {
+        pub fn server(&self) -> &'_ AsyncClient {
             &self.client
         }
 
-        pub async fn connect(&self) -> anyhow::Result<RemoteDatabase> {
+        pub async fn connect(&self) -> anyhow::Result<AsyncRemoteDatabase> {
             Ok(self.db.clone())
         }
 
@@ -250,10 +251,10 @@ mod bonsai {
             &self,
             statements: Vec<Statement>,
             label: &str,
-        ) -> anyhow::Result<RemoteDatabase> {
-            let client = Client::build(self.url.clone())
+        ) -> anyhow::Result<AsyncRemoteDatabase> {
+            let client = AsyncClient::build(self.url.clone())
                 .with_certificate(self.certificate.clone())
-                .finish()?;
+                .build()?;
             assume_permissions(client, label, self.db.name(), statements).await
         }
 
@@ -269,10 +270,10 @@ mod bonsai {
         let url = Url::parse(&format!(
             "bonsaidb://localhost:6000?server={BASIC_SERVER_NAME}",
         ))?;
-        let client = Client::build(url.clone())
+        let client = AsyncClient::build(url.clone())
             .with_certificate(certificate.clone())
             .with_protocol_version(INCOMPATIBLE_PROTOCOL_VERSION)
-            .finish()?;
+            .build()?;
 
         check_incompatible_client(client).await
     }
@@ -282,7 +283,7 @@ mod bonsai {
     bonsaidb_core::define_async_kv_test_suite!(BonsaiTestHarness);
 }
 
-async fn check_incompatible_client(client: Client) -> anyhow::Result<()> {
+async fn check_incompatible_client(client: AsyncClient) -> anyhow::Result<()> {
     use bonsaidb_core::connection::AsyncStorageConnection;
     match client
         .database::<()>("a database")
@@ -307,11 +308,11 @@ async fn check_incompatible_client(client: Client) -> anyhow::Result<()> {
 
 #[allow(dead_code)] // We will want this in the future but it's currently unused
 async fn assume_permissions(
-    connection: Client,
+    connection: AsyncClient,
     label: &str,
     database_name: &str,
     statements: Vec<Statement>,
-) -> anyhow::Result<RemoteDatabase> {
+) -> anyhow::Result<AsyncRemoteDatabase> {
     use bonsaidb_core::connection::AsyncStorageConnection;
     let username = format!("{database_name}-{label}");
     let password = SensitiveString(
@@ -400,7 +401,9 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     let url = Url::parse("bonsaidb://localhost:6002")?;
-    let client = Client::build(url).with_certificate(certificate).finish()?;
+    let client = AsyncClient::build(url)
+        .with_certificate(certificate)
+        .build()?;
     match client.create_user("otheruser").await {
         Err(bonsaidb_core::Error::PermissionDenied(_)) => {}
         other => unreachable!(

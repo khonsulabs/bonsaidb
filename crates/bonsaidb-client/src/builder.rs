@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use bonsaidb_core::api;
@@ -11,11 +12,14 @@ use tokio::runtime::Handle;
 use url::Url;
 
 use crate::client::{AnyApiCallback, ApiCallback};
-use crate::{Client, Error};
+use crate::{AsyncClient, BlockingClient, Error};
+
+pub struct Async;
+pub struct Blocking;
 
 /// Builds a new [`Client`] with custom settings.
 #[must_use]
-pub struct Builder {
+pub struct Builder<AsyncMode> {
     url: Url,
     protocol_version: &'static str,
     custom_apis: HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
@@ -23,9 +27,10 @@ pub struct Builder {
     certificate: Option<fabruic::Certificate>,
     #[cfg(not(target_arch = "wasm32"))]
     tokio: Option<Handle>,
+    mode: PhantomData<AsyncMode>,
 }
 
-impl Builder {
+impl<AsyncMode> Builder<AsyncMode> {
     /// Creates a new builder for a client connecting to `url`.
     pub(crate) fn new(url: Url) -> Self {
         Self {
@@ -35,7 +40,8 @@ impl Builder {
             #[cfg(not(target_arch = "wasm32"))]
             certificate: None,
             #[cfg(not(target_arch = "wasm32"))]
-            tokio: Handle::try_current().ok(),
+            tokio: None,
+            mode: PhantomData,
         }
     }
 
@@ -81,16 +87,29 @@ impl Builder {
         self
     }
 
-    /// Finishes building the client.
-    pub fn finish(self) -> Result<Client, Error> {
-        Client::new_from_parts(
+    fn finish_internal(self) -> Result<AsyncClient, Error> {
+        AsyncClient::new_from_parts(
             self.url,
             self.protocol_version,
             self.custom_apis,
             #[cfg(not(target_arch = "wasm32"))]
             self.certificate,
             #[cfg(not(target_arch = "wasm32"))]
-            self.tokio,
+            self.tokio.or_else(|| Handle::try_current().ok()),
         )
+    }
+}
+
+impl Builder<Blocking> {
+    /// Finishes building the client for use in a blocking (not async) context.
+    pub fn build(self) -> Result<BlockingClient, Error> {
+        self.finish_internal().map(BlockingClient)
+    }
+}
+
+impl Builder<Async> {
+    /// Finishes building the client for use in a tokio async context.
+    pub fn build(self) -> Result<AsyncClient, Error> {
+        self.finish_internal()
     }
 }

@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use bonsaidb::client::url::Url;
-use bonsaidb::client::Client;
+use bonsaidb::client::AsyncClient;
 use bonsaidb::core::connection::{AsyncConnection, AsyncStorageConnection};
 use bonsaidb::core::schema::{SerializedCollection, SerializedView};
 use bonsaidb::local::config::Builder;
@@ -60,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
     {
         // To connect over websockets, use the websocket scheme.
         tasks.push(do_some_database_work(
-            Client::new(Url::parse("ws://localhost:8080")?)?
+            AsyncClient::new(Url::parse("ws://localhost:8080")?)?
                 .database::<Shape>("my-database")
                 .await?,
             "websockets",
@@ -69,9 +69,9 @@ async fn main() -> anyhow::Result<()> {
 
     // To connect over QUIC, use the bonsaidb scheme.
     tasks.push(do_some_database_work(
-        Client::build(Url::parse("bonsaidb://localhost")?)
+        AsyncClient::build(Url::parse("bonsaidb://localhost")?)
             .with_certificate(certificate)
-            .finish()?
+            .build()?
             .database::<Shape>("my-database")
             .await?,
         "bonsaidb",

@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use std::path::PathBuf;
 
 use bonsaidb_client::fabruic::Certificate;
-use bonsaidb_client::Client;
+use bonsaidb_client::AsyncClient;
 use bonsaidb_core::async_trait::async_trait;
 #[cfg(any(feature = "password-hashing", feature = "token-authentication"))]
 use bonsaidb_core::connection::AsyncStorageConnection;
@@ -55,13 +55,13 @@ where
             other => {
                 let connection = if let Some(server_url) = server_url {
                     // TODO how does custom API handling work here?
-                    let mut client = Client::build(server_url);
+                    let mut client = AsyncClient::build(server_url);
 
                     if let Some(certificate) = pinned_certificate {
                         client = client.with_certificate(certificate);
                     }
 
-                    AnyServerConnection::Networked(client.finish()?)
+                    AnyServerConnection::Networked(client.build()?)
                 } else {
                     AnyServerConnection::Local(cli.open_server().await?)
                 };

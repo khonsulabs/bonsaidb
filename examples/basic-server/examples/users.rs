@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use bonsaidb::client::url::Url;
-use bonsaidb::client::Client;
+use bonsaidb::client::AsyncClient;
 use bonsaidb::core::admin::{PermissionGroup, Role};
 use bonsaidb::core::connection::{
     AsyncStorageConnection, Authentication, AuthenticationMethod, SensitiveString,
@@ -159,14 +159,14 @@ async fn main() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     {
-        let client = Client::build(Url::parse("bonsaidb://localhost")?)
+        let client = AsyncClient::build(Url::parse("bonsaidb://localhost")?)
             .with_certificate(
                 server
                     .certificate_chain()
                     .await?
                     .into_end_entity_certificate(),
             )
-            .finish()?;
+            .build()?;
         let db = client.database::<Shape>("my-database").await?;
 
         // Before authenticating, inserting a shape shouldn't work.

@@ -2,7 +2,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use bonsaidb::client::url::Url;
-use bonsaidb::client::Client;
+use bonsaidb::client::AsyncClient;
 use bonsaidb::core::async_trait::async_trait;
 use bonsaidb::core::connection::{
     AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
@@ -130,7 +130,7 @@ impl Backend for BonsaiBackend {
             }
 
             Bonsai::Quic => {
-                let client = Client::build(Url::parse("bonsaidb://localhost:7022").unwrap())
+                let client = AsyncClient::build(Url::parse("bonsaidb://localhost:7022").unwrap())
                     .with_certificate(
                         self.server
                             .certificate_chain()
@@ -138,13 +138,13 @@ impl Backend for BonsaiBackend {
                             .unwrap()
                             .into_end_entity_certificate(),
                     )
-                    .finish()
+                    .build()
                     .unwrap();
                 AnyDatabase::Networked(client.database::<Commerce>("commerce").await.unwrap())
             }
             Bonsai::WebSockets => {
-                let client = Client::build(Url::parse("ws://localhost:7023").unwrap())
-                    .finish()
+                let client = AsyncClient::build(Url::parse("ws://localhost:7023").unwrap())
+                    .build()
                     .unwrap();
                 AnyDatabase::Networked(client.database::<Commerce>("commerce").await.unwrap())
             }

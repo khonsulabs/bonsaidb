@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
         // easily be done by just using `server` instead. However, this is to
         // demonstrate that websocket connections work in this example.
         let client =
-            bonsaidb::client::Client::build(Url::parse("ws://localhost:8080/ws")?).finish()?;
+            bonsaidb::client::AsyncClient::build(Url::parse("ws://localhost:8080/ws")?).build()?;
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(1)).await;

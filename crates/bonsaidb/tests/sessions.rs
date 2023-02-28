@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bonsaidb::client::url::Url;
-use bonsaidb::client::Client;
+use bonsaidb::client::AsyncClient;
 use bonsaidb::core::test_util::{Basic, TestDirectory};
 use bonsaidb::local::config::Builder;
 use bonsaidb::server::{DefaultPermissions, Server, ServerConfiguration};
@@ -108,9 +108,9 @@ where
         }
     });
 
-    let client = Client::build(Url::parse(connect_addr)?)
+    let client = AsyncClient::build(Url::parse(connect_addr)?)
         .with_certificate(certificate.clone())
-        .finish()?;
+        .build()?;
 
     println!("Authenticating.");
     let authenticated = client

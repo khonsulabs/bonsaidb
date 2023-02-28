@@ -3,14 +3,14 @@ use bonsaidb_core::keyvalue::AsyncKeyValue;
 use bonsaidb_core::networking::ExecuteKeyOperation;
 
 #[async_trait]
-impl AsyncKeyValue for super::RemoteDatabase {
+impl AsyncKeyValue for super::AsyncRemoteDatabase {
     async fn execute_key_operation(
         &self,
         op: bonsaidb_core::keyvalue::KeyOperation,
     ) -> Result<bonsaidb_core::keyvalue::Output, bonsaidb_core::Error> {
         Ok(self
             .client
-            .send_api_request_async(&ExecuteKeyOperation {
+            .send_api_request(&ExecuteKeyOperation {
                 database: self.name.to_string(),
 
                 op,

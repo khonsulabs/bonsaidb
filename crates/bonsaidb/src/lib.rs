@@ -54,9 +54,9 @@ fn struct_sizes() {
     }
     #[cfg(feature = "client")]
     {
-        print_size::<client::Client>();
-        print_size::<client::RemoteDatabase>();
-        print_size::<client::RemoteSubscriber>();
+        print_size::<client::AsyncClient>();
+        print_size::<client::AsyncRemoteDatabase>();
+        print_size::<client::AsyncRemoteSubscriber>();
     }
     #[cfg(feature = "local")]
     {

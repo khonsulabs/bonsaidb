@@ -1,7 +1,7 @@
 //! Tests invoking an API defined in a custom backend.
 
 use bonsaidb::client::url::Url;
-use bonsaidb::client::Client;
+use bonsaidb::client::AsyncClient;
 use bonsaidb::core::api::{Api, Infallible};
 use bonsaidb::core::async_trait::async_trait;
 use bonsaidb::core::test_util::{Basic, TestDirectory};
@@ -38,18 +38,14 @@ async fn custom_api() -> anyhow::Result<()> {
         .into_end_entity_certificate();
     tokio::spawn(async move { server.listen_on(12346).await });
 
-    let client = Client::build(Url::parse("bonsaidb://localhost:12346")?)
+    let client = AsyncClient::build(Url::parse("bonsaidb://localhost:12346")?)
         .with_api::<SetValue>()
         .with_certificate(certificate)
-        .finish()?;
+        .build()?;
 
-    let old_value = client
-        .send_api_request_async(&SetValue { new_value: 1 })
-        .await?;
+    let old_value = client.send_api_request(&SetValue { new_value: 1 }).await?;
     assert_eq!(old_value, None);
-    let old_value = client
-        .send_api_request_async(&SetValue { new_value: 2 })
-        .await?;
+    let old_value = client.send_api_request(&SetValue { new_value: 2 }).await?;
     assert_eq!(old_value, Some(1));
 
     Ok(())

@@ -31,7 +31,9 @@ use parking_lot::Mutex;
 use tokio::{runtime::Handle, task::JoinHandle};
 use url::Url;
 
-pub use self::remote_database::{RemoteDatabase, RemoteSubscriber};
+pub use self::remote_database::{AsyncRemoteDatabase, AsyncRemoteSubscriber};
+pub use self::sync::{BlockingClient, BlockingRemoteDatabase, BlockingRemoteSubscriber};
+use crate::builder::Async;
 use crate::error::Error;
 use crate::{ApiError, Builder};
 
@@ -102,9 +104,9 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// ### With a valid TLS certificate
 ///
 /// ```rust
-/// # use bonsaidb_client::{Client, fabruic::Certificate, url::Url};
+/// # use bonsaidb_client::{AsyncClient, fabruic::Certificate, url::Url};
 /// # async fn test_fn() -> anyhow::Result<()> {
-/// let client = Client::build(Url::parse("bonsaidb://my-server.com")?).finish()?;
+/// let client = AsyncClient::build(Url::parse("bonsaidb://my-server.com")?).build()?;
 /// # Ok(())
 /// # }
 /// ```
@@ -116,13 +118,13 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// specified when building the client:
 ///
 /// ```rust
-/// # use bonsaidb_client::{Client, fabruic::Certificate, url::Url};
+/// # use bonsaidb_client::{AsyncClient, fabruic::Certificate, url::Url};
 /// # async fn test_fn() -> anyhow::Result<()> {
 /// let certificate =
 ///     Certificate::from_der(std::fs::read("mydb.bonsaidb/pinned-certificate.der")?)?;
-/// let client = Client::build(Url::parse("bonsaidb://localhost")?)
+/// let client = AsyncClient::build(Url::parse("bonsaidb://localhost")?)
 ///     .with_certificate(certificate)
-///     .finish()?;
+///     .build()?;
 /// # Ok(())
 /// # }
 /// ```
@@ -138,9 +140,9 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// ### Without TLS
 ///
 /// ```rust
-/// # use bonsaidb_client::{Client, fabruic::Certificate, url::Url};
+/// # use bonsaidb_client::{AsyncClient, fabruic::Certificate, url::Url};
 /// # async fn test_fn() -> anyhow::Result<()> {
-/// let client = Client::build(Url::parse("ws://localhost")?).finish()?;
+/// let client = AsyncClient::build(Url::parse("ws://localhost")?).build()?;
 /// # Ok(())
 /// # }
 /// ```
@@ -148,9 +150,9 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// ### With TLS
 ///
 /// ```rust
-/// # use bonsaidb_client::{Client, fabruic::Certificate, url::Url};
+/// # use bonsaidb_client::{AsyncClient, fabruic::Certificate, url::Url};
 /// # async fn test_fn() -> anyhow::Result<()> {
-/// let client = Client::build(Url::parse("wss://my-server.com")?).finish()?;
+/// let client = AsyncClient::build(Url::parse("wss://my-server.com")?).build()?;
 /// # Ok(())
 /// # }
 /// ```
@@ -162,7 +164,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// an [`Api`](api::Api).
 ///
 /// ```rust
-/// # use bonsaidb_client::{Client, fabruic::Certificate, url::Url};
+/// # use bonsaidb_client::{AsyncClient, fabruic::Certificate, url::Url};
 /// // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_client::core`.
 /// use bonsaidb_core::api::{Api, ApiName, Infallible};
 /// use bonsaidb_core::schema::Qualified;
@@ -184,8 +186,8 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// }
 ///
 /// # async fn test_fn() -> anyhow::Result<()> {
-/// let client = Client::build(Url::parse("bonsaidb://localhost")?).finish()?;
-/// let Pong = client.send_api_request_async(&Ping).await?;
+/// let client = AsyncClient::build(Url::parse("bonsaidb://localhost")?).build()?;
+/// let Pong = client.send_api_request(&Ping).await?;
 /// # Ok(())
 /// # }
 /// ```
@@ -196,7 +198,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// client will invoke it's [api callback](Builder::with_api_callback):
 ///
 /// ```rust
-/// # use bonsaidb_client::{Client, ApiCallback, fabruic::Certificate, url::Url};
+/// # use bonsaidb_client::{AsyncClient, ApiCallback, fabruic::Certificate, url::Url};
 /// # // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_client::core`.
 /// # use bonsaidb_core::{api::{Api, Infallible, ApiName}, schema::{Qualified}};
 /// # use serde::{Serialize, Deserialize};
@@ -213,32 +215,32 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// #     }
 /// # }
 /// # async fn test_fn() -> anyhow::Result<()> {
-/// let client = Client::build(Url::parse("bonsaidb://localhost")?)
+/// let client = AsyncClient::build(Url::parse("bonsaidb://localhost")?)
 ///     .with_api_callback(ApiCallback::<Ping>::new(|result: Pong| async move {
 ///         println!("Received out-of-band Pong");
 ///     }))
-///     .finish()?;
+///     .build()?;
 /// # Ok(())
 /// # }
 /// ```
 #[derive(Debug, Clone)]
-pub struct Client {
+pub struct AsyncClient {
     pub(crate) data: Arc<Data>,
     session: ClientSession,
 }
 
-impl Drop for Client {
+impl Drop for AsyncClient {
     fn drop(&mut self) {
         if self.session_is_current() && Arc::strong_count(&self.session.session) == 1 {
             if let Some(session_id) = self.session.session.id {
                 // Final reference to an authenticated session
-                drop(self.invoke_api_request(&LogOutSession(session_id)));
+                drop(self.invoke_blocking_api_request(&LogOutSession(session_id)));
             }
         }
     }
 }
 
-impl PartialEq for Client {
+impl PartialEq for AsyncClient {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.data, &other.data)
     }
@@ -258,14 +260,12 @@ pub struct Data {
     background_task_running: Arc<AtomicBool>,
 }
 
-impl Client {
+impl AsyncClient {
     /// Returns a builder for a new client connecting to `url`.
-    pub fn build(url: Url) -> Builder {
+    pub fn build(url: Url) -> Builder<Async> {
         Builder::new(url)
     }
-}
 
-impl Client {
     /// Initialize a client connecting to `url`. This client can be shared by
     /// cloning it. All requests are done asynchronously over the same
     /// connection.
@@ -533,7 +533,7 @@ impl Client {
     }
 
     /// Sends an api `request`.
-    pub async fn send_api_request_async<Api: api::Api>(
+    pub async fn send_api_request<Api: api::Api>(
         &self,
         request: &Api,
     ) -> Result<Api::Response, ApiError<Api::Error>> {
@@ -544,16 +544,8 @@ impl Client {
         response.map_err(ApiError::Api)
     }
 
-    /// Sends an api `request` without waiting for a result. The response from
-    /// the server will be ignored.
-    pub fn invoke_api_request<Api: api::Api>(&self, request: &Api) -> Result<(), Error> {
-        let request = Bytes::from(pot::to_vec(request).map_err(Error::from)?);
-        self.send_request_without_confirmation(Api::name(), request)
-            .map(|_| ())
-    }
-
     /// Sends an api `request`.
-    pub fn send_api_request<Api: api::Api>(
+    fn send_blocking_api_request<Api: api::Api>(
         &self,
         request: &Api,
     ) -> Result<Api::Response, ApiError<Api::Error>> {
@@ -563,6 +555,12 @@ impl Client {
         let response =
             pot::from_slice::<Result<Api::Response, Api::Error>>(&response).map_err(Error::from)?;
         response.map_err(ApiError::Api)
+    }
+
+    fn invoke_blocking_api_request<Api: api::Api>(&self, request: &Api) -> Result<(), Error> {
+        let request = Bytes::from(pot::to_vec(request).map_err(Error::from)?);
+        self.send_request_without_confirmation(Api::name(), request)
+            .map(|_| ())
     }
 
     /// Returns the current effective permissions for the client. Returns None
@@ -587,7 +585,7 @@ impl Client {
 
     pub(crate) async fn unregister_subscriber_async(&self, database: String, id: u64) {
         drop(
-            self.send_api_request_async(&UnregisterSubscriber {
+            self.send_api_request(&UnregisterSubscriber {
                 database,
                 subscriber_id: id,
             })
@@ -599,7 +597,7 @@ impl Client {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn unregister_subscriber(&self, database: String, id: u64) {
-        drop(self.send_api_request(&UnregisterSubscriber {
+        drop(self.send_blocking_api_request(&UnregisterSubscriber {
             database,
             subscriber_id: id,
         }));
@@ -610,7 +608,7 @@ impl Client {
     fn remote_database<DB: bonsaidb_core::schema::Schema>(
         &self,
         name: &str,
-    ) -> Result<RemoteDatabase, bonsaidb_core::Error> {
+    ) -> Result<AsyncRemoteDatabase, bonsaidb_core::Error> {
         let mut schemas = self.data.schemas.lock();
         let type_id = TypeId::of::<DB>();
         let schematic = if let Some(schematic) = schemas.get(&type_id) {
@@ -620,7 +618,7 @@ impl Client {
             schemas.insert(type_id, schematic.clone());
             schematic
         };
-        Ok(RemoteDatabase::new(
+        Ok(AsyncRemoteDatabase::new(
             self.clone(),
             name.to_string(),
             schematic,
@@ -633,16 +631,16 @@ impl Client {
     }
 }
 
-impl HasSession for Client {
+impl HasSession for AsyncClient {
     fn session(&self) -> Option<&Session> {
         self.session_is_current().then_some(&self.session.session)
     }
 }
 
 #[async_trait]
-impl AsyncStorageConnection for Client {
+impl AsyncStorageConnection for AsyncClient {
     type Authenticated = Self;
-    type Database = RemoteDatabase;
+    type Database = AsyncRemoteDatabase;
 
     async fn admin(&self) -> Self::Database {
         self.remote_database::<Admin>(ADMIN_DATABASE_NAME).unwrap()
@@ -654,7 +652,7 @@ impl AsyncStorageConnection for Client {
         schema: SchemaName,
         only_if_needed: bool,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.send_api_request_async(&CreateDatabase {
+        self.send_api_request(&CreateDatabase {
             database: Database {
                 name: name.to_string(),
                 schema,
@@ -673,7 +671,7 @@ impl AsyncStorageConnection for Client {
     }
 
     async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
-        self.send_api_request_async(&DeleteDatabase {
+        self.send_api_request(&DeleteDatabase {
             name: name.to_string(),
         })
         .await?;
@@ -681,16 +679,16 @@ impl AsyncStorageConnection for Client {
     }
 
     async fn list_databases(&self) -> Result<Vec<Database>, bonsaidb_core::Error> {
-        Ok(self.send_api_request_async(&ListDatabases).await?)
+        Ok(self.send_api_request(&ListDatabases).await?)
     }
 
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
-        Ok(self.send_api_request_async(&ListAvailableSchemas).await?)
+        Ok(self.send_api_request(&ListAvailableSchemas).await?)
     }
 
     async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
         Ok(self
-            .send_api_request_async(&CreateUser {
+            .send_api_request(&CreateUser {
                 username: username.to_string(),
             })
             .await?)
@@ -701,7 +699,7 @@ impl AsyncStorageConnection for Client {
         user: U,
     ) -> Result<(), bonsaidb_core::Error> {
         Ok(self
-            .send_api_request_async(&DeleteUser {
+            .send_api_request(&DeleteUser {
                 user: user.name()?.into_owned(),
             })
             .await?)
@@ -714,7 +712,7 @@ impl AsyncStorageConnection for Client {
         password: bonsaidb_core::connection::SensitiveString,
     ) -> Result<(), bonsaidb_core::Error> {
         Ok(self
-            .send_api_request_async(&bonsaidb_core::networking::SetUserPassword {
+            .send_api_request(&bonsaidb_core::networking::SetUserPassword {
                 user: user.name()?.into_owned(),
                 password,
             })
@@ -727,7 +725,7 @@ impl AsyncStorageConnection for Client {
         authentication: bonsaidb_core::connection::Authentication,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         let session = self
-            .send_api_request_async(&bonsaidb_core::networking::Authenticate { authentication })
+            .send_api_request(&bonsaidb_core::networking::Authenticate { authentication })
             .await?;
         Ok(Self {
             data: self.data.clone(),
@@ -743,7 +741,7 @@ impl AsyncStorageConnection for Client {
         identity: IdentityReference<'_>,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         let session = self
-            .send_api_request_async(&AssumeIdentity(identity.into_owned()))
+            .send_api_request(&AssumeIdentity(identity.into_owned()))
             .await?;
         Ok(Self {
             data: self.data.clone(),
@@ -764,7 +762,7 @@ impl AsyncStorageConnection for Client {
         user: U,
         permission_group: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.send_api_request_async(&AlterUserPermissionGroupMembership {
+        self.send_api_request(&AlterUserPermissionGroupMembership {
             user: user.name()?.into_owned(),
             group: permission_group.name()?.into_owned(),
             should_be_member: true,
@@ -783,7 +781,7 @@ impl AsyncStorageConnection for Client {
         user: U,
         permission_group: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.send_api_request_async(&AlterUserPermissionGroupMembership {
+        self.send_api_request(&AlterUserPermissionGroupMembership {
             user: user.name()?.into_owned(),
             group: permission_group.name()?.into_owned(),
             should_be_member: false,
@@ -802,7 +800,7 @@ impl AsyncStorageConnection for Client {
         user: U,
         role: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.send_api_request_async(&AlterUserRoleMembership {
+        self.send_api_request(&AlterUserRoleMembership {
             user: user.name()?.into_owned(),
             role: role.name()?.into_owned(),
             should_be_member: true,
@@ -821,7 +819,7 @@ impl AsyncStorageConnection for Client {
         user: U,
         role: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.send_api_request_async(&AlterUserRoleMembership {
+        self.send_api_request(&AlterUserRoleMembership {
             user: user.name()?.into_owned(),
             role: role.name()?.into_owned(),
             should_be_member: false,

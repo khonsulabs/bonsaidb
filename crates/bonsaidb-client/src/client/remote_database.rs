@@ -16,7 +16,7 @@ use bonsaidb_core::schema::view::map::MappedSerializedValue;
 use bonsaidb_core::schema::{self, CollectionName, Schematic, ViewName};
 use bonsaidb_core::transaction::{Executed, OperationResult, Transaction};
 
-use crate::Client;
+use crate::AsyncClient;
 
 mod pubsub;
 pub use pubsub::*;
@@ -25,12 +25,12 @@ mod keyvalue;
 
 /// A database on a remote server.
 #[derive(Debug, Clone)]
-pub struct RemoteDatabase {
-    pub(crate) client: Client,
+pub struct AsyncRemoteDatabase {
+    pub(crate) client: AsyncClient,
     pub(crate) name: Arc<String>,
     pub(crate) schema: Arc<Schematic>,
 }
-impl RemoteDatabase {
+impl AsyncRemoteDatabase {
     /// Returns the name of the database.
     #[must_use]
     pub fn name(&self) -> &str {
@@ -38,16 +38,16 @@ impl RemoteDatabase {
     }
 }
 
-impl Deref for RemoteDatabase {
-    type Target = Client;
+impl Deref for AsyncRemoteDatabase {
+    type Target = AsyncClient;
 
     fn deref(&self) -> &Self::Target {
         &self.client
     }
 }
 
-impl RemoteDatabase {
-    pub(crate) fn new(client: Client, name: String, schema: Arc<Schematic>) -> Self {
+impl AsyncRemoteDatabase {
+    pub(crate) fn new(client: AsyncClient, name: String, schema: Arc<Schematic>) -> Self {
         Self {
             client,
             name: Arc::new(name),
@@ -56,15 +56,15 @@ impl RemoteDatabase {
     }
 }
 
-impl HasSession for RemoteDatabase {
+impl HasSession for AsyncRemoteDatabase {
     fn session(&self) -> Option<&Session> {
         self.client.session()
     }
 }
 
 #[async_trait]
-impl AsyncConnection for RemoteDatabase {
-    type Storage = Client;
+impl AsyncConnection for AsyncRemoteDatabase {
+    type Storage = AsyncClient;
 
     fn storage(&self) -> Self::Storage {
         self.client.clone()
@@ -77,7 +77,7 @@ impl AsyncConnection for RemoteDatabase {
     ) -> Result<Vec<Executed>, bonsaidb_core::Error> {
         Ok(self
             .client
-            .send_api_request_async(&ListExecutedTransactions {
+            .send_api_request(&ListExecutedTransactions {
                 database: self.name.to_string(),
                 starting_id,
                 result_limit,
@@ -88,14 +88,14 @@ impl AsyncConnection for RemoteDatabase {
     async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
         Ok(self
             .client
-            .send_api_request_async(&LastTransactionId {
+            .send_api_request(&LastTransactionId {
                 database: self.name.to_string(),
             })
             .await?)
     }
 
     async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
-        self.send_api_request_async(&Compact {
+        self.send_api_request(&Compact {
             database: self.name.to_string(),
         })
         .await?;
@@ -103,7 +103,7 @@ impl AsyncConnection for RemoteDatabase {
     }
 
     async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
-        self.send_api_request_async(&CompactKeyValueStore {
+        self.send_api_request(&CompactKeyValueStore {
             database: self.name.to_string(),
         })
         .await?;
@@ -112,14 +112,14 @@ impl AsyncConnection for RemoteDatabase {
 }
 
 #[async_trait]
-impl AsyncLowLevelConnection for RemoteDatabase {
+impl AsyncLowLevelConnection for AsyncRemoteDatabase {
     async fn apply_transaction(
         &self,
         transaction: Transaction,
     ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
         Ok(self
             .client
-            .send_api_request_async(&ApplyTransaction {
+            .send_api_request(&ApplyTransaction {
                 database: self.name.to_string(),
                 transaction,
             })
@@ -133,7 +133,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
         Ok(self
             .client
-            .send_api_request_async(&Get {
+            .send_api_request(&Get {
                 database: self.name.to_string(),
                 collection: collection.clone(),
                 id,
@@ -148,7 +148,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         Ok(self
             .client
-            .send_api_request_async(&GetMultiple {
+            .send_api_request(&GetMultiple {
                 database: self.name.to_string(),
                 collection: collection.clone(),
                 ids: ids.to_vec(),
@@ -165,7 +165,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         Ok(self
             .client
-            .send_api_request_async(&List {
+            .send_api_request(&List {
                 database: self.name.to_string(),
                 collection: collection.clone(),
                 ids,
@@ -184,7 +184,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     ) -> Result<Vec<Header>, bonsaidb_core::Error> {
         Ok(self
             .client
-            .send_api_request_async(&ListHeaders(List {
+            .send_api_request(&ListHeaders(List {
                 database: self.name.to_string(),
                 collection: collection.clone(),
                 ids,
@@ -201,7 +201,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     ) -> Result<u64, bonsaidb_core::Error> {
         Ok(self
             .client
-            .send_api_request_async(&Count {
+            .send_api_request(&Count {
                 database: self.name.to_string(),
                 collection: collection.clone(),
                 ids,
@@ -213,7 +213,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
         &self,
         collection: CollectionName,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.send_api_request_async(&CompactCollection {
+        self.send_api_request(&CompactCollection {
             database: self.name.to_string(),
             name: collection,
         })
@@ -231,7 +231,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     ) -> Result<Vec<schema::view::map::Serialized>, bonsaidb_core::Error> {
         Ok(self
             .client
-            .send_api_request_async(&Query {
+            .send_api_request(&Query {
                 database: self.name.to_string(),
                 view: view.clone(),
                 key,
@@ -252,7 +252,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     ) -> Result<schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error> {
         Ok(self
             .client
-            .send_api_request_async(&QueryWithDocs(Query {
+            .send_api_request(&QueryWithDocs(Query {
                 database: self.name.to_string(),
                 view: view.clone(),
                 key,
@@ -271,7 +271,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     ) -> Result<Vec<u8>, bonsaidb_core::Error> {
         Ok(self
             .client
-            .send_api_request_async(&Reduce {
+            .send_api_request(&Reduce {
                 database: self.name.to_string(),
                 view: view.clone(),
                 key,
@@ -289,7 +289,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
         Ok(self
             .client
-            .send_api_request_async(&ReduceGrouped(Reduce {
+            .send_api_request(&ReduceGrouped(Reduce {
                 database: self.name.to_string(),
                 view: view.clone(),
                 key,
@@ -306,7 +306,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     ) -> Result<u64, bonsaidb_core::Error> {
         Ok(self
             .client
-            .send_api_request_async(&DeleteDocs {
+            .send_api_request(&DeleteDocs {
                 database: self.name.to_string(),
                 view: view.clone(),
                 key,
@@ -316,7 +316,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     }
 }
 
-impl HasSchema for RemoteDatabase {
+impl HasSchema for AsyncRemoteDatabase {
     fn schematic(&self) -> &Schematic {
         &self.schema
     }

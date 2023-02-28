@@ -1,7 +1,7 @@
 //! Tests a single server with multiple simultaneous connections.
 
 use bonsaidb::client::url::Url;
-use bonsaidb::client::Client;
+use bonsaidb::client::AsyncClient;
 use bonsaidb::core::connection::AsyncStorageConnection;
 use bonsaidb::core::test_util::{self, BasicSchema, TestDirectory};
 use bonsaidb::local::config::Builder;
@@ -23,9 +23,9 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
         .into_end_entity_certificate();
     tokio::spawn(async move { server.listen_on(12345).await });
 
-    let client = Client::build(Url::parse("bonsaidb://localhost:12345")?)
+    let client = AsyncClient::build(Url::parse("bonsaidb://localhost:12345")?)
         .with_certificate(certificate)
-        .finish()?;
+        .build()?;
 
     let mut tasks = Vec::new();
     for i in 0usize..10 {
@@ -39,7 +39,7 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn test_one_client(client: Client, database_name: String) -> anyhow::Result<()> {
+async fn test_one_client(client: AsyncClient, database_name: String) -> anyhow::Result<()> {
     for _ in 0u32..50 {
         client
             .create_database::<BasicSchema>(&database_name, false)
