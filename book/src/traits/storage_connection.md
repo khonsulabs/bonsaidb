@@ -4,7 +4,7 @@ The [`StorageConnection` trait][storageconnection] contains functions for intera
 
 - For bonsaidb-local: [`Storage`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Storage.html)
 - For bonsaidb-server: [`CustomServer<Backend>`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html) / [`Server`]({{DOCS_BASE_URL}}/bonsaidb/server/type.Server.html)
-- For bonsaidb-client: [`Client`]({{DOCS_BASE_URL}}/bonsaidb/client/struct.Client.html)
+- For bonsaidb-client: [`BlockingClient`]({{DOCS_BASE_URL}}/bonsaidb/client/struct.BlockingClient.html)
 
 Using this trait, you can write code that generically can work regardless of whether BonsaiDb is operationg locally with no network connection or across the globe.
 

@@ -29,7 +29,7 @@ If you look at the source behind [`Database::open_local`]({{DOCS_BASE_URL}}/bons
 
 ## Server model (QUIC or WebSockets)
 
-This model is most similar to using other document databases, like CouchDB or MongoDB. In this mode, you interact with a [`Client`]({{DOCS_BASE_URL}}/bonsaidb/client/struct.Client.html) that connects via either QUIC or WebSockets with a server. From the server code's perspective, this model is the same as the multi-database model, except that the server is listening for and responding to network traffic.
+This model is most similar to using other document databases, like CouchDB or MongoDB. In this mode, you interact with a [`Client`]({{DOCS_BASE_URL}}/bonsaidb/client/struct.BlockingClient.html) that connects via either QUIC or WebSockets with a server. From the server code's perspective, this model is the same as the multi-database model, except that the server is listening for and responding to network traffic.
 
 ```mermaid
 graph LR
