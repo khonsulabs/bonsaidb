@@ -491,7 +491,7 @@ enum FileKey<'a> {
 }
 
 impl<'k> Key<'k> for OwnedFileKey {
-    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: Cow<'k, [u8]>) -> Result<Self, Self::Error> {
         let mut decoder = CompositeKeyDecoder::new(bytes);
 
         let path = Cow::Owned(decoder.decode::<String>()?);

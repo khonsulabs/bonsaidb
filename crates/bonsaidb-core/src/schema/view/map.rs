@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 
@@ -253,7 +254,7 @@ impl Serialized {
     ) -> Result<Map<View::Key, View::Value>, view::Error> {
         Ok(Map::new(
             self.source.clone(),
-            <View::Key as Key>::from_ord_bytes(&self.key)
+            <View::Key as Key>::from_ord_bytes(Cow::Borrowed(&self.key))
                 .map_err(view::Error::key_serialization)?,
             View::deserialize(&self.value)?,
         ))

@@ -1,4 +1,4 @@
-use std::borrow::Borrow;
+use std::borrow::{Borrow, Cow};
 use std::collections::BTreeMap;
 
 use arc_bytes::serde::Bytes;
@@ -289,7 +289,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
             .into_iter()
             .map(|mapping| {
                 Ok(Map {
-                    key: <V::Key as key::Key>::from_ord_bytes(&mapping.key)
+                    key: <V::Key as key::Key>::from_ord_bytes(Cow::Borrowed(&mapping.key))
                         .map_err(view::Error::key_serialization)
                         .map_err(Error::from)?,
                     value: V::deserialize(&mapping.value)?,
@@ -429,7 +429,8 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         .into_iter()
         .map(|map| {
             Ok(MappedValue::new(
-                V::Key::from_ord_bytes(&map.key).map_err(view::Error::key_serialization)?,
+                V::Key::from_ord_bytes(Cow::Borrowed(&map.key))
+                    .map_err(view::Error::key_serialization)?,
                 V::deserialize(&map.value)?,
             ))
         })
@@ -915,7 +916,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
             .into_iter()
             .map(|mapping| {
                 Ok(Map {
-                    key: <V::Key as key::Key>::from_ord_bytes(&mapping.key)
+                    key: <V::Key as key::Key>::from_ord_bytes(Cow::Borrowed(&mapping.key))
                         .map_err(view::Error::key_serialization)
                         .map_err(Error::from)?,
                     value: V::deserialize(&mapping.value)?,
@@ -1053,7 +1054,8 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
         .into_iter()
         .map(|map| {
             Ok(MappedValue::new(
-                V::Key::from_ord_bytes(&map.key).map_err(view::Error::key_serialization)?,
+                V::Key::from_ord_bytes(Cow::Borrowed(&map.key))
+                    .map_err(view::Error::key_serialization)?,
                 V::deserialize(&map.value)?,
             ))
         })

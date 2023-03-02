@@ -61,18 +61,29 @@ pub fn encode_composite_field<'a, K: Key<'a>, T: KeyEncoding<'a, K>, Bytes: Writ
 /// ```
 #[deprecated = "use `CompositeKeyDecoder` instead. This function does not properly sort variable length encoded fields. See #240."]
 pub fn decode_composite_field<'a, T: Key<'a>>(
-    mut bytes: &'a [u8],
-) -> Result<(T, &[u8]), CompositeKeyError> {
+    bytes: Cow<'a, [u8]>,
+) -> Result<(T, Cow<'a, [u8]>), CompositeKeyError> {
     let length = if let Some(length) = T::LENGTH {
         length
     } else {
-        usize::try_from(u64::decode_variable(&mut bytes)?)?
+        usize::try_from(u64::decode_variable(&mut &*bytes)?)?
     };
-    let (t2, remaining) = bytes.split_at(length);
-    Ok((
-        T::from_ord_bytes(t2).map_err(CompositeKeyError::new)?,
-        remaining,
-    ))
+    match bytes {
+        Cow::Owned(bytes) => {
+            let (t2, remaining) = bytes.split_at(length);
+            Ok((
+                T::from_ord_bytes(Cow::Owned(Vec::from(t2))).map_err(CompositeKeyError::new)?,
+                Cow::Owned(Vec::from(remaining)),
+            ))
+        }
+        Cow::Borrowed(bytes) => {
+            let (t2, remaining) = bytes.split_at(length);
+            Ok((
+                T::from_ord_bytes(Cow::Borrowed(t2)).map_err(CompositeKeyError::new)?,
+                Cow::Borrowed(remaining),
+            ))
+        }
+    }
 }
 
 /// This type enables wrapping a tuple to preserve the behavior of the initial
@@ -91,7 +102,7 @@ macro_rules! impl_key_for_tuple_v1 {
         where
             $($generic: Key<'a>),+
         {
-            fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+            fn from_ord_bytes(bytes: Cow<'a, [u8]>) -> Result<Self, Self::Error> {
                 $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
 
                 if bytes.is_empty() {
@@ -180,7 +191,7 @@ where
     T: Key<'a>,
     Self: KeyEncoding<'a, Self, Error = <T as KeyEncoding<'a, T>>::Error>,
 {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: Cow<'a, [u8]>) -> Result<Self, Self::Error> {
         if bytes.is_empty() {
             Ok(Self(None))
         } else {

@@ -632,7 +632,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         impl #impl_generics Key<'key> for #ident #ty_generics #where_clause {
 
-            fn from_ord_bytes(mut $bytes: &'key [u8]) -> Result<Self, Self::Error> {
+            fn from_ord_bytes(mut $bytes: std::borrow::Cow<'key, [u8]>) -> Result<Self, Self::Error> {
 
                 let mut $decoder = CompositeKeyDecoder::new($bytes);
 

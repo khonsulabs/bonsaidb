@@ -9,8 +9,8 @@ use crate::key::time::limited::{BonsaiEpoch, UnixEpoch};
 use crate::key::{Key, KeyEncoding};
 
 impl<'a> Key<'a> for Duration {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        let merged = u128::decode_variable(bytes).map_err(|_| TimeError::InvalidValue)?;
+    fn from_ord_bytes(bytes: Cow<'a, [u8]>) -> Result<Self, Self::Error> {
+        let merged = u128::decode_variable(&*bytes).map_err(|_| TimeError::InvalidValue)?;
         let seconds = u64::try_from(merged >> 30).map_err(|_| TimeError::DeltaNotRepresentable)?;
         let nanos = u32::try_from(merged & (2_u128.pow(30) - 1)).unwrap();
         Ok(Self::new(seconds, nanos))
@@ -35,16 +35,16 @@ impl<'a> KeyEncoding<'a, Self> for Duration {
 fn duration_key_tests() {
     assert_eq!(
         Duration::ZERO,
-        Duration::from_ord_bytes(&Duration::ZERO.as_ord_bytes().unwrap()).unwrap()
+        Duration::from_ord_bytes(Cow::Borrowed(&Duration::ZERO.as_ord_bytes().unwrap())).unwrap()
     );
     assert_eq!(
         Duration::MAX,
-        Duration::from_ord_bytes(&Duration::MAX.as_ord_bytes().unwrap()).unwrap()
+        Duration::from_ord_bytes(Cow::Borrowed(&Duration::MAX.as_ord_bytes().unwrap())).unwrap()
     );
 }
 
 impl<'a> Key<'a> for SystemTime {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: Cow<'a, [u8]>) -> Result<Self, Self::Error> {
         let since_epoch = Duration::from_ord_bytes(bytes)?;
         UNIX_EPOCH
             .checked_add(since_epoch)
@@ -70,12 +70,12 @@ impl<'a> KeyEncoding<'a, Self> for SystemTime {
 fn system_time_tests() {
     assert_eq!(
         UNIX_EPOCH,
-        SystemTime::from_ord_bytes(&UNIX_EPOCH.as_ord_bytes().unwrap()).unwrap()
+        SystemTime::from_ord_bytes(Cow::Borrowed(&UNIX_EPOCH.as_ord_bytes().unwrap())).unwrap()
     );
     let now = SystemTime::now();
     assert_eq!(
         now,
-        SystemTime::from_ord_bytes(&now.as_ord_bytes().unwrap()).unwrap()
+        SystemTime::from_ord_bytes(Cow::Borrowed(&now.as_ord_bytes().unwrap())).unwrap()
     );
 }
 
@@ -269,8 +269,8 @@ pub mod limited {
     where
         Resolution: TimeResolution,
     {
-        fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-            let representation = <Resolution::Representation as Variable>::decode_variable(bytes)
+        fn from_ord_bytes(bytes: Cow<'a, [u8]>) -> Result<Self, Self::Error> {
+            let representation = <Resolution::Representation as Variable>::decode_variable(&*bytes)
                 .map_err(|_| TimeError::InvalidValue)?;
 
             Ok(Self {
@@ -791,7 +791,8 @@ pub mod limited {
             assert_eq!(limited.representation, expected_step);
             let encoded = limited.as_ord_bytes().unwrap();
             println!("Encoded {limited:?} to {} bytes", encoded.len());
-            let decoded = LimitedResolutionDuration::from_ord_bytes(&encoded).unwrap();
+            let decoded =
+                LimitedResolutionDuration::from_ord_bytes(Cow::Borrowed(&encoded)).unwrap();
             assert_eq!(limited, decoded);
         }
 
@@ -1108,7 +1109,7 @@ pub mod limited {
         Resolution: TimeResolution,
         Epoch: TimeEpoch,
     {
-        fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        fn from_ord_bytes(bytes: Cow<'a, [u8]>) -> Result<Self, Self::Error> {
             let duration = LimitedResolutionDuration::<Resolution>::from_ord_bytes(bytes)?;
             Ok(Self::from(duration))
         }

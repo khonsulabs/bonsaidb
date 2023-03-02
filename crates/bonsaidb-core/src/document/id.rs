@@ -209,6 +209,14 @@ impl<'a> TryFrom<&'a [u8]> for DocumentId {
     }
 }
 
+impl<'a> TryFrom<Cow<'a, [u8]>> for DocumentId {
+    type Error = crate::Error;
+
+    fn try_from(bytes: Cow<'a, [u8]>) -> Result<Self, Self::Error> {
+        Self::try_from(bytes.as_ref())
+    }
+}
+
 impl<const N: usize> TryFrom<[u8; N]> for DocumentId {
     type Error = crate::Error;
 
@@ -255,7 +263,7 @@ impl DocumentId {
 
     /// Returns the contained value, deserialized back to its original type.
     pub fn deserialize<'a, PrimaryKey: Key<'a>>(&'a self) -> Result<PrimaryKey, crate::Error> {
-        PrimaryKey::from_ord_bytes(self.as_ref())
+        PrimaryKey::from_ord_bytes(Cow::Borrowed(self.as_ref()))
             .map_err(|err| crate::Error::other("key serialization", err))
     }
 }
@@ -296,7 +304,7 @@ impl<'de> Visitor<'de> for DocumentIdVisitor {
 }
 
 impl<'k> Key<'k> for DocumentId {
-    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: Cow<'k, [u8]>) -> Result<Self, Self::Error> {
         Self::try_from(bytes)
     }
 }
