@@ -1,6 +1,10 @@
+use std::borrow::Cow;
 use std::fmt::Debug;
 
 use arc_bytes::serde::{Bytes, CowBytes};
+use serde::de::{self, Visitor};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Serialize};
 
 use crate::connection::{AsyncConnection, Connection};
 use crate::document::{BorrowedDocument, CollectionHeader, DocumentId, Header, OwnedDocument};
@@ -253,6 +257,117 @@ where
     }
 }
 
+impl<C> Serialize for CollectionDocument<C>
+where
+    C: SerializedCollection,
+    C::Contents: Serialize,
+    C::PrimaryKey: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut s = serializer.serialize_struct("CollectionDocument", 2)?;
+        s.serialize_field("header", &self.header)?;
+        s.serialize_field("contents", &self.contents)?;
+        s.end()
+    }
+}
+
+impl<'de, C> Deserialize<'de> for CollectionDocument<C>
+where
+    C: SerializedCollection,
+    C::PrimaryKey: Deserialize<'de>,
+    C::Contents: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct CollectionDocumentVisitor<C>
+        where
+            C: SerializedCollection,
+        {
+            header: Option<CollectionHeader<C::PrimaryKey>>,
+            contents: Option<C::Contents>,
+        }
+
+        impl<C> Default for CollectionDocumentVisitor<C>
+        where
+            C: SerializedCollection,
+        {
+            fn default() -> Self {
+                Self {
+                    header: None,
+                    contents: None,
+                }
+            }
+        }
+
+        impl<'de, C> Visitor<'de> for CollectionDocumentVisitor<C>
+        where
+            C: SerializedCollection,
+            C::PrimaryKey: Deserialize<'de>,
+            C::Contents: Deserialize<'de>,
+        {
+            type Value = CollectionDocument<C>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a collection document")
+            }
+
+            fn visit_map<A>(mut self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                while let Some(key) = map.next_key::<Cow<'_, str>>()? {
+                    match key.as_ref() {
+                        "header" => {
+                            self.header = Some(map.next_value()?);
+                        }
+                        "contents" => {
+                            self.contents = Some(map.next_value()?);
+                        }
+                        _ => {
+                            return Err(<A::Error as de::Error>::custom(format!(
+                                "unknown field {key}"
+                            )))
+                        }
+                    }
+                }
+
+                Ok(CollectionDocument {
+                    header: self
+                        .header
+                        .ok_or_else(|| <A::Error as de::Error>::custom("`header` missing"))?,
+                    contents: self
+                        .contents
+                        .ok_or_else(|| <A::Error as de::Error>::custom("`contents` missing"))?,
+                })
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: de::SeqAccess<'de>,
+            {
+                let header = seq
+                    .next_element()?
+                    .ok_or_else(|| <A::Error as de::Error>::custom("`header` missing"))?;
+                let contents = seq
+                    .next_element()?
+                    .ok_or_else(|| <A::Error as de::Error>::custom("`contents` missing"))?;
+                Ok(CollectionDocument { header, contents })
+            }
+        }
+
+        deserializer.deserialize_struct(
+            "CollectionDocument",
+            &["header", "contents"],
+            CollectionDocumentVisitor::default(),
+        )
+    }
+}
+
 /// Helper functions for a slice of [`OwnedDocument`]s.
 pub trait OwnedDocuments {
     /// Returns a list of deserialized documents.
@@ -267,4 +382,30 @@ impl OwnedDocuments for [OwnedDocument] {
     ) -> Result<Vec<CollectionDocument<C>>, Error> {
         self.iter().map(CollectionDocument::try_from).collect()
     }
+}
+
+#[test]
+fn collection_document_serialization() {
+    use crate::test_util::Basic;
+
+    let original: CollectionDocument<Basic> = CollectionDocument {
+        header: CollectionHeader {
+            id: 1,
+            revision: super::Revision::new(b"hello world"),
+        },
+        contents: Basic::new("test"),
+    };
+
+    // Pot uses a map to represent a struct
+    let pot = pot::to_vec(&original).unwrap();
+    assert_eq!(
+        pot::from_slice::<CollectionDocument<Basic>>(&pot).unwrap(),
+        original
+    );
+    // Bincode uses a sequence to represent a struct
+    let bincode = transmog_bincode::bincode::serialize(&original).unwrap();
+    assert_eq!(
+        transmog_bincode::bincode::deserialize::<CollectionDocument<Basic>>(&bincode).unwrap(),
+        original
+    );
 }

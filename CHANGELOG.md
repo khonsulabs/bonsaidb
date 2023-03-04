@@ -186,6 +186,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   BonsaiDb network protocol server socket. This structure currently allows
   specifying the specific `SocketAddr` to listen on and whether the
   `SO_REUSEADDR` flag should be specified on the underlying socket.
+- `CollectionDocument` now implements Serialize and/or Deserialize if both
+  `PrimaryKey` and `Contents` are Serialize and/or Deserialize, respectively.
 
 ### Changed
 

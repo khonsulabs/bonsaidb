@@ -75,7 +75,7 @@ impl Display for Header {
 }
 
 /// A header for a [`CollectionDocument`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CollectionHeader<PrimaryKey> {
     /// The unique id of the document.
     pub id: PrimaryKey,
