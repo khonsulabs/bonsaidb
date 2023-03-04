@@ -1,4 +1,4 @@
-use std::borrow::{Borrow, Cow};
+use std::borrow::Borrow;
 use std::collections::BTreeMap;
 
 use arc_bytes::serde::Bytes;
@@ -11,7 +11,7 @@ use crate::connection::{
 use crate::document::{
     CollectionDocument, CollectionHeader, Document, DocumentId, HasHeader, Header, OwnedDocument,
 };
-use crate::key::{self, Key, KeyEncoding};
+use crate::key::{self, ByteCow, Key, KeyEncoding};
 use crate::schema::view::map::{MappedDocuments, MappedSerializedValue};
 use crate::schema::view::{self};
 use crate::schema::{
@@ -289,7 +289,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
             .into_iter()
             .map(|mapping| {
                 Ok(Map {
-                    key: <V::Key as key::Key>::from_ord_bytes(Cow::Borrowed(&mapping.key))
+                    key: <V::Key as key::Key>::from_ord_bytes(ByteCow::Borrowed(&mapping.key))
                         .map_err(view::Error::key_serialization)
                         .map_err(Error::from)?,
                     value: V::deserialize(&mapping.value)?,
@@ -429,7 +429,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         .into_iter()
         .map(|map| {
             Ok(MappedValue::new(
-                V::Key::from_ord_bytes(Cow::Borrowed(&map.key))
+                V::Key::from_ord_bytes(ByteCow::Borrowed(&map.key))
                     .map_err(view::Error::key_serialization)?,
                 V::deserialize(&map.value)?,
             ))
@@ -916,7 +916,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
             .into_iter()
             .map(|mapping| {
                 Ok(Map {
-                    key: <V::Key as key::Key>::from_ord_bytes(Cow::Borrowed(&mapping.key))
+                    key: <V::Key as key::Key>::from_ord_bytes(ByteCow::Borrowed(&mapping.key))
                         .map_err(view::Error::key_serialization)
                         .map_err(Error::from)?,
                     value: V::deserialize(&mapping.value)?,
@@ -1054,7 +1054,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
         .into_iter()
         .map(|map| {
             Ok(MappedValue::new(
-                V::Key::from_ord_bytes(Cow::Borrowed(&map.key))
+                V::Key::from_ord_bytes(ByteCow::Borrowed(&map.key))
                     .map_err(view::Error::key_serialization)?,
                 V::deserialize(&map.value)?,
             ))

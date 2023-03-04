@@ -1,5 +1,4 @@
 use std::any::TypeId;
-use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -7,7 +6,7 @@ use std::marker::PhantomData;
 use derive_where::derive_where;
 
 use crate::document::{BorrowedDocument, DocumentId, KeyId};
-use crate::key::Key;
+use crate::key::{ByteCow, Key};
 use crate::schema::collection::Collection;
 use crate::schema::view::map::{self, MappedValue};
 use crate::schema::view::{self, Serialized, SerializedView, ViewSchema};
@@ -245,7 +244,7 @@ where
         let mappings = mappings
             .iter()
             .map(
-                |(key, value)| match <V::Key as Key>::from_ord_bytes(Cow::Borrowed(key)) {
+                |(key, value)| match <V::Key as Key>::from_ord_bytes(ByteCow::Borrowed(key)) {
                     Ok(key) => {
                         let value = V::deserialize(value)?;
                         Ok(MappedValue::new(key, value))

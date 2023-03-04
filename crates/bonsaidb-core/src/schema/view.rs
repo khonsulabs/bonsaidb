@@ -7,7 +7,7 @@ use transmog_pot::Pot;
 
 use crate::connection::{self, AsyncConnection, Connection};
 use crate::document::{BorrowedDocument, CollectionDocument};
-use crate::key::Key;
+use crate::key::{ByteCow, Key};
 use crate::schema::view::map::{Mappings, ViewMappedValue};
 use crate::schema::{Collection, CollectionName, Name, SerializedCollection, ViewName};
 use crate::AnyError;

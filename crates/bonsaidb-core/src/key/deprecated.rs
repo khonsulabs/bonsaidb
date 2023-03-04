@@ -3,7 +3,7 @@ use std::io::{ErrorKind, Write};
 
 use ordered_varint::Variable;
 
-use crate::key::{CompositeKeyError, Key, KeyEncoding, NextValueError};
+use crate::key::{ByteCow, CompositeKeyError, Key, KeyEncoding, NextValueError};
 
 /// Encodes a value using the `Key` trait in such a way that multiple values can
 /// still be ordered at the byte level when chained together.
@@ -60,27 +60,34 @@ pub fn encode_composite_field<'a, K: Key<'a>, T: KeyEncoding<'a, K>, Bytes: Writ
 /// assert!(remaining_bytes.is_empty());
 /// ```
 #[deprecated = "use `CompositeKeyDecoder` instead. This function does not properly sort variable length encoded fields. See #240."]
-pub fn decode_composite_field<'a, T: Key<'a>>(
-    bytes: Cow<'a, [u8]>,
-) -> Result<(T, Cow<'a, [u8]>), CompositeKeyError> {
+pub fn decode_composite_field<'a, 'b, T: Key<'a>>(
+    bytes: ByteCow<'a, 'b>,
+) -> Result<(T, ByteCow<'a, 'b>), CompositeKeyError> {
     let length = if let Some(length) = T::LENGTH {
         length
     } else {
-        usize::try_from(u64::decode_variable(&mut &*bytes)?)?
+        usize::try_from(u64::decode_variable(&mut bytes.as_ref())?)?
     };
     match bytes {
-        Cow::Owned(bytes) => {
+        ByteCow::Owned(bytes) => {
             let (t2, remaining) = bytes.split_at(length);
             Ok((
-                T::from_ord_bytes(Cow::Owned(Vec::from(t2))).map_err(CompositeKeyError::new)?,
-                Cow::Owned(Vec::from(remaining)),
+                T::from_ord_bytes(ByteCow::Ephemeral(t2)).map_err(CompositeKeyError::new)?,
+                ByteCow::Owned(Vec::from(remaining)),
             ))
         }
-        Cow::Borrowed(bytes) => {
+        ByteCow::Ephemeral(bytes) => {
             let (t2, remaining) = bytes.split_at(length);
             Ok((
-                T::from_ord_bytes(Cow::Borrowed(t2)).map_err(CompositeKeyError::new)?,
-                Cow::Borrowed(remaining),
+                T::from_ord_bytes(ByteCow::Ephemeral(t2)).map_err(CompositeKeyError::new)?,
+                ByteCow::Ephemeral(remaining),
+            ))
+        }
+        ByteCow::Borrowed(bytes) => {
+            let (t2, remaining) = bytes.split_at(length);
+            Ok((
+                T::from_ord_bytes(ByteCow::Borrowed(t2)).map_err(CompositeKeyError::new)?,
+                ByteCow::Borrowed(remaining),
             ))
         }
     }
@@ -102,8 +109,26 @@ macro_rules! impl_key_for_tuple_v1 {
         where
             $($generic: Key<'a>),+
         {
-            fn from_ord_bytes(bytes: Cow<'a, [u8]>) -> Result<Self, Self::Error> {
-                $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
+            fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
+                let ($($varname),+, bytes) = match bytes {
+                    ByteCow::Borrowed(bytes) => {
+                        let bytes = ByteCow::Borrowed(bytes);
+                        $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
+                        ($($varname),+, bytes.into_std())
+                    },
+                    ByteCow::Ephemeral(bytes) => {
+                        let bytes = ByteCow::Ephemeral(bytes);
+                        $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
+                        ($($varname),+, bytes.into_std())
+                    },
+                    ByteCow::Owned(bytes) => {
+                        // Avoid re-allocations in decode_composite_field by turning Owned into
+                        // Ephemeral
+                        let bytes = ByteCow::Ephemeral(&bytes);
+                        $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
+                        ($($varname),+, bytes.into_std())
+                    },
+                };
 
                 if bytes.is_empty() {
                     Ok(Self(($($varname),+,)))
@@ -191,8 +216,8 @@ where
     T: Key<'a>,
     Self: KeyEncoding<'a, Self, Error = <T as KeyEncoding<'a, T>>::Error>,
 {
-    fn from_ord_bytes(bytes: Cow<'a, [u8]>) -> Result<Self, Self::Error> {
-        if bytes.is_empty() {
+    fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
+        if bytes.as_ref().is_empty() {
             Ok(Self(None))
         } else {
             Ok(Self(Some(T::from_ord_bytes(bytes)?)))

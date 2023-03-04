@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 
@@ -6,7 +5,7 @@ use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::document::{DocumentId, Header, OwnedDocument};
-use crate::schema::view::{self, Key, SerializedView, View};
+use crate::schema::view::{self, ByteCow, Key, SerializedView, View};
 
 /// A document's entry in a View's mappings.
 #[derive(Eq, PartialEq, Debug)]
@@ -254,7 +253,7 @@ impl Serialized {
     ) -> Result<Map<View::Key, View::Value>, view::Error> {
         Ok(Map::new(
             self.source.clone(),
-            <View::Key as Key>::from_ord_bytes(Cow::Borrowed(&self.key))
+            <View::Key as Key>::from_ord_bytes(ByteCow::Borrowed(&self.key))
                 .map_err(view::Error::key_serialization)?,
             View::deserialize(&self.value)?,
         ))

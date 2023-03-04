@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::key::{IncorrectByteLength, Key, KeyEncoding};
+use crate::key::{ByteCow, IncorrectByteLength, Key, KeyEncoding};
 
 /// A timestamp relative to [`UNIX_EPOCH`].
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Default)]
@@ -74,14 +74,14 @@ impl std::ops::Add<Duration> for Timestamp {
 }
 
 impl<'a> Key<'a> for Timestamp {
-    fn from_ord_bytes(bytes: Cow<'a, [u8]>) -> Result<Self, Self::Error> {
-        if bytes.len() != 12 {
+    fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
+        if bytes.as_ref().len() != 12 {
             return Err(IncorrectByteLength);
         }
 
         Ok(Self {
-            seconds: u64::from_ord_bytes(Cow::Borrowed(&bytes.as_ref()[0..8]))?,
-            nanos: u32::from_ord_bytes(Cow::Borrowed(&bytes.as_ref()[8..12]))?,
+            seconds: u64::from_ord_bytes(ByteCow::Borrowed(&bytes.as_ref()[0..8]))?,
+            nanos: u32::from_ord_bytes(ByteCow::Borrowed(&bytes.as_ref()[8..12]))?,
         })
     }
 }
@@ -102,7 +102,7 @@ impl<'a> KeyEncoding<'a, Self> for Timestamp {
 fn key_test() {
     let original = Timestamp::now();
     assert_eq!(
-        Timestamp::from_ord_bytes(Cow::Borrowed(&original.as_ord_bytes().unwrap())).unwrap(),
+        Timestamp::from_ord_bytes(ByteCow::Borrowed(&original.as_ord_bytes().unwrap())).unwrap(),
         original
     );
 }
