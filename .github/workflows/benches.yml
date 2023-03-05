@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
-      
+
       - name: Install Rust
         uses: hecrj/setup-rust-action@v1
 
@@ -75,7 +75,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
-      
+
       - name: Install Rust
         uses: hecrj/setup-rust-action@v1
 
@@ -99,19 +99,18 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: actions/download-artifact@v2
-      
-      - name: Gather artifacts 
+
+      - name: Gather artifacts
         run: |
           mkdir reports
           mv commerce reports/
           mv microbenchmarks reports/suite
 
       - name: Deploy Docs
-        uses: JamesIves/github-pages-deploy-action@releases/v4
-        with:
-          branch: gh-pages
-          folder: reports
-          git-config-name: kl-botsu
-          git-config-email: botsu@khonsulabs.com
-          target-folder: /${{ github.ref_name }}/benchmarks
-          clean: true
+        run: |
+          wget https://khonsu.dev/dossier/builds/main/dossier
+          chmod a+x dossier
+          ./dossier --token $TOKEN --url wss://khonsu.dev/_ws project sync bonsaidb reports /${{ github.ref_name }}/benchmarks
+        env:
+          TOKEN: ${{ secrets.DOSSIER_API_KEY_ID }}
+          BONSAIDB_TOKEN_SECRET: ${{ secrets.DOSSIER_API_KEY }}

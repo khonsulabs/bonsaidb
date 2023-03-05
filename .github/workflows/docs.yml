@@ -15,21 +15,20 @@ jobs:
 
       - name: Deploy Docs
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || startsWith(github.ref, 'refs/tags/')
-        uses: JamesIves/github-pages-deploy-action@releases/v4
-        with:
-          branch: gh-pages
-          folder: target/doc/
-          git-config-name: kl-botsu
-          git-config-email: botsu@khonsulabs.com
-          target-folder: /${{ github.ref_name }}/docs
-          clean: true
+        run: |
+          wget https://khonsu.dev/dossier/builds/main/dossier
+          chmod a+x dossier
+          ./dossier --token $TOKEN --url wss://khonsu.dev/_ws project sync bonsaidb target/doc/ /${{ github.ref_name }}/docs
+        env:
+          TOKEN: ${{ secrets.DOSSIER_API_KEY_ID }}
+          BONSAIDB_TOKEN_SECRET: ${{ secrets.DOSSIER_API_KEY }}
 
   book:
     runs-on: ubuntu-latest
     # The book links to docs. When publishing new documentation changes that
     # break links, if we don't have this `needs` here, the link checker will be
     # checking outdated links.
-    needs: docs 
+    needs: docs
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -56,12 +55,11 @@ jobs:
         run: cd book && mdbook build
 
       - name: Deploy
-        uses: JamesIves/github-pages-deploy-action@releases/v4
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || startsWith(github.ref, 'refs/tags/')
-        with:
-          branch: gh-pages
-          folder: book/book/html/
-          git-config-name: kl-botsu
-          git-config-email: botsu@khonsulabs.com
-          target-folder: /${{ github.ref_name }}/guide
-          clean: true
+        run: |
+          wget https://khonsu.dev/dossier/builds/main/dossier
+          chmod a+x dossier
+          ./dossier --token $TOKEN --url wss://khonsu.dev/_ws project sync bonsaidb book/book/html/ /${{ github.ref_name }}/guide
+        env:
+          TOKEN: ${{ secrets.DOSSIER_API_KEY_ID }}
+          BONSAIDB_TOKEN_SECRET: ${{ secrets.DOSSIER_API_KEY }}

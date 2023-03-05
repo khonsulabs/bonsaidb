@@ -28,10 +28,10 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-          
+
     steps:
       - uses: actions/checkout@v2
-      
+
       - name: Install Rust
         uses: hecrj/setup-rust-action@v1
 
@@ -49,11 +49,10 @@ jobs:
 
       - name: Deploy Docs
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || startsWith(github.ref, 'refs/tags/')
-        uses: JamesIves/github-pages-deploy-action@releases/v4
-        with:
-          branch: gh-pages
-          folder: coverage/
-          git-config-name: kl-botsu
-          git-config-email: botsu@khonsulabs.com
-          target-folder: /${{ github.ref_name }}/coverage
-          clean: true
+        run: |
+          wget https://khonsu.dev/dossier/builds/main/dossier
+          chmod a+x dossier
+          ./dossier --token $TOKEN --url wss://khonsu.dev/_ws project sync bonsaidb coverage/ /${{ github.ref_name }}/coverage
+        env:
+          TOKEN: ${{ secrets.DOSSIER_API_KEY_ID }}
+          BONSAIDB_TOKEN_SECRET: ${{ secrets.DOSSIER_API_KEY }}
