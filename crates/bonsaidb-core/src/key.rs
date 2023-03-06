@@ -100,6 +100,11 @@ where
 /// This null-byte edge case only applies to variable length [`Key`]s
 /// ([`KeyEncoding::LENGTH`] is `None`).
 pub trait Key<'k>: KeyEncoding<'k, Self> + Clone + Send + Sync {
+    /// If true, this type can benefit from an owned `Vec<u8>`. This flag is
+    /// used as a hint of whether to attempt to do memcpy operations in some
+    /// decoding operations to avoid extra allocations.
+    const CAN_OWN_BYTES: bool;
+
     /// Deserialize a sequence of bytes previously encoded with
     /// [`KeyEncoding::as_ord_bytes`].
     fn from_ord_bytes<'b>(bytes: ByteCow<'k, 'b>) -> Result<Self, Self::Error>;
@@ -142,18 +147,23 @@ pub enum NextValueError {
     WouldWrap,
 }
 
-/// An extension of `std::borrow::Cow` for `[u8]` That allows for local-scope borrowing.
-pub enum ByteCow<'a, 'b> {
-    /// Borrowed bytes valid for `'a`
+/// A [`Cow`]-like type that offers three lifetime options: borrowed, ephemeral,
+/// and owned.
+///
+/// This is used by the [`Key`] trait to allow temporary borrows of an owned
+/// `Vec<u8>` while also allowing for code paths that support borrowing from a
+/// borrowed byte slice.
+pub enum ByteCow<'borrowed, 'ephemeral> {
+    /// Borrowed bytes valid for `'borrowed`
     ///
     /// This is analogous to `Cow::Borrowed`
-    Borrowed(&'a [u8]),
+    Borrowed(&'borrowed [u8]),
 
-    /// Borrowed bytes valid for `'b`
+    /// Borrowed bytes valid for `'ephemeral`
     ///
     /// This is reserved for smuggling local borrowed data deeper into a callstack without
     /// reallocating.
-    Ephemeral(&'b [u8]),
+    Ephemeral(&'ephemeral [u8]),
 
     /// Owned bytes
     ///
@@ -161,11 +171,15 @@ pub enum ByteCow<'a, 'b> {
     Owned(Vec<u8>),
 }
 
-impl<'a, 'b> ByteCow<'a, 'b> {
-    /// Coerce a ByteCow into `Cow<'a, [u8]>`
+impl<'borrowed, 'ephemeral> ByteCow<'borrowed, 'ephemeral>
+where
+    'borrowed: 'ephemeral,
+{
+    /// Coerce a `ByteCow` into `Cow<'a, [u8]>`
     ///
     /// This will allocate in the `Ephemeral` case
-    pub fn into_std(self) -> Cow<'a, [u8]> {
+    #[must_use]
+    pub fn into_borrowed(self) -> Cow<'borrowed, [u8]> {
         match self {
             Self::Borrowed(bytes) => Cow::Borrowed(bytes),
             Self::Ephemeral(bytes) => Cow::Owned(Vec::from(bytes)),
@@ -173,9 +187,24 @@ impl<'a, 'b> ByteCow<'a, 'b> {
         }
     }
 
-    /// Coerce a ByteCow into a Vec<u8>
+    /// Coerce a `ByteCow` into `Cow<'b, [u8]>`
+    ///
+    /// This will allocate in the `Ephemeral` case
+    #[must_use]
+    #[allow(clippy::match_same_arms)] // Lifetimes are different.
+    pub fn into_emphemeral(self) -> Cow<'ephemeral, [u8]> {
+        match self {
+            Self::Borrowed(bytes) => Cow::Borrowed(bytes),
+            Self::Ephemeral(bytes) => Cow::Borrowed(bytes),
+            Self::Owned(bytes) => Cow::Owned(bytes),
+        }
+    }
+
+    /// Coerce a `ByteCow` into a Vec<u8>
     ///
     /// This will allocate in the `Borrowed` or `Ephemeral` cases
+    #[must_use]
+    #[allow(clippy::match_same_arms)] // Lifetimes are different.
     pub fn into_owned(self) -> Vec<u8> {
         match self {
             Self::Borrowed(bytes) => Vec::from(bytes),
@@ -186,6 +215,7 @@ impl<'a, 'b> ByteCow<'a, 'b> {
 }
 
 impl<'a, 'b> AsRef<[u8]> for ByteCow<'a, 'b> {
+    #[allow(clippy::match_same_arms)] // Lifetimes are different.
     fn as_ref(&self) -> &[u8] {
         match self {
             Self::Borrowed(bytes) => bytes,
@@ -235,8 +265,10 @@ fn next_byte_sequence(start: &[u8]) -> Option<Vec<u8>> {
 }
 
 impl<'k> Key<'k> for Cow<'k, [u8]> {
+    const CAN_OWN_BYTES: bool = true;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'k, 'b>) -> Result<Self, Self::Error> {
-        Ok(bytes.into_std())
+        Ok(bytes.into_borrowed())
     }
 }
 
@@ -287,6 +319,8 @@ where
     TBorrowed: KeyEncoding<'k, TOwned, Error = TOwned::Error> + PartialEq + ?Sized,
     TOwned: Key<'k> + PartialEq<TBorrowed>,
 {
+    const CAN_OWN_BYTES: bool = TOwned::CAN_OWN_BYTES;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'k, 'b>) -> Result<Self, Self::Error> {
         TOwned::from_ord_bytes(bytes).map(Self::Owned)
     }
@@ -327,6 +361,8 @@ fn cow_prefix_range_tests() {
 }
 
 impl<'a> Key<'a> for Vec<u8> {
+    const CAN_OWN_BYTES: bool = true;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         Ok(bytes.into_owned())
     }
@@ -361,6 +397,8 @@ impl<'a> IntoPrefixRange<'a, Self> for Vec<u8> {
 }
 
 impl<'a, const N: usize> Key<'a> for [u8; N] {
+    const CAN_OWN_BYTES: bool = false;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         if bytes.as_ref().len() == N {
             let mut array = [0; N];
@@ -398,8 +436,10 @@ fn vec_prefix_range_tests() {
 }
 
 impl<'a> Key<'a> for ArcBytes<'a> {
+    const CAN_OWN_BYTES: bool = true;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
-        Ok(Self::from(bytes.into_std()))
+        Ok(Self::from(bytes.into_borrowed()))
     }
 }
 
@@ -449,8 +489,10 @@ fn arcbytes_prefix_range_tests() {
 }
 
 impl<'a> Key<'a> for CowBytes<'a> {
+    const CAN_OWN_BYTES: bool = true;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
-        Ok(Self(bytes.into_std()))
+        Ok(Self(bytes.into_borrowed()))
     }
 }
 
@@ -500,6 +542,8 @@ fn cowbytes_prefix_range_tests() {
 }
 
 impl<'a> Key<'a> for Bytes {
+    const CAN_OWN_BYTES: bool = true;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         Ok(Self(bytes.into_owned()))
     }
@@ -551,6 +595,8 @@ fn bytes_prefix_range_tests() {
 }
 
 impl<'a> Key<'a> for String {
+    const CAN_OWN_BYTES: bool = true;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         Self::from_utf8(bytes.into_owned())
     }
@@ -641,8 +687,10 @@ impl<'a> IntoPrefixRange<'a, String> for str {
 }
 
 impl<'k> Key<'k> for Cow<'k, str> {
+    const CAN_OWN_BYTES: bool = true;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'k, 'b>) -> Result<Self, Self::Error> {
-        match bytes.into_std() {
+        match bytes.into_borrowed() {
             Cow::Borrowed(bytes) => std::str::from_utf8(bytes).map(Cow::Borrowed),
             Cow::Owned(bytes) => String::from_utf8(bytes)
                 .map(Cow::Owned)
@@ -685,6 +733,8 @@ fn string_prefix_range_tests() {
 }
 
 impl<'a> Key<'a> for () {
+    const CAN_OWN_BYTES: bool = false;
+
     fn from_ord_bytes<'b>(_: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         Ok(())
     }
@@ -701,6 +751,8 @@ impl<'a> KeyEncoding<'a, Self> for () {
 }
 
 impl<'a> Key<'a> for bool {
+    const CAN_OWN_BYTES: bool = false;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         let bytes = bytes.as_ref();
         if bytes.is_empty() || bytes[0] == 0 {
@@ -731,6 +783,7 @@ macro_rules! impl_key_for_tuple {
         where
             $($generic: Key<'a>),+
         {
+            const CAN_OWN_BYTES: bool = false;
             fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
                 let mut decoder = CompositeKeyDecoder::new(bytes);
                 $(let $varname = decoder.decode::<$generic>()?;)+
@@ -824,7 +877,7 @@ impl CompositeKeyEncoder {
     /// Encodes a single [`KeyEncoding`] implementing value.
     ///
     /// ```rust
-    /// # use bonsaidb_core::key::{CompositeKeyEncoder, CompositeKeyDecoder};
+    /// # use bonsaidb_core::key::{ByteCow, CompositeKeyEncoder, CompositeKeyDecoder};
     ///
     /// let value1 = String::from("hello");
     /// let value2 = 42_u32;
@@ -833,7 +886,7 @@ impl CompositeKeyEncoder {
     /// encoder.encode(&value2).unwrap();
     /// let encoded = encoder.finish();
     ///
-    /// let mut decoder = CompositeKeyDecoder::new(&encoded);
+    /// let mut decoder = CompositeKeyDecoder::new(ByteCow::Borrowed(&encoded));
     /// let decoded_string = decoder.decode::<String>().unwrap();
     /// assert_eq!(decoded_string, value1);
     /// let decoded_u32 = decoder.decode::<u32>().unwrap();
@@ -919,7 +972,7 @@ pub struct CompositeKeyFieldContainsNullByte;
 pub struct CompositeKeyDecoder<'a, 'b> {
     bytes: ByteCow<'a, 'b>,
     offset: usize,
-    cap: usize,
+    end: usize,
 }
 
 impl<'a, 'b> CompositeKeyDecoder<'a, 'b> {
@@ -931,7 +984,7 @@ impl<'a, 'b> CompositeKeyDecoder<'a, 'b> {
         Self {
             bytes,
             offset: 0,
-            cap,
+            end: cap,
         }
     }
 
@@ -939,7 +992,7 @@ impl<'a, 'b> CompositeKeyDecoder<'a, 'b> {
     /// to decode must be made in the same order as the values were encoded in.
     ///
     /// ```rust
-    /// # use bonsaidb_core::key::{CompositeKeyEncoder, CompositeKeyDecoder};
+    /// # use bonsaidb_core::key::{ByteCow, CompositeKeyEncoder, CompositeKeyDecoder};
     ///
     /// let value1 = String::from("hello");
     /// let value2 = 42_u32;
@@ -948,7 +1001,7 @@ impl<'a, 'b> CompositeKeyDecoder<'a, 'b> {
     /// encoder.encode(&value2).unwrap();
     /// let encoded = encoder.finish();
     ///
-    /// let mut decoder = CompositeKeyDecoder::new(&encoded);
+    /// let mut decoder = CompositeKeyDecoder::new(ByteCow::Borrowed(&encoded));
     /// let decoded_string = decoder.decode::<String>().unwrap();
     /// assert_eq!(decoded_string, value1);
     /// let decoded_u32 = decoder.decode::<u32>().unwrap();
@@ -961,23 +1014,21 @@ impl<'a, 'b> CompositeKeyDecoder<'a, 'b> {
         } else {
             // Read a variable-encoded length from the tail of the bytes.
             let mut length = 0;
-            let mut bytes_read = 0;
             let mut found_end = false;
 
             let bytes = self.bytes.as_ref();
 
-            let iterator = bytes[self.offset..self.cap]
+            let iterator = bytes[self.offset..self.end]
                 .iter()
                 .copied()
                 .rev()
                 .enumerate();
 
             for (index, byte) in iterator {
-                length |= usize::from(byte & 0x7f) << (bytes_read * 7);
-                bytes_read += 1;
+                length |= usize::from(byte & 0x7f) << (index * 7);
 
                 if byte & 0x80 == 0 {
-                    self.cap = self.cap - index - 1;
+                    self.end = self.end - index - 1;
                     found_end = true;
                     break;
                 }
@@ -991,15 +1042,15 @@ impl<'a, 'b> CompositeKeyDecoder<'a, 'b> {
             length
         };
         let end = self.offset + length;
-        if end <= self.cap {
-            let decoded = match self.bytes {
+        if end <= self.end {
+            let decoded = match &self.bytes {
                 ByteCow::Borrowed(bytes) => {
                     T::from_ord_bytes(ByteCow::Borrowed(&bytes[self.offset..end]))
                 }
                 ByteCow::Ephemeral(bytes) => {
                     T::from_ord_bytes(ByteCow::Ephemeral(&bytes[self.offset..end]))
                 }
-                ByteCow::Owned(ref bytes) => {
+                ByteCow::Owned(bytes) => {
                     T::from_ord_bytes(ByteCow::Ephemeral(&bytes[self.offset..end]))
                 }
             }
@@ -1019,7 +1070,7 @@ impl<'a, 'b> CompositeKeyDecoder<'a, 'b> {
 
     /// Verifies the underlying byte slice has been fully consumed.
     pub fn finish(self) -> Result<(), CompositeKeyError> {
-        if self.offset == self.cap {
+        if self.offset == self.end {
             Ok(())
         } else {
             Err(CompositeKeyError::new(std::io::Error::from(
@@ -1154,6 +1205,8 @@ impl From<std::io::Error> for CompositeKeyError {
 }
 
 impl<'a> Key<'a> for Signed {
+    const CAN_OWN_BYTES: bool = false;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         Self::decode_variable(bytes.as_ref())
     }
@@ -1182,6 +1235,8 @@ impl<'a> KeyEncoding<'a, Self> for Signed {
 }
 
 impl<'a> Key<'a> for Unsigned {
+    const CAN_OWN_BYTES: bool = false;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         Self::decode_variable(bytes.as_ref())
     }
@@ -1210,6 +1265,8 @@ impl<'a> KeyEncoding<'a, Self> for Unsigned {
 }
 
 impl<'a> Key<'a> for isize {
+    const CAN_OWN_BYTES: bool = false;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         Self::decode_variable(bytes.as_ref())
     }
@@ -1234,6 +1291,8 @@ impl<'a> KeyEncoding<'a, Self> for isize {
 }
 
 impl<'a> Key<'a> for usize {
+    const CAN_OWN_BYTES: bool = false;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         Self::decode_variable(bytes.as_ref())
     }
@@ -1259,8 +1318,10 @@ impl<'a> KeyEncoding<'a, Self> for usize {
 
 #[cfg(feature = "uuid")]
 impl<'k> Key<'k> for uuid::Uuid {
-    fn from_ord_bytes<'b>(bytes: &'k [u8]) -> Result<Self, Self::Error> {
-        Ok(Self::from_bytes(bytes.try_into()?))
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'b>(bytes: ByteCow<'k, 'b>) -> Result<Self, Self::Error> {
+        Ok(Self::from_bytes(bytes.as_ref().try_into()?))
     }
 }
 
@@ -1275,20 +1336,33 @@ impl<'k> KeyEncoding<'k, Self> for uuid::Uuid {
     }
 }
 
+fn decode_skipping_first_byte<'a, 'b, T>(bytes: ByteCow<'a, 'b>) -> Result<T, T::Error>
+where
+    T: Key<'a>,
+{
+    match bytes {
+        ByteCow::Borrowed(bytes) => T::from_ord_bytes(ByteCow::Borrowed(&bytes[1..])),
+        ByteCow::Ephemeral(bytes) => T::from_ord_bytes(ByteCow::Ephemeral(&bytes[1..])),
+        ByteCow::Owned(mut bytes) if T::CAN_OWN_BYTES => {
+            bytes.remove(0);
+            T::from_ord_bytes(ByteCow::Owned(bytes))
+        }
+        ByteCow::Owned(bytes) => T::from_ord_bytes(ByteCow::Ephemeral(&bytes[1..])),
+    }
+}
+
 impl<'a, T> Key<'a> for Option<T>
 where
     T: Key<'a>,
     Self: KeyEncoding<'a, Self, Error = <T as KeyEncoding<'a, T>>::Error>,
 {
+    const CAN_OWN_BYTES: bool = T::CAN_OWN_BYTES;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         if bytes.as_ref().is_empty() || bytes.as_ref()[0] == 0 {
             Ok(None)
         } else {
-            Ok(Some(match bytes {
-                ByteCow::Borrowed(bytes) => T::from_ord_bytes(ByteCow::Borrowed(&bytes[1..]))?,
-                ByteCow::Ephemeral(bytes) => T::from_ord_bytes(ByteCow::Ephemeral(&bytes[1..]))?,
-                ByteCow::Owned(bytes) => T::from_ord_bytes(ByteCow::Ephemeral(&bytes[1..]))?,
-            }))
+            decode_skipping_first_byte(bytes).map(Some)
         }
     }
 
@@ -1333,20 +1407,12 @@ where
     E: Key<'a, Error = <T as KeyEncoding<'a, T>>::Error>,
     Self: KeyEncoding<'a, Self, Error = <T as KeyEncoding<'a, T>>::Error>,
 {
+    const CAN_OWN_BYTES: bool = T::CAN_OWN_BYTES || E::CAN_OWN_BYTES;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         match bytes.as_ref().first() {
-            Some(&RESULT_OK) => match bytes {
-                ByteCow::Borrowed(bytes) => T::from_ord_bytes(ByteCow::Borrowed(&bytes[1..])),
-                ByteCow::Ephemeral(bytes) => T::from_ord_bytes(ByteCow::Ephemeral(&bytes[1..])),
-                ByteCow::Owned(bytes) => T::from_ord_bytes(ByteCow::Ephemeral(&bytes[1..])),
-            }
-            .map(Ok),
-            Some(_) => match bytes {
-                ByteCow::Borrowed(bytes) => E::from_ord_bytes(ByteCow::Borrowed(&bytes[1..])),
-                ByteCow::Ephemeral(bytes) => E::from_ord_bytes(ByteCow::Ephemeral(&bytes[1..])),
-                ByteCow::Owned(bytes) => E::from_ord_bytes(ByteCow::Ephemeral(&bytes[1..])),
-            }
-            .map(Err),
+            Some(&RESULT_OK) => decode_skipping_first_byte(bytes).map(Ok),
+            Some(_) => decode_skipping_first_byte(bytes).map(Err),
             None => {
                 // Empty buffer, but we don't have an error type.
                 E::from_ord_bytes(bytes).map(Err)
@@ -1455,6 +1521,8 @@ impl<'a, T> Key<'a> for EnumKey<T>
 where
     T: ToPrimitive + FromPrimitive + Clone + Eq + Ord + std::fmt::Debug + Send + Sync,
 {
+    const CAN_OWN_BYTES: bool = false;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         let primitive = u64::decode_variable(bytes.as_ref())?;
         T::from_u64(primitive)
@@ -1485,6 +1553,8 @@ where
 macro_rules! impl_key_for_primitive {
     ($type:ident) => {
         impl<'a> Key<'a> for $type {
+            const CAN_OWN_BYTES: bool = false;
+
             fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
                 Ok($type::from_be_bytes(bytes.as_ref().try_into()?))
             }

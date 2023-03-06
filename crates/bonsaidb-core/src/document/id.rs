@@ -217,14 +217,6 @@ impl<'a> TryFrom<Cow<'a, [u8]>> for DocumentId {
     }
 }
 
-impl<'a, 'b> TryFrom<ByteCow<'a, 'b>> for DocumentId {
-    type Error = crate::Error;
-
-    fn try_from(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
-        Self::try_from(bytes.as_ref())
-    }
-}
-
 impl<const N: usize> TryFrom<[u8; N]> for DocumentId {
     type Error = crate::Error;
 
@@ -312,8 +304,10 @@ impl<'de> Visitor<'de> for DocumentIdVisitor {
 }
 
 impl<'k> Key<'k> for DocumentId {
+    const CAN_OWN_BYTES: bool = false;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'k, 'b>) -> Result<Self, Self::Error> {
-        Self::try_from(bytes)
+        Self::try_from(bytes.as_ref())
     }
 }
 

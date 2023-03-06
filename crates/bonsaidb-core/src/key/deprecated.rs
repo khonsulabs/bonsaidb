@@ -60,37 +60,20 @@ pub fn encode_composite_field<'a, K: Key<'a>, T: KeyEncoding<'a, K>, Bytes: Writ
 /// assert!(remaining_bytes.is_empty());
 /// ```
 #[deprecated = "use `CompositeKeyDecoder` instead. This function does not properly sort variable length encoded fields. See #240."]
-pub fn decode_composite_field<'a, 'b, T: Key<'a>>(
-    bytes: ByteCow<'a, 'b>,
-) -> Result<(T, ByteCow<'a, 'b>), CompositeKeyError> {
+pub fn decode_composite_field<'a, 'k, T: Key<'k>>(
+    mut bytes: &'a [u8],
+) -> Result<(T, &'a [u8]), CompositeKeyError> {
     let length = if let Some(length) = T::LENGTH {
         length
     } else {
-        usize::try_from(u64::decode_variable(&mut bytes.as_ref())?)?
+        usize::try_from(u64::decode_variable(&mut bytes)?)?
     };
-    match bytes {
-        ByteCow::Owned(bytes) => {
-            let (t2, remaining) = bytes.split_at(length);
-            Ok((
-                T::from_ord_bytes(ByteCow::Ephemeral(t2)).map_err(CompositeKeyError::new)?,
-                ByteCow::Owned(Vec::from(remaining)),
-            ))
-        }
-        ByteCow::Ephemeral(bytes) => {
-            let (t2, remaining) = bytes.split_at(length);
-            Ok((
-                T::from_ord_bytes(ByteCow::Ephemeral(t2)).map_err(CompositeKeyError::new)?,
-                ByteCow::Ephemeral(remaining),
-            ))
-        }
-        ByteCow::Borrowed(bytes) => {
-            let (t2, remaining) = bytes.split_at(length);
-            Ok((
-                T::from_ord_bytes(ByteCow::Borrowed(t2)).map_err(CompositeKeyError::new)?,
-                ByteCow::Borrowed(remaining),
-            ))
-        }
-    }
+
+    let (t2, remaining) = bytes.split_at(length);
+    Ok((
+        T::from_ord_bytes(ByteCow::Ephemeral(t2)).map_err(CompositeKeyError::new)?,
+        remaining,
+    ))
 }
 
 /// This type enables wrapping a tuple to preserve the behavior of the initial
@@ -109,26 +92,10 @@ macro_rules! impl_key_for_tuple_v1 {
         where
             $($generic: Key<'a>),+
         {
+            const CAN_OWN_BYTES: bool = false;
             fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
-                let ($($varname),+, bytes) = match bytes {
-                    ByteCow::Borrowed(bytes) => {
-                        let bytes = ByteCow::Borrowed(bytes);
-                        $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
-                        ($($varname),+, bytes.into_std())
-                    },
-                    ByteCow::Ephemeral(bytes) => {
-                        let bytes = ByteCow::Ephemeral(bytes);
-                        $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
-                        ($($varname),+, bytes.into_std())
-                    },
-                    ByteCow::Owned(bytes) => {
-                        // Avoid re-allocations in decode_composite_field by turning Owned into
-                        // Ephemeral
-                        let bytes = ByteCow::Ephemeral(&bytes);
-                        $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
-                        ($($varname),+, bytes.into_std())
-                    },
-                };
+                let bytes = bytes.as_ref();
+                $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
 
                 if bytes.is_empty() {
                     Ok(Self(($($varname),+,)))
@@ -216,6 +183,8 @@ where
     T: Key<'a>,
     Self: KeyEncoding<'a, Self, Error = <T as KeyEncoding<'a, T>>::Error>,
 {
+    const CAN_OWN_BYTES: bool = false;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         if bytes.as_ref().is_empty() {
             Ok(Self(None))

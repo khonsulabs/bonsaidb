@@ -9,6 +9,8 @@ use crate::key::time::limited::{BonsaiEpoch, UnixEpoch};
 use crate::key::{ByteCow, Key, KeyEncoding};
 
 impl<'a> Key<'a> for Duration {
+    const CAN_OWN_BYTES: bool = false;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         let merged = u128::decode_variable(bytes.as_ref()).map_err(|_| TimeError::InvalidValue)?;
         let seconds = u64::try_from(merged >> 30).map_err(|_| TimeError::DeltaNotRepresentable)?;
@@ -46,6 +48,8 @@ fn duration_key_tests() {
 }
 
 impl<'a> Key<'a> for SystemTime {
+    const CAN_OWN_BYTES: bool = false;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         let since_epoch = Duration::from_ord_bytes(bytes)?;
         UNIX_EPOCH
@@ -271,6 +275,8 @@ pub mod limited {
     where
         Resolution: TimeResolution,
     {
+        const CAN_OWN_BYTES: bool = false;
+
         fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
             let representation =
                 <Resolution::Representation as Variable>::decode_variable(bytes.as_ref())
@@ -1112,6 +1118,8 @@ pub mod limited {
         Resolution: TimeResolution,
         Epoch: TimeEpoch,
     {
+        const CAN_OWN_BYTES: bool = false;
+
         fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
             let duration = LimitedResolutionDuration::<Resolution>::from_ord_bytes(bytes)?;
             Ok(Self::from(duration))

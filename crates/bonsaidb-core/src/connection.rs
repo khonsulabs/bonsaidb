@@ -3393,6 +3393,8 @@ impl DerefMut for SensitiveString {
 }
 
 impl<'k> Key<'k> for SensitiveString {
+    const CAN_OWN_BYTES: bool = String::CAN_OWN_BYTES;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'k, 'b>) -> Result<Self, Self::Error> {
         String::from_ord_bytes(bytes).map(Self)
     }
@@ -3448,6 +3450,8 @@ impl DerefMut for SensitiveBytes {
 }
 
 impl<'k> Key<'k> for SensitiveBytes {
+    const CAN_OWN_BYTES: bool = Bytes::CAN_OWN_BYTES;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'k, 'b>) -> Result<Self, Self::Error> {
         Bytes::from_ord_bytes(bytes).map(Self)
     }

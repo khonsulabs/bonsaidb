@@ -74,6 +74,8 @@ impl std::ops::Add<Duration> for Timestamp {
 }
 
 impl<'a> Key<'a> for Timestamp {
+    const CAN_OWN_BYTES: bool = false;
+
     fn from_ord_bytes<'b>(bytes: ByteCow<'a, 'b>) -> Result<Self, Self::Error> {
         if bytes.as_ref().len() != 12 {
             return Err(IncorrectByteLength);
