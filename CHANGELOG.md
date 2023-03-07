@@ -117,6 +117,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in-lining the `admin` command. This introduces additional top-level commands
   that were previously hidden underneath the `server` command.
 
+- `ConnectedClient::all_sessions()` is a new function that returns all of the
+  active sessions for the given client.
+
 ### Added
 
 - [#239][239] `Key` can now be derived on enums and structs, allowing an easier way
