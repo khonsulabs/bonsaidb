@@ -393,6 +393,7 @@ struct KeyAttribute {
     #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
     core: Option<Path>,
     allow_null_bytes: bool,
+    can_own_bytes: bool,
     enum_repr: Option<Type>,
 }
 
@@ -439,6 +440,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         core,
         allow_null_bytes,
         enum_repr,
+        can_own_bytes,
     } = KeyAttribute::from_attributes(&attrs).unwrap_or_abort();
 
     if matches!(data, Data::Struct(_)) && enum_repr.is_some() {
@@ -628,11 +630,12 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     quote! {
         # use std::{borrow::Cow, io::{self, ErrorKind}};
-        # use #core::key::{CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError, Key, KeyEncoding};
+        # use #core::key::{ByteSource, CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError, Key, KeyEncoding};
 
         impl #impl_generics Key<'key> for #ident #ty_generics #where_clause {
+            const CAN_OWN_BYTES: bool = #can_own_bytes;
 
-            fn from_ord_bytes(mut $bytes: &'key [u8]) -> Result<Self, Self::Error> {
+            fn from_ord_bytes<'b>(mut $bytes: ByteSource<'key, 'b>) -> Result<Self, Self::Error> {
 
                 let mut $decoder = CompositeKeyDecoder::new($bytes);
 

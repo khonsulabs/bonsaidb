@@ -3,7 +3,7 @@ use std::io::{ErrorKind, Write};
 
 use ordered_varint::Variable;
 
-use crate::key::{CompositeKeyError, Key, KeyEncoding, NextValueError};
+use crate::key::{ByteSource, CompositeKeyError, Key, KeyEncoding, NextValueError};
 
 /// Encodes a value using the `Key` trait in such a way that multiple values can
 /// still be ordered at the byte level when chained together.
@@ -25,8 +25,8 @@ use crate::key::{CompositeKeyError, Key, KeyEncoding, NextValueError};
 /// assert!(remaining_bytes.is_empty());
 /// ```
 #[deprecated = "use `CompositeKeyEncoder` instead. This function does not properly sort variable length encoded fields. See #240."]
-pub fn encode_composite_field<'a, K: Key<'a>, T: KeyEncoding<'a, K>, Bytes: Write>(
-    value: &'a T,
+pub fn encode_composite_field<'k, K: Key<'k>, T: KeyEncoding<'k, K>, Bytes: Write>(
+    value: &'k T,
     bytes: &mut Bytes,
 ) -> Result<(), CompositeKeyError> {
     let t2 = T::as_ord_bytes(value).map_err(CompositeKeyError::new)?;
@@ -60,17 +60,18 @@ pub fn encode_composite_field<'a, K: Key<'a>, T: KeyEncoding<'a, K>, Bytes: Writ
 /// assert!(remaining_bytes.is_empty());
 /// ```
 #[deprecated = "use `CompositeKeyDecoder` instead. This function does not properly sort variable length encoded fields. See #240."]
-pub fn decode_composite_field<'a, T: Key<'a>>(
+pub fn decode_composite_field<'a, 'k, T: Key<'k>>(
     mut bytes: &'a [u8],
-) -> Result<(T, &[u8]), CompositeKeyError> {
+) -> Result<(T, &'a [u8]), CompositeKeyError> {
     let length = if let Some(length) = T::LENGTH {
         length
     } else {
         usize::try_from(u64::decode_variable(&mut bytes)?)?
     };
+
     let (t2, remaining) = bytes.split_at(length);
     Ok((
-        T::from_ord_bytes(t2).map_err(CompositeKeyError::new)?,
+        T::from_ord_bytes(ByteSource::Ephemeral(t2)).map_err(CompositeKeyError::new)?,
         remaining,
     ))
 }
@@ -87,11 +88,13 @@ pub struct TupleEncodingV1<T>(pub T);
 macro_rules! impl_key_for_tuple_v1 {
     ($(($index:tt, $varname:ident, $generic:ident)),+) => {
         #[allow(deprecated)]
-        impl<'a, $($generic),+> Key<'a> for TupleEncodingV1<($($generic),+,)>
+        impl<'k, $($generic),+> Key<'k> for TupleEncodingV1<($($generic),+,)>
         where
-            $($generic: Key<'a>),+
+            $($generic: Key<'k>),+
         {
-            fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+            const CAN_OWN_BYTES: bool = false;
+            fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+                let bytes = bytes.as_ref();
                 $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
 
                 if bytes.is_empty() {
@@ -105,9 +108,9 @@ macro_rules! impl_key_for_tuple_v1 {
         }
 
         #[allow(deprecated)]
-        impl<'a, $($generic),+> KeyEncoding<'a, Self> for TupleEncodingV1<($($generic),+,)>
+        impl<'k, $($generic),+> KeyEncoding<'k, Self> for TupleEncodingV1<($($generic),+,)>
         where
-            $($generic: Key<'a>),+
+            $($generic: Key<'k>),+
         {
             type Error = CompositeKeyError;
 
@@ -116,7 +119,7 @@ macro_rules! impl_key_for_tuple_v1 {
                 _ => None,
             };
 
-            fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+            fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
                 let mut bytes = Vec::new();
 
                 $(encode_composite_field(&self.0.$index, &mut bytes)?;)+
@@ -175,13 +178,15 @@ impl_key_for_tuple_v1!(
 pub struct OptionKeyV1<T>(pub Option<T>);
 
 #[allow(deprecated)]
-impl<'a, T> Key<'a> for OptionKeyV1<T>
+impl<'k, T> Key<'k> for OptionKeyV1<T>
 where
-    T: Key<'a>,
-    Self: KeyEncoding<'a, Self, Error = <T as KeyEncoding<'a, T>>::Error>,
+    T: Key<'k>,
+    Self: KeyEncoding<'k, Self, Error = <T as KeyEncoding<'k, T>>::Error>,
 {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        if bytes.is_empty() {
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
+        if bytes.as_ref().is_empty() {
             Ok(Self(None))
         } else {
             Ok(Self(Some(T::from_ord_bytes(bytes)?)))

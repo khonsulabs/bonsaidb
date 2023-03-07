@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::key::{IncorrectByteLength, Key, KeyEncoding};
+use crate::key::{ByteSource, IncorrectByteLength, Key, KeyEncoding};
 
 /// A timestamp relative to [`UNIX_EPOCH`].
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Default)]
@@ -73,25 +73,27 @@ impl std::ops::Add<Duration> for Timestamp {
     }
 }
 
-impl<'a> Key<'a> for Timestamp {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        if bytes.len() != 12 {
+impl<'k> Key<'k> for Timestamp {
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+        if bytes.as_ref().len() != 12 {
             return Err(IncorrectByteLength);
         }
 
         Ok(Self {
-            seconds: u64::from_ord_bytes(&bytes[0..8])?,
-            nanos: u32::from_ord_bytes(&bytes[8..12])?,
+            seconds: u64::from_ord_bytes(ByteSource::Borrowed(&bytes.as_ref()[0..8]))?,
+            nanos: u32::from_ord_bytes(ByteSource::Borrowed(&bytes.as_ref()[8..12]))?,
         })
     }
 }
 
-impl<'a> KeyEncoding<'a, Self> for Timestamp {
+impl<'k> KeyEncoding<'k, Self> for Timestamp {
     type Error = IncorrectByteLength;
 
     const LENGTH: Option<usize> = Some(12);
 
-    fn as_ord_bytes(&'a self) -> Result<std::borrow::Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
         let seconds_bytes: &[u8] = &self.seconds.to_be_bytes();
         let nanos_bytes = &self.nanos.to_be_bytes();
         Ok(Cow::Owned([seconds_bytes, nanos_bytes].concat()))
@@ -102,7 +104,7 @@ impl<'a> KeyEncoding<'a, Self> for Timestamp {
 fn key_test() {
     let original = Timestamp::now();
     assert_eq!(
-        Timestamp::from_ord_bytes(&original.as_ord_bytes().unwrap()).unwrap(),
+        Timestamp::from_ord_bytes(ByteSource::Borrowed(&original.as_ord_bytes().unwrap())).unwrap(),
         original
     );
 }

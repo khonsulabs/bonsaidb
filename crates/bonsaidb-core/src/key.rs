@@ -100,9 +100,14 @@ where
 /// This null-byte edge case only applies to variable length [`Key`]s
 /// ([`KeyEncoding::LENGTH`] is `None`).
 pub trait Key<'k>: KeyEncoding<'k, Self> + Clone + Send + Sync {
+    /// If true, this type can benefit from an owned `Vec<u8>`. This flag is
+    /// used as a hint of whether to attempt to do memcpy operations in some
+    /// decoding operations to avoid extra allocations.
+    const CAN_OWN_BYTES: bool;
+
     /// Deserialize a sequence of bytes previously encoded with
     /// [`KeyEncoding::as_ord_bytes`].
-    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error>;
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error>;
 
     /// Return the first value in sequence for this type. Not all types
     /// implement this.
@@ -142,6 +147,78 @@ pub enum NextValueError {
     WouldWrap,
 }
 
+/// A source of bytes from a `&'borrowed [u8]`, `&'ephemeral [u8]` or `Vec<u8>`.
+///
+/// This is used by the [`Key`] trait to allow `'ephemeral` borrows of an owned
+/// `Vec<u8>` while also allowing for code paths that support borrowing from a
+/// `'borrowed` byte slice.
+pub enum ByteSource<'borrowed, 'ephemeral> {
+    /// Borrowed bytes valid for `'borrowed`.
+    Borrowed(&'borrowed [u8]),
+
+    /// Borrowed bytes valid for `'ephemeral`.
+    Ephemeral(&'ephemeral [u8]),
+
+    /// Owned bytes.
+    Owned(Vec<u8>),
+}
+
+impl<'borrowed, 'ephemeral> ByteSource<'borrowed, 'ephemeral>
+where
+    'borrowed: 'ephemeral,
+{
+    /// Coerce a `ByteSource` into `Cow<'borrowed, [u8]>`
+    ///
+    /// This will allocate if this is an `'ephemeral` reference.
+    #[must_use]
+    pub fn into_borrowed(self) -> Cow<'borrowed, [u8]> {
+        match self {
+            Self::Borrowed(bytes) => Cow::Borrowed(bytes),
+            Self::Ephemeral(bytes) => Cow::Owned(Vec::from(bytes)),
+            Self::Owned(bytes) => Cow::Owned(bytes),
+        }
+    }
+
+    /// Coerce a `ByteSource` into a `Vec<u8>`
+    ///
+    /// This will allocate if the source is `'borrowed` or `'ephemeral`.
+    #[must_use]
+    #[allow(clippy::match_same_arms)] // Lifetimes are different.
+    pub fn into_owned(self) -> Vec<u8> {
+        match self {
+            Self::Borrowed(bytes) => Vec::from(bytes),
+            Self::Ephemeral(bytes) => Vec::from(bytes),
+            Self::Owned(bytes) => bytes,
+        }
+    }
+}
+
+impl<'borrowed, 'ephemeral> AsRef<[u8]> for ByteSource<'borrowed, 'ephemeral> {
+    #[allow(clippy::match_same_arms)] // Lifetimes are different.
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::Borrowed(bytes) => bytes,
+            Self::Ephemeral(bytes) => bytes,
+            Self::Owned(ref bytes) => bytes.as_slice(),
+        }
+    }
+}
+
+impl<'borrowed, 'ephemeral> Default for ByteSource<'borrowed, 'ephemeral> {
+    fn default() -> Self {
+        Self::Owned(Vec::default())
+    }
+}
+
+impl<'borrowed, 'ephemeral> From<Cow<'borrowed, [u8]>> for ByteSource<'borrowed, 'ephemeral> {
+    fn from(cow: Cow<'borrowed, [u8]>) -> Self {
+        match cow {
+            Cow::Borrowed(bytes) => ByteSource::Borrowed(bytes),
+            Cow::Owned(bytes) => ByteSource::Owned(bytes),
+        }
+    }
+}
+
 /// A type that can be used as a prefix range in range-based queries.
 pub trait IntoPrefixRange<'a, TOwned>: PartialEq
 where
@@ -167,8 +244,10 @@ fn next_byte_sequence(start: &[u8]) -> Option<Vec<u8>> {
 }
 
 impl<'k> Key<'k> for Cow<'k, [u8]> {
-    fn from_ord_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        Ok(Cow::Owned(bytes.to_vec()))
+    const CAN_OWN_BYTES: bool = true;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+        Ok(bytes.into_borrowed())
     }
 }
 
@@ -219,7 +298,9 @@ where
     TBorrowed: KeyEncoding<'k, TOwned, Error = TOwned::Error> + PartialEq + ?Sized,
     TOwned: Key<'k> + PartialEq<TBorrowed>,
 {
-    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
+    const CAN_OWN_BYTES: bool = TOwned::CAN_OWN_BYTES;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         TOwned::from_ord_bytes(bytes).map(Self::Owned)
     }
 }
@@ -258,26 +339,28 @@ fn cow_prefix_range_tests() {
         .contains(&Cow::Borrowed(&b"\xfe"[..])));
 }
 
-impl<'a> Key<'a> for Vec<u8> {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        Ok(bytes.to_vec())
+impl<'k> Key<'k> for Vec<u8> {
+    const CAN_OWN_BYTES: bool = true;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+        Ok(bytes.into_owned())
     }
 }
 
-impl<'a> KeyEncoding<'a, Self> for Vec<u8> {
+impl<'k> KeyEncoding<'k, Self> for Vec<u8> {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
 }
 
 impl_u8_slice_key_encoding!(Vec<u8>);
 
-impl<'a> IntoPrefixRange<'a, Self> for Vec<u8> {
-    fn to_prefix_range(&'a self) -> RangeRef<'a, Self> {
+impl<'k> IntoPrefixRange<'k, Self> for Vec<u8> {
+    fn to_prefix_range(&'k self) -> RangeRef<'k, Self> {
         if let Some(next) = next_byte_sequence(self) {
             RangeRef {
                 start: BoundRef::borrowed(Bound::Included(self)),
@@ -292,11 +375,13 @@ impl<'a> IntoPrefixRange<'a, Self> for Vec<u8> {
     }
 }
 
-impl<'a, const N: usize> Key<'a> for [u8; N] {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        if bytes.len() == N {
+impl<'k, const N: usize> Key<'k> for [u8; N] {
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+        if bytes.as_ref().len() == N {
             let mut array = [0; N];
-            array.copy_from_slice(bytes);
+            array.copy_from_slice(bytes.as_ref());
             Ok(array)
         } else {
             Err(IncorrectByteLength)
@@ -304,12 +389,12 @@ impl<'a, const N: usize> Key<'a> for [u8; N] {
     }
 }
 
-impl<'a, const N: usize> KeyEncoding<'a, Self> for [u8; N] {
+impl<'k, const N: usize> KeyEncoding<'k, Self> for [u8; N] {
     type Error = IncorrectByteLength;
 
     const LENGTH: Option<usize> = Some(N);
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
 }
@@ -329,18 +414,20 @@ fn vec_prefix_range_tests() {
         .contains(&b"\xfe".to_vec()));
 }
 
-impl<'a> Key<'a> for ArcBytes<'a> {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        Ok(Self::from(bytes))
+impl<'k> Key<'k> for ArcBytes<'k> {
+    const CAN_OWN_BYTES: bool = true;
+
+    fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
+        Ok(Self::from(bytes.into_borrowed()))
     }
 }
 
-impl<'a> KeyEncoding<'a, Self> for ArcBytes<'a> {
+impl<'k> KeyEncoding<'k, Self> for ArcBytes<'k> {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
 }
@@ -380,18 +467,20 @@ fn arcbytes_prefix_range_tests() {
         .contains(&ArcBytes::from(b"\xfe")));
 }
 
-impl<'a> Key<'a> for CowBytes<'a> {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        Ok(Self::from(bytes))
+impl<'k> Key<'k> for CowBytes<'k> {
+    const CAN_OWN_BYTES: bool = true;
+
+    fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
+        Ok(Self(bytes.into_borrowed()))
     }
 }
 
-impl<'a> KeyEncoding<'a, Self> for CowBytes<'a> {
+impl<'k> KeyEncoding<'k, Self> for CowBytes<'k> {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(self.0.clone())
     }
 }
@@ -431,18 +520,20 @@ fn cowbytes_prefix_range_tests() {
         .contains(&CowBytes::from(&b"\xfe"[..])));
 }
 
-impl<'a> Key<'a> for Bytes {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        Ok(Self::from(bytes))
+impl<'k> Key<'k> for Bytes {
+    const CAN_OWN_BYTES: bool = true;
+
+    fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
+        Ok(Self(bytes.into_owned()))
     }
 }
 
-impl<'a> KeyEncoding<'a, Self> for Bytes {
+impl<'k> KeyEncoding<'k, Self> for Bytes {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
 }
@@ -482,18 +573,20 @@ fn bytes_prefix_range_tests() {
         .contains(&Bytes::from(b"\xfe".to_vec())));
 }
 
-impl<'a> Key<'a> for String {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        Self::from_utf8(bytes.to_vec())
+impl<'k> Key<'k> for String {
+    const CAN_OWN_BYTES: bool = true;
+
+    fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
+        Self::from_utf8(bytes.into_owned())
     }
 }
 
-impl<'a> KeyEncoding<'a, Self> for String {
+impl<'k> KeyEncoding<'k, Self> for String {
     type Error = FromUtf8Error;
 
     const LENGTH: Option<usize> = None;
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self.as_bytes()))
     }
 }
@@ -573,8 +666,15 @@ impl<'a> IntoPrefixRange<'a, String> for str {
 }
 
 impl<'k> Key<'k> for Cow<'k, str> {
-    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
-        std::str::from_utf8(bytes).map(Cow::Borrowed)
+    const CAN_OWN_BYTES: bool = true;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+        match bytes.into_borrowed() {
+            Cow::Borrowed(bytes) => std::str::from_utf8(bytes).map(Cow::Borrowed),
+            Cow::Owned(bytes) => String::from_utf8(bytes)
+                .map(Cow::Owned)
+                .map_err(|e| e.utf8_error()),
+        }
     }
 }
 
@@ -611,24 +711,29 @@ fn string_prefix_range_tests() {
         .contains(&String::from("\u{10fffe}")));
 }
 
-impl<'a> Key<'a> for () {
-    fn from_ord_bytes(_: &'a [u8]) -> Result<Self, Self::Error> {
+impl<'k> Key<'k> for () {
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'b>(_: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
         Ok(())
     }
 }
 
-impl<'a> KeyEncoding<'a, Self> for () {
+impl<'k> KeyEncoding<'k, Self> for () {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = Some(0);
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::default())
     }
 }
 
-impl<'a> Key<'a> for bool {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+impl<'k> Key<'k> for bool {
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
+        let bytes = bytes.as_ref();
         if bytes.is_empty() || bytes[0] == 0 {
             Ok(false)
         } else {
@@ -637,12 +742,12 @@ impl<'a> Key<'a> for bool {
     }
 }
 
-impl<'a> KeyEncoding<'a, Self> for bool {
+impl<'k> KeyEncoding<'k, Self> for bool {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = Some(1);
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         if *self {
             Ok(Cow::Borrowed(&[1_u8]))
         } else {
@@ -653,11 +758,12 @@ impl<'a> KeyEncoding<'a, Self> for bool {
 
 macro_rules! impl_key_for_tuple {
     ($(($index:tt, $varname:ident, $generic:ident)),+) => {
-        impl<'a, $($generic),+> Key<'a> for ($($generic),+,)
+        impl<'k, $($generic),+> Key<'k> for ($($generic),+,)
         where
-            $($generic: Key<'a>),+
+            $($generic: Key<'k>),+
         {
-            fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+            const CAN_OWN_BYTES: bool = false;
+            fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
                 let mut decoder = CompositeKeyDecoder::new(bytes);
                 $(let $varname = decoder.decode::<$generic>()?;)+
                 decoder.finish()?;
@@ -666,9 +772,9 @@ macro_rules! impl_key_for_tuple {
             }
         }
 
-        impl<'a, $($generic),+> KeyEncoding<'a, Self> for ($($generic),+,)
+        impl<'k, $($generic),+> KeyEncoding<'k, Self> for ($($generic),+,)
         where
-            $($generic: Key<'a>),+
+            $($generic: Key<'k>),+
         {
             type Error = CompositeKeyError;
 
@@ -677,7 +783,7 @@ macro_rules! impl_key_for_tuple {
                 _ => None,
             };
 
-            fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+            fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
                 let mut encoder = CompositeKeyEncoder::default();
 
                 $(encoder.encode(&self.$index)?;)+
@@ -750,7 +856,7 @@ impl CompositeKeyEncoder {
     /// Encodes a single [`KeyEncoding`] implementing value.
     ///
     /// ```rust
-    /// # use bonsaidb_core::key::{CompositeKeyEncoder, CompositeKeyDecoder};
+    /// # use bonsaidb_core::key::{ByteSource, CompositeKeyEncoder, CompositeKeyDecoder};
     ///
     /// let value1 = String::from("hello");
     /// let value2 = 42_u32;
@@ -759,16 +865,16 @@ impl CompositeKeyEncoder {
     /// encoder.encode(&value2).unwrap();
     /// let encoded = encoder.finish();
     ///
-    /// let mut decoder = CompositeKeyDecoder::new(&encoded);
+    /// let mut decoder = CompositeKeyDecoder::new(ByteSource::Borrowed(&encoded));
     /// let decoded_string = decoder.decode::<String>().unwrap();
     /// assert_eq!(decoded_string, value1);
     /// let decoded_u32 = decoder.decode::<u32>().unwrap();
     /// assert_eq!(decoded_u32, value2);
     /// decoder.finish().expect("trailing bytes");
     /// ```
-    pub fn encode<'a, K: Key<'a>, T: KeyEncoding<'a, K> + ?Sized>(
+    pub fn encode<'k, K: Key<'k>, T: KeyEncoding<'k, K> + ?Sized>(
         &mut self,
-        value: &'a T,
+        value: &'k T,
     ) -> Result<(), CompositeKeyError> {
         let encoded = T::as_ord_bytes(value).map_err(CompositeKeyError::new)?;
         if T::LENGTH.is_none() {
@@ -842,23 +948,28 @@ pub struct CompositeKeyFieldContainsNullByte;
 /// Decodes multiple [`Key`] values from a byte slice previously encoded with
 /// [`CompositeKeyEncoder`].
 #[derive(Default)]
-pub struct CompositeKeyDecoder<'a> {
-    bytes: &'a [u8],
+pub struct CompositeKeyDecoder<'key, 'ephemeral> {
+    bytes: ByteSource<'key, 'ephemeral>,
     offset: usize,
+    end: usize,
 }
 
-impl<'a> CompositeKeyDecoder<'a> {
+impl<'key, 'ephemeral> CompositeKeyDecoder<'key, 'ephemeral> {
     /// Returns a new decoder for `bytes`.
     #[must_use]
-    pub const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
+    pub fn new(bytes: ByteSource<'key, 'ephemeral>) -> Self {
+        Self {
+            end: bytes.as_ref().len(),
+            bytes,
+            offset: 0,
+        }
     }
 
     /// Decodes a value previously encoded using [`CompositeKeyEncoder`]. Calls
     /// to decode must be made in the same order as the values were encoded in.
     ///
     /// ```rust
-    /// # use bonsaidb_core::key::{CompositeKeyEncoder, CompositeKeyDecoder};
+    /// # use bonsaidb_core::key::{ByteSource, CompositeKeyEncoder, CompositeKeyDecoder};
     ///
     /// let value1 = String::from("hello");
     /// let value2 = 42_u32;
@@ -867,30 +978,39 @@ impl<'a> CompositeKeyDecoder<'a> {
     /// encoder.encode(&value2).unwrap();
     /// let encoded = encoder.finish();
     ///
-    /// let mut decoder = CompositeKeyDecoder::new(&encoded);
+    /// let mut decoder = CompositeKeyDecoder::new(ByteSource::Borrowed(&encoded));
     /// let decoded_string = decoder.decode::<String>().unwrap();
     /// assert_eq!(decoded_string, value1);
     /// let decoded_u32 = decoder.decode::<u32>().unwrap();
     /// assert_eq!(decoded_u32, value2);
     /// decoder.finish().expect("trailing bytes");
     /// ```
-    pub fn decode<T: Key<'a>>(&mut self) -> Result<T, CompositeKeyError> {
+    pub fn decode<T: Key<'key>>(&mut self) -> Result<T, CompositeKeyError> {
         let length = if let Some(length) = T::LENGTH {
             length
         } else {
             // Read a variable-encoded length from the tail of the bytes.
             let mut length = 0;
-            let mut bytes_read = 0;
             let mut found_end = false;
-            while let Some(&tail) = self.bytes.last() {
-                length |= usize::from(tail & 0x7F) << (bytes_read * 7);
-                bytes_read += 1;
-                self.bytes = &self.bytes[..self.bytes.len() - 1];
-                if tail & 0x80 == 0 {
+
+            let bytes = self.bytes.as_ref();
+
+            let iterator = bytes[self.offset..self.end]
+                .iter()
+                .copied()
+                .rev()
+                .enumerate();
+
+            for (index, byte) in iterator {
+                length |= usize::from(byte & 0x7f) << (index * 7);
+
+                if byte & 0x80 == 0 {
+                    self.end = self.end - index - 1;
                     found_end = true;
                     break;
                 }
             }
+
             if !found_end {
                 return Err(CompositeKeyError::new(std::io::Error::from(
                     ErrorKind::UnexpectedEof,
@@ -899,9 +1019,19 @@ impl<'a> CompositeKeyDecoder<'a> {
             length
         };
         let end = self.offset + length;
-        if end <= self.bytes.len() {
-            let decoded =
-                T::from_ord_bytes(&self.bytes[self.offset..end]).map_err(CompositeKeyError::new)?;
+        if end <= self.end {
+            let decoded = match &self.bytes {
+                ByteSource::Borrowed(bytes) => {
+                    T::from_ord_bytes(ByteSource::Borrowed(&bytes[self.offset..end]))
+                }
+                ByteSource::Ephemeral(bytes) => {
+                    T::from_ord_bytes(ByteSource::Ephemeral(&bytes[self.offset..end]))
+                }
+                ByteSource::Owned(bytes) => {
+                    T::from_ord_bytes(ByteSource::Ephemeral(&bytes[self.offset..end]))
+                }
+            }
+            .map_err(CompositeKeyError::new)?;
             self.offset = end;
             if T::LENGTH.is_none() {
                 // Variable fields always have an extra null byte to delimit the data
@@ -917,7 +1047,7 @@ impl<'a> CompositeKeyDecoder<'a> {
 
     /// Verifies the underlying byte slice has been fully consumed.
     pub fn finish(self) -> Result<(), CompositeKeyError> {
-        if self.offset == self.bytes.len() {
+        if self.offset == self.end {
             Ok(())
         } else {
             Err(CompositeKeyError::new(std::io::Error::from(
@@ -936,7 +1066,7 @@ fn composite_key_null_check_test() {
     encoder.allow_null_bytes_in_variable_fields();
     encoder.encode(&vec![0_u8]).unwrap();
     let bytes = encoder.finish();
-    let mut decoder = CompositeKeyDecoder::new(&bytes);
+    let mut decoder = CompositeKeyDecoder::new(ByteSource::Borrowed(&bytes));
     let decoded_value = decoder.decode::<Cow<'_, [u8]>>().unwrap();
     assert_eq!(decoded_value.as_ref(), &[0]);
 }
@@ -953,7 +1083,7 @@ fn composite_key_tests() {
     ///
     /// The macros just make it less verbose to create the nested loops which
     /// create the tuples.
-    fn verify_key_ordering<T: for<'a> Key<'a> + Ord + Eq + std::fmt::Debug>(
+    fn verify_key_ordering<T: for<'k> Key<'k> + Ord + Eq + std::fmt::Debug>(
         mut cases: Vec<T>,
         already_ordered: bool,
     ) {
@@ -970,7 +1100,7 @@ fn composite_key_tests() {
         println!("Tested {} entries", cases.len());
         let decoded = encoded
             .iter()
-            .map(|encoded| T::from_ord_bytes(encoded).unwrap())
+            .map(|encoded| T::from_ord_bytes(ByteSource::Borrowed(encoded)).unwrap())
             .collect::<Vec<_>>();
         assert_eq!(cases, decoded);
     }
@@ -1051,9 +1181,11 @@ impl From<std::io::Error> for CompositeKeyError {
     }
 }
 
-impl<'a> Key<'a> for Signed {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        Self::decode_variable(bytes)
+impl<'k> Key<'k> for Signed {
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+        Self::decode_variable(bytes.as_ref())
     }
 
     fn first_value() -> Result<Self, NextValueError> {
@@ -1069,19 +1201,21 @@ impl<'a> Key<'a> for Signed {
     }
 }
 
-impl<'a> KeyEncoding<'a, Self> for Signed {
+impl<'k> KeyEncoding<'k, Self> for Signed {
     type Error = std::io::Error;
 
     const LENGTH: Option<usize> = None;
 
-    fn as_ord_bytes(&self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'k, [u8]>, Self::Error> {
         self.to_variable_vec().map(Cow::Owned)
     }
 }
 
-impl<'a> Key<'a> for Unsigned {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        Self::decode_variable(bytes)
+impl<'k> Key<'k> for Unsigned {
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+        Self::decode_variable(bytes.as_ref())
     }
 
     fn first_value() -> Result<Self, NextValueError> {
@@ -1097,19 +1231,21 @@ impl<'a> Key<'a> for Unsigned {
     }
 }
 
-impl<'a> KeyEncoding<'a, Self> for Unsigned {
+impl<'k> KeyEncoding<'k, Self> for Unsigned {
     type Error = std::io::Error;
 
     const LENGTH: Option<usize> = None;
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         self.to_variable_vec().map(Cow::Owned)
     }
 }
 
-impl<'a> Key<'a> for isize {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        Self::decode_variable(bytes)
+impl<'k> Key<'k> for isize {
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+        Self::decode_variable(bytes.as_ref())
     }
 
     fn first_value() -> Result<Self, NextValueError> {
@@ -1121,19 +1257,21 @@ impl<'a> Key<'a> for isize {
     }
 }
 
-impl<'a> KeyEncoding<'a, Self> for isize {
+impl<'k> KeyEncoding<'k, Self> for isize {
     type Error = std::io::Error;
 
     const LENGTH: Option<usize> = None;
 
-    fn as_ord_bytes(&self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'k, [u8]>, Self::Error> {
         self.to_variable_vec().map(Cow::Owned)
     }
 }
 
-impl<'a> Key<'a> for usize {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        Self::decode_variable(bytes)
+impl<'k> Key<'k> for usize {
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+        Self::decode_variable(bytes.as_ref())
     }
 
     fn first_value() -> Result<Self, NextValueError> {
@@ -1145,20 +1283,22 @@ impl<'a> Key<'a> for usize {
     }
 }
 
-impl<'a> KeyEncoding<'a, Self> for usize {
+impl<'k> KeyEncoding<'k, Self> for usize {
     type Error = std::io::Error;
 
     const LENGTH: Option<Self> = None;
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         self.to_variable_vec().map(Cow::Owned)
     }
 }
 
 #[cfg(feature = "uuid")]
 impl<'k> Key<'k> for uuid::Uuid {
-    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
-        Ok(Self::from_bytes(bytes.try_into()?))
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+        Ok(Self::from_bytes(bytes.as_ref().try_into()?))
     }
 }
 
@@ -1173,16 +1313,33 @@ impl<'k> KeyEncoding<'k, Self> for uuid::Uuid {
     }
 }
 
-impl<'a, T> Key<'a> for Option<T>
+fn decode_skipping_first_byte<'k, 'e, T>(bytes: ByteSource<'k, 'e>) -> Result<T, T::Error>
 where
-    T: Key<'a>,
-    Self: KeyEncoding<'a, Self, Error = <T as KeyEncoding<'a, T>>::Error>,
+    T: Key<'k>,
 {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        if bytes.is_empty() || bytes[0] == 0 {
+    match bytes {
+        ByteSource::Borrowed(bytes) => T::from_ord_bytes(ByteSource::Borrowed(&bytes[1..])),
+        ByteSource::Ephemeral(bytes) => T::from_ord_bytes(ByteSource::Ephemeral(&bytes[1..])),
+        ByteSource::Owned(mut bytes) if T::CAN_OWN_BYTES => {
+            bytes.remove(0);
+            T::from_ord_bytes(ByteSource::Owned(bytes))
+        }
+        ByteSource::Owned(bytes) => T::from_ord_bytes(ByteSource::Ephemeral(&bytes[1..])),
+    }
+}
+
+impl<'k, T> Key<'k> for Option<T>
+where
+    T: Key<'k>,
+    Self: KeyEncoding<'k, Self, Error = <T as KeyEncoding<'k, T>>::Error>,
+{
+    const CAN_OWN_BYTES: bool = T::CAN_OWN_BYTES;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+        if bytes.as_ref().is_empty() || bytes.as_ref()[0] == 0 {
             Ok(None)
         } else {
-            Ok(Some(T::from_ord_bytes(&bytes[1..])?))
+            decode_skipping_first_byte(bytes).map(Some)
         }
     }
 
@@ -1195,10 +1352,10 @@ where
     }
 }
 
-impl<'a, T, K> KeyEncoding<'a, Option<K>> for Option<T>
+impl<'k, T, K> KeyEncoding<'k, Option<K>> for Option<T>
 where
-    T: KeyEncoding<'a, K>,
-    K: Key<'a>,
+    T: KeyEncoding<'k, K>,
+    K: Key<'k>,
 {
     type Error = T::Error;
 
@@ -1207,7 +1364,7 @@ where
         None => None,
     };
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         if let Some(contents) = self {
             let mut contents = contents.as_ord_bytes()?.to_vec();
             contents.insert(0, 1);
@@ -1221,16 +1378,18 @@ where
 const RESULT_OK: u8 = 0;
 const RESULT_ERR: u8 = 1;
 
-impl<'a, T, E> Key<'a> for Result<T, E>
+impl<'k, T, E> Key<'k> for Result<T, E>
 where
-    T: Key<'a>,
-    E: Key<'a, Error = <T as KeyEncoding<'a, T>>::Error>,
-    Self: KeyEncoding<'a, Self, Error = <T as KeyEncoding<'a, T>>::Error>,
+    T: Key<'k>,
+    E: Key<'k, Error = <T as KeyEncoding<'k, T>>::Error>,
+    Self: KeyEncoding<'k, Self, Error = <T as KeyEncoding<'k, T>>::Error>,
 {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        match bytes.first() {
-            Some(&RESULT_OK) => T::from_ord_bytes(&bytes[1..]).map(Ok),
-            Some(_) => E::from_ord_bytes(&bytes[1..]).map(Err),
+    const CAN_OWN_BYTES: bool = T::CAN_OWN_BYTES || E::CAN_OWN_BYTES;
+
+    fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
+        match bytes.as_ref().first() {
+            Some(&RESULT_OK) => decode_skipping_first_byte(bytes).map(Ok),
+            Some(_) => decode_skipping_first_byte(bytes).map(Err),
             None => {
                 // Empty buffer, but we don't have an error type.
                 E::from_ord_bytes(bytes).map(Err)
@@ -1250,18 +1409,18 @@ where
     }
 }
 
-impl<'a, T, E, TBorrowed, EBorrowed> KeyEncoding<'a, Result<T, E>> for Result<TBorrowed, EBorrowed>
+impl<'k, T, E, TBorrowed, EBorrowed> KeyEncoding<'k, Result<T, E>> for Result<TBorrowed, EBorrowed>
 where
-    TBorrowed: KeyEncoding<'a, T>,
-    T: Key<'a, Error = TBorrowed::Error>,
-    EBorrowed: KeyEncoding<'a, E, Error = TBorrowed::Error>,
-    E: Key<'a, Error = TBorrowed::Error>,
+    TBorrowed: KeyEncoding<'k, T>,
+    T: Key<'k, Error = TBorrowed::Error>,
+    EBorrowed: KeyEncoding<'k, E, Error = TBorrowed::Error>,
+    E: Key<'k, Error = TBorrowed::Error>,
 {
-    type Error = <TBorrowed as KeyEncoding<'a, T>>::Error;
+    type Error = <TBorrowed as KeyEncoding<'k, T>>::Error;
 
     const LENGTH: Option<usize> = None;
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         let (header, contents) = match self {
             Ok(value) => (RESULT_OK, value.as_ord_bytes()?),
             Err(value) => (RESULT_ERR, value.as_ord_bytes()?),
@@ -1288,10 +1447,22 @@ fn result_key_tests() {
     assert!(ok_1_encoded < ok_2_encoded);
     assert!(ok_2_encoded < err_1_encoded);
     assert!(err_1_encoded < err_2_encoded);
-    assert_eq!(Result::from_ord_bytes(&ok_1_encoded).unwrap(), ok_1);
-    assert_eq!(Result::from_ord_bytes(&ok_2_encoded).unwrap(), ok_2);
-    assert_eq!(Result::from_ord_bytes(&err_1_encoded).unwrap(), err_1);
-    assert_eq!(Result::from_ord_bytes(&err_2_encoded).unwrap(), err_2);
+    assert_eq!(
+        Result::from_ord_bytes(ByteSource::Borrowed(&ok_1_encoded)).unwrap(),
+        ok_1
+    );
+    assert_eq!(
+        Result::from_ord_bytes(ByteSource::Borrowed(&ok_2_encoded)).unwrap(),
+        ok_2
+    );
+    assert_eq!(
+        Result::from_ord_bytes(ByteSource::Borrowed(&err_1_encoded)).unwrap(),
+        err_1
+    );
+    assert_eq!(
+        Result::from_ord_bytes(ByteSource::Borrowed(&err_2_encoded)).unwrap(),
+        err_2
+    );
 }
 
 /// Adds `Key` support to an enum. Requires implementing
@@ -1323,19 +1494,21 @@ impl From<std::array::TryFromSliceError> for IncorrectByteLength {
 }
 
 // ANCHOR: impl_key_for_enumkey
-impl<'a, T> Key<'a> for EnumKey<T>
+impl<'k, T> Key<'k> for EnumKey<T>
 where
     T: ToPrimitive + FromPrimitive + Clone + Eq + Ord + std::fmt::Debug + Send + Sync,
 {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        let primitive = u64::decode_variable(bytes)?;
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
+        let primitive = u64::decode_variable(bytes.as_ref())?;
         T::from_u64(primitive)
             .map(Self)
             .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidData, UnknownEnumVariant))
     }
 }
 
-impl<'a, T> KeyEncoding<'a, Self> for EnumKey<T>
+impl<'k, T> KeyEncoding<'k, Self> for EnumKey<T>
 where
     T: ToPrimitive + FromPrimitive + Clone + Eq + Ord + std::fmt::Debug + Send + Sync,
 {
@@ -1343,7 +1516,7 @@ where
 
     const LENGTH: Option<usize> = None;
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         let integer = self
             .0
             .to_u64()
@@ -1356,9 +1529,11 @@ where
 
 macro_rules! impl_key_for_primitive {
     ($type:ident) => {
-        impl<'a> Key<'a> for $type {
-            fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-                Ok($type::from_be_bytes(bytes.try_into()?))
+        impl<'k> Key<'k> for $type {
+            const CAN_OWN_BYTES: bool = false;
+
+            fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+                Ok($type::from_be_bytes(bytes.as_ref().try_into()?))
             }
 
             fn first_value() -> Result<Self, NextValueError> {
@@ -1369,12 +1544,12 @@ macro_rules! impl_key_for_primitive {
                 self.checked_add(1).ok_or(NextValueError::WouldWrap)
             }
         }
-        impl<'a> KeyEncoding<'a, Self> for $type {
+        impl<'k> KeyEncoding<'k, Self> for $type {
             type Error = IncorrectByteLength;
 
             const LENGTH: Option<usize> = Some(std::mem::size_of::<$type>());
 
-            fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+            fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
                 Ok(Cow::from(self.to_be_bytes().to_vec()))
             }
         }
@@ -1403,11 +1578,11 @@ fn primitive_key_encoding_tests() -> anyhow::Result<()> {
             );
             assert_eq!(
                 $type::MAX,
-                $type::from_ord_bytes(&$type::MAX.as_ord_bytes()?)?
+                $type::from_ord_bytes(ByteSource::Borrowed(&$type::MAX.as_ord_bytes()?))?
             );
             assert_eq!(
                 $type::MIN,
-                $type::from_ord_bytes(&$type::MIN.as_ord_bytes()?)?
+                $type::from_ord_bytes(ByteSource::Borrowed(&$type::MIN.as_ord_bytes()?))?
             );
         };
     }
@@ -1424,19 +1599,19 @@ fn primitive_key_encoding_tests() -> anyhow::Result<()> {
     test_primitive_extremes!(u128);
 
     assert_eq!(
-        usize::from_ord_bytes(&usize::MAX.as_ord_bytes().unwrap()).unwrap(),
+        usize::from_ord_bytes(ByteSource::Borrowed(&usize::MAX.as_ord_bytes().unwrap())).unwrap(),
         usize::MAX
     );
     assert_eq!(
-        usize::from_ord_bytes(&usize::MIN.as_ord_bytes().unwrap()).unwrap(),
+        usize::from_ord_bytes(ByteSource::Borrowed(&usize::MIN.as_ord_bytes().unwrap())).unwrap(),
         usize::MIN
     );
     assert_eq!(
-        isize::from_ord_bytes(&isize::MAX.as_ord_bytes().unwrap()).unwrap(),
+        isize::from_ord_bytes(ByteSource::Borrowed(&isize::MAX.as_ord_bytes().unwrap())).unwrap(),
         isize::MAX
     );
     assert_eq!(
-        isize::from_ord_bytes(&isize::MIN.as_ord_bytes().unwrap()).unwrap(),
+        isize::from_ord_bytes(ByteSource::Borrowed(&isize::MIN.as_ord_bytes().unwrap())).unwrap(),
         isize::MIN
     );
 
@@ -1449,19 +1624,19 @@ fn optional_key_encoding_tests() -> anyhow::Result<()> {
     let empty_string = Some("").as_ord_bytes()?;
     let none_string = Option::<String>::None.as_ord_bytes()?;
     assert_eq!(
-        Option::<String>::from_ord_bytes(&some_string)
+        Option::<String>::from_ord_bytes(ByteSource::Borrowed(&some_string))
             .unwrap()
             .as_deref(),
         Some("hello")
     );
     assert_eq!(
-        Option::<String>::from_ord_bytes(&empty_string)
+        Option::<String>::from_ord_bytes(ByteSource::Borrowed(&empty_string))
             .unwrap()
             .as_deref(),
         Some("")
     );
     assert_eq!(
-        Option::<String>::from_ord_bytes(&none_string).unwrap(),
+        Option::<String>::from_ord_bytes(ByteSource::Borrowed(&none_string)).unwrap(),
         None
     );
 
@@ -1470,14 +1645,14 @@ fn optional_key_encoding_tests() -> anyhow::Result<()> {
         let some_string = OptionKeyV1(Some("hello")).as_ord_bytes()?.to_vec();
         let none_string = OptionKeyV1::<String>(None).as_ord_bytes()?;
         assert_eq!(
-            OptionKeyV1::<String>::from_ord_bytes(&some_string)
+            OptionKeyV1::<String>::from_ord_bytes(ByteSource::Borrowed(&some_string))
                 .unwrap()
                 .0
                 .as_deref(),
             Some("hello")
         );
         assert_eq!(
-            OptionKeyV1::<String>::from_ord_bytes(&none_string)
+            OptionKeyV1::<String>::from_ord_bytes(ByteSource::Borrowed(&none_string))
                 .unwrap()
                 .0,
             None
@@ -1490,7 +1665,7 @@ fn optional_key_encoding_tests() -> anyhow::Result<()> {
 #[allow(clippy::unit_cmp)] // this is more of a compilation test
 fn unit_key_encoding_tests() -> anyhow::Result<()> {
     assert!(().as_ord_bytes()?.is_empty());
-    assert_eq!((), <() as Key>::from_ord_bytes(&[])?);
+    assert_eq!((), <() as Key>::from_ord_bytes(ByteSource::Borrowed(&[]))?);
     Ok(())
 }
 
@@ -1499,8 +1674,10 @@ fn unit_key_encoding_tests() -> anyhow::Result<()> {
 fn bool_key_encoding_tests() -> anyhow::Result<()> {
     let true_as_bytes = true.as_ord_bytes()?;
     let false_as_bytes = false.as_ord_bytes()?;
-    assert!(bool::from_ord_bytes(&true_as_bytes)?);
-    assert!(!bool::from_ord_bytes(&false_as_bytes)?);
+    assert!(bool::from_ord_bytes(ByteSource::Borrowed(&true_as_bytes))?);
+    assert!(!bool::from_ord_bytes(ByteSource::Borrowed(
+        &false_as_bytes
+    ))?);
     Ok(())
 }
 
@@ -1510,7 +1687,7 @@ fn vec_key_encoding_tests() -> anyhow::Result<()> {
     let vec = Cow::<'_, [u8]>::from(ORIGINAL_VALUE);
     assert_eq!(
         vec.clone(),
-        Cow::<'_, [u8]>::from_ord_bytes(&vec.as_ord_bytes()?)?
+        Cow::<'_, [u8]>::from_ord_bytes(ByteSource::Borrowed(&vec.as_ord_bytes()?))?
     );
     Ok(())
 }
@@ -1533,11 +1710,11 @@ fn enum_derive_tests() -> anyhow::Result<()> {
     }
 
     let encoded = EnumKey(SomeEnum::One).as_ord_bytes()?;
-    let value = EnumKey::<SomeEnum>::from_ord_bytes(&encoded)?;
+    let value = EnumKey::<SomeEnum>::from_ord_bytes(ByteSource::Borrowed(&encoded))?;
     assert!(matches!(value.0, SomeEnum::One));
 
     let encoded = EnumKey(SomeEnum::NineNineNine).as_ord_bytes()?;
-    let value = EnumKey::<SomeEnum>::from_ord_bytes(&encoded)?;
+    let value = EnumKey::<SomeEnum>::from_ord_bytes(ByteSource::Borrowed(&encoded))?;
     assert!(matches!(value.0, SomeEnum::NineNineNine));
 
     Ok(())

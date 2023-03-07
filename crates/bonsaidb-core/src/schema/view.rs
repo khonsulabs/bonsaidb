@@ -7,7 +7,7 @@ use transmog_pot::Pot;
 
 use crate::connection::{self, AsyncConnection, Connection};
 use crate::document::{BorrowedDocument, CollectionDocument};
-use crate::key::Key;
+use crate::key::{ByteSource, Key};
 use crate::schema::view::map::{Mappings, ViewMappedValue};
 use crate::schema::{Collection, CollectionName, Name, SerializedCollection, ViewName};
 use crate::AnyError;
@@ -66,7 +66,7 @@ pub trait View: Sized + Send + Sync + Debug + 'static {
     /// The collection this view belongs to
     type Collection: Collection;
     /// The key for this view.
-    type Key: for<'a> Key<'a> + PartialEq + 'static;
+    type Key: for<'k> Key<'k> + PartialEq + 'static;
     /// An associated type that can be stored with each entry in the view.
     type Value: Send + Sync;
 

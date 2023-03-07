@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use derive_where::derive_where;
 
 use crate::document::{BorrowedDocument, DocumentId, KeyId};
-use crate::key::Key;
+use crate::key::{ByteSource, Key};
 use crate::schema::collection::Collection;
 use crate::schema::view::map::{self, MappedValue};
 use crate::schema::view::{self, Serialized, SerializedView, ViewSchema};
@@ -243,13 +243,15 @@ where
     fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, view::Error> {
         let mappings = mappings
             .iter()
-            .map(|(key, value)| match <V::Key as Key>::from_ord_bytes(key) {
-                Ok(key) => {
-                    let value = V::deserialize(value)?;
-                    Ok(MappedValue::new(key, value))
-                }
-                Err(err) => Err(view::Error::key_serialization(err)),
-            })
+            .map(
+                |(key, value)| match <V::Key as Key>::from_ord_bytes(ByteSource::Borrowed(key)) {
+                    Ok(key) => {
+                        let value = V::deserialize(value)?;
+                        Ok(MappedValue::new(key, value))
+                    }
+                    Err(err) => Err(view::Error::key_serialization(err)),
+                },
+            )
             .collect::<Result<Vec<_>, view::Error>>()?;
 
         let reduced_value = self.schema.reduce(&mappings, rereduce)?;

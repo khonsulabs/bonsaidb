@@ -6,23 +6,25 @@ use ordered_varint::Variable;
 use serde::{Deserialize, Serialize};
 
 use crate::key::time::limited::{BonsaiEpoch, UnixEpoch};
-use crate::key::{Key, KeyEncoding};
+use crate::key::{ByteSource, Key, KeyEncoding};
 
-impl<'a> Key<'a> for Duration {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        let merged = u128::decode_variable(bytes).map_err(|_| TimeError::InvalidValue)?;
+impl<'k> Key<'k> for Duration {
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+        let merged = u128::decode_variable(bytes.as_ref()).map_err(|_| TimeError::InvalidValue)?;
         let seconds = u64::try_from(merged >> 30).map_err(|_| TimeError::DeltaNotRepresentable)?;
         let nanos = u32::try_from(merged & (2_u128.pow(30) - 1)).unwrap();
         Ok(Self::new(seconds, nanos))
     }
 }
 
-impl<'a> KeyEncoding<'a, Self> for Duration {
+impl<'k> KeyEncoding<'k, Self> for Duration {
     type Error = TimeError;
 
     const LENGTH: Option<usize> = None;
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         let merged = u128::from(self.as_secs()) << 30 | u128::from(self.subsec_nanos());
         // It's safe to unwrap here, because under the hood ordered-varint can
         // only raise an error if the top bits are set. Since we only ever add
@@ -35,16 +37,22 @@ impl<'a> KeyEncoding<'a, Self> for Duration {
 fn duration_key_tests() {
     assert_eq!(
         Duration::ZERO,
-        Duration::from_ord_bytes(&Duration::ZERO.as_ord_bytes().unwrap()).unwrap()
+        Duration::from_ord_bytes(ByteSource::Borrowed(
+            &Duration::ZERO.as_ord_bytes().unwrap()
+        ))
+        .unwrap()
     );
     assert_eq!(
         Duration::MAX,
-        Duration::from_ord_bytes(&Duration::MAX.as_ord_bytes().unwrap()).unwrap()
+        Duration::from_ord_bytes(ByteSource::Borrowed(&Duration::MAX.as_ord_bytes().unwrap()))
+            .unwrap()
     );
 }
 
-impl<'a> Key<'a> for SystemTime {
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+impl<'k> Key<'k> for SystemTime {
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         let since_epoch = Duration::from_ord_bytes(bytes)?;
         UNIX_EPOCH
             .checked_add(since_epoch)
@@ -52,12 +60,12 @@ impl<'a> Key<'a> for SystemTime {
     }
 }
 
-impl<'a> KeyEncoding<'a, Self> for SystemTime {
+impl<'k> KeyEncoding<'k, Self> for SystemTime {
     type Error = TimeError;
 
     const LENGTH: Option<usize> = None;
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         let since_epoch = self.duration_since(UNIX_EPOCH).unwrap();
         match since_epoch.as_ord_bytes()? {
             Cow::Owned(bytes) => Ok(Cow::Owned(bytes)),
@@ -70,12 +78,13 @@ impl<'a> KeyEncoding<'a, Self> for SystemTime {
 fn system_time_tests() {
     assert_eq!(
         UNIX_EPOCH,
-        SystemTime::from_ord_bytes(&UNIX_EPOCH.as_ord_bytes().unwrap()).unwrap()
+        SystemTime::from_ord_bytes(ByteSource::Borrowed(&UNIX_EPOCH.as_ord_bytes().unwrap()))
+            .unwrap()
     );
     let now = SystemTime::now();
     assert_eq!(
         now,
-        SystemTime::from_ord_bytes(&now.as_ord_bytes().unwrap()).unwrap()
+        SystemTime::from_ord_bytes(ByteSource::Borrowed(&now.as_ord_bytes().unwrap())).unwrap()
     );
 }
 
@@ -124,7 +133,7 @@ pub mod limited {
     use serde::{Deserialize, Serialize};
 
     use crate::key::time::TimeError;
-    use crate::key::{Key, KeyEncoding};
+    use crate::key::{ByteSource, Key, KeyEncoding};
 
     /// A [`Duration`] of time stored with a limited `Resolution`. This type may be
     /// preferred to [`std::time::Duration`] because `Duration` takes a full 12
@@ -265,13 +274,16 @@ pub mod limited {
         }
     }
 
-    impl<'a, Resolution> Key<'a> for LimitedResolutionDuration<Resolution>
+    impl<'k, Resolution> Key<'k> for LimitedResolutionDuration<Resolution>
     where
         Resolution: TimeResolution,
     {
-        fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-            let representation = <Resolution::Representation as Variable>::decode_variable(bytes)
-                .map_err(|_| TimeError::InvalidValue)?;
+        const CAN_OWN_BYTES: bool = false;
+
+        fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+            let representation =
+                <Resolution::Representation as Variable>::decode_variable(bytes.as_ref())
+                    .map_err(|_| TimeError::InvalidValue)?;
 
             Ok(Self {
                 representation,
@@ -280,7 +292,7 @@ pub mod limited {
         }
     }
 
-    impl<'a, Resolution> KeyEncoding<'a, Self> for LimitedResolutionDuration<Resolution>
+    impl<'k, Resolution> KeyEncoding<'k, Self> for LimitedResolutionDuration<Resolution>
     where
         Resolution: TimeResolution,
     {
@@ -288,7 +300,7 @@ pub mod limited {
 
         const LENGTH: Option<usize> = None;
 
-        fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+        fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
             self.representation
                 .to_variable_vec()
                 .map(Cow::Owned)
@@ -791,7 +803,8 @@ pub mod limited {
             assert_eq!(limited.representation, expected_step);
             let encoded = limited.as_ord_bytes().unwrap();
             println!("Encoded {limited:?} to {} bytes", encoded.len());
-            let decoded = LimitedResolutionDuration::from_ord_bytes(&encoded).unwrap();
+            let decoded =
+                LimitedResolutionDuration::from_ord_bytes(ByteSource::Borrowed(&encoded)).unwrap();
             assert_eq!(limited, decoded);
         }
 
@@ -1103,18 +1116,20 @@ pub mod limited {
         test_roundtrip_parsing::<Nanoseconds>();
     }
 
-    impl<'a, Resolution, Epoch> Key<'a> for LimitedResolutionTimestamp<Resolution, Epoch>
+    impl<'k, Resolution, Epoch> Key<'k> for LimitedResolutionTimestamp<Resolution, Epoch>
     where
         Resolution: TimeResolution,
         Epoch: TimeEpoch,
     {
-        fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        const CAN_OWN_BYTES: bool = false;
+
+        fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
             let duration = LimitedResolutionDuration::<Resolution>::from_ord_bytes(bytes)?;
             Ok(Self::from(duration))
         }
     }
 
-    impl<'a, Resolution, Epoch> KeyEncoding<'a, Self> for LimitedResolutionTimestamp<Resolution, Epoch>
+    impl<'k, Resolution, Epoch> KeyEncoding<'k, Self> for LimitedResolutionTimestamp<Resolution, Epoch>
     where
         Resolution: TimeResolution,
         Epoch: TimeEpoch,
@@ -1123,7 +1138,7 @@ pub mod limited {
 
         const LENGTH: Option<usize> = None;
 
-        fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+        fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
             self.0.as_ord_bytes()
         }
     }

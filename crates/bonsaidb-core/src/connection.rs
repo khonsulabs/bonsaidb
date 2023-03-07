@@ -17,7 +17,7 @@ use crate::admin::{Role, User};
 use crate::document::{
     CollectionDocument, CollectionHeader, Document, HasHeader, Header, OwnedDocument,
 };
-use crate::key::{IntoPrefixRange, Key, KeyEncoding};
+use crate::key::{ByteSource, IntoPrefixRange, Key, KeyEncoding};
 use crate::permissions::Permissions;
 use crate::schema::view::map::MappedDocuments;
 use crate::schema::{
@@ -2340,7 +2340,7 @@ impl SerializedQueryKey {
         &self,
     ) -> Result<QueryKey<'static, K>, Error> {
         match self {
-            Self::Matches(key) => K::from_ord_bytes(key.as_ref())
+            Self::Matches(key) => K::from_ord_bytes(ByteSource::Borrowed(key.as_ref()))
                 .map_err(|err| Error::other("key serialization", err))
                 .map(|key| QueryKey::Matches(MaybeOwned::Owned(key))),
             Self::Range(range) => Ok(QueryKey::Range(RangeRef::owned(
@@ -2352,7 +2352,7 @@ impl SerializedQueryKey {
                 let keys = keys
                     .iter()
                     .map(|key| {
-                        K::from_ord_bytes(key.as_ref())
+                        K::from_ord_bytes(ByteSource::Borrowed(key.as_ref()))
                             .map(MaybeOwned::Owned)
                             .map_err(|err| Error::other("key serialization", err))
                     })
@@ -2584,8 +2584,12 @@ impl Bound<Bytes> {
     ) -> Result<Bound<T>, <T as KeyEncoding<'_, T>>::Error> {
         match self {
             Self::Unbounded => Ok(Bound::Unbounded),
-            Self::Included(value) => Ok(Bound::Included(T::from_ord_bytes(value.as_ref())?)),
-            Self::Excluded(value) => Ok(Bound::Excluded(T::from_ord_bytes(value.as_ref())?)),
+            Self::Included(value) => Ok(Bound::Included(T::from_ord_bytes(ByteSource::Borrowed(
+                value.as_ref(),
+            ))?)),
+            Self::Excluded(value) => Ok(Bound::Excluded(T::from_ord_bytes(ByteSource::Borrowed(
+                value.as_ref(),
+            ))?)),
         }
     }
 }
@@ -3389,7 +3393,9 @@ impl DerefMut for SensitiveString {
 }
 
 impl<'k> Key<'k> for SensitiveString {
-    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
+    const CAN_OWN_BYTES: bool = String::CAN_OWN_BYTES;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         String::from_ord_bytes(bytes).map(Self)
     }
 }
@@ -3444,7 +3450,9 @@ impl DerefMut for SensitiveBytes {
 }
 
 impl<'k> Key<'k> for SensitiveBytes {
-    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
+    const CAN_OWN_BYTES: bool = Bytes::CAN_OWN_BYTES;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         Bytes::from_ord_bytes(bytes).map(Self)
     }
 }
