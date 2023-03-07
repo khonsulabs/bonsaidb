@@ -15,7 +15,7 @@ rust-version = "1.65"
 [[bin]]
 name = "bonsaidb"
 path = "src/main.rs"
-required-features = ["cli"]
+required-features = ["cli", "client", "server"]
 
 [[test]]
 name = "core-suite"

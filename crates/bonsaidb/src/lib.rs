@@ -30,7 +30,7 @@ pub use bonsaidb_local as local;
 pub use bonsaidb_server as server;
 #[cfg(all(feature = "client", feature = "server"))]
 mod any_connection;
-#[cfg(feature = "cli")]
+#[cfg(all(feature = "cli", feature = "client", feature = "server"))]
 pub mod cli;
 
 /// `VaultKeyStorage` implementors.
