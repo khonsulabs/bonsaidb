@@ -630,12 +630,12 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     quote! {
         # use std::{borrow::Cow, io::{self, ErrorKind}};
-        # use #core::key::{ByteCow, CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError, Key, KeyEncoding};
+        # use #core::key::{ByteSource, CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError, Key, KeyEncoding};
 
         impl #impl_generics Key<'key> for #ident #ty_generics #where_clause {
             const CAN_OWN_BYTES: bool = #can_own_bytes;
 
-            fn from_ord_bytes<'b>(mut $bytes: ByteCow<'key, 'b>) -> Result<Self, Self::Error> {
+            fn from_ord_bytes<'b>(mut $bytes: ByteSource<'key, 'b>) -> Result<Self, Self::Error> {
 
                 let mut $decoder = CompositeKeyDecoder::new($bytes);
 

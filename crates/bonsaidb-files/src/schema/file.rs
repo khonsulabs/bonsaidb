@@ -7,7 +7,7 @@ use bonsaidb_core::connection::{Bound, BoundRef, Connection, RangeRef, ViewMappi
 use bonsaidb_core::document::{CollectionDocument, Emit};
 use bonsaidb_core::key::time::TimestampAsNanoseconds;
 use bonsaidb_core::key::{
-    ByteCow, CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError, IntoPrefixRange, Key,
+    ByteSource, CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError, IntoPrefixRange, Key,
     KeyEncoding,
 };
 use bonsaidb_core::schema::{
@@ -494,7 +494,7 @@ enum FileKey<'a> {
 impl<'k> Key<'k> for OwnedFileKey {
     const CAN_OWN_BYTES: bool = false;
 
-    fn from_ord_bytes<'b>(bytes: ByteCow<'k, 'b>) -> Result<Self, Self::Error> {
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         let mut decoder = CompositeKeyDecoder::new(bytes);
 
         let path = Cow::Owned(decoder.decode::<String>()?);

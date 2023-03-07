@@ -10,7 +10,7 @@ use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 use tinyvec::{Array, TinyVec};
 
-use crate::key::{ByteCow, Key, KeyEncoding};
+use crate::key::{ByteSource, Key, KeyEncoding};
 
 /// The serialized representation of a document's unique ID.
 #[derive(Default, Ord, Hash, Eq, PartialEq, PartialOrd, Clone)]
@@ -262,8 +262,8 @@ impl DocumentId {
     }
 
     /// Returns the contained value, deserialized back to its original type.
-    pub fn deserialize<'a, PrimaryKey: Key<'a>>(&'a self) -> Result<PrimaryKey, crate::Error> {
-        PrimaryKey::from_ord_bytes(ByteCow::Borrowed(self.as_ref()))
+    pub fn deserialize<'k, PrimaryKey: Key<'k>>(&'k self) -> Result<PrimaryKey, crate::Error> {
+        PrimaryKey::from_ord_bytes(ByteSource::Borrowed(self.as_ref()))
             .map_err(|err| crate::Error::other("key serialization", err))
     }
 }
@@ -306,14 +306,14 @@ impl<'de> Visitor<'de> for DocumentIdVisitor {
 impl<'k> Key<'k> for DocumentId {
     const CAN_OWN_BYTES: bool = false;
 
-    fn from_ord_bytes<'b>(bytes: ByteCow<'k, 'b>) -> Result<Self, Self::Error> {
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         Self::try_from(bytes.as_ref())
     }
 }
 
 impl<'k, PrimaryKey> KeyEncoding<'k, PrimaryKey> for DocumentId
 where
-    PrimaryKey: for<'a> Key<'a>,
+    PrimaryKey: for<'pk> Key<'pk>,
 {
     type Error = crate::Error;
 
