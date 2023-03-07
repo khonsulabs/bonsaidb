@@ -83,7 +83,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This change has also been introduced to `RemoteDatabase` and
   `RemoteSubscriber`: both async and blocking versions are available.
 
+- [#254][#254] `Key::from_ord_bytes` has had its `&'k [u8]` parameter changed to a new type
+  with an additional lifetime: `ByteSource<'k, 'e>`. This new type allows
+  `from_ord_bytes` to be called with an owned `Vec<u8>`, a `Key`-lifetime bound
+  byte slice (`&'k [u8]`), or an ephemeral byte slice (`&'e [u8]`).
+
+  This change allows code paths that can pass an owned `Vec<u8>` in for decoding
+  to not require allocations in some cases -- for example, when using
+  `Vec<u8>::from_ord_bytes`.
+
+  This change also means that `Key` implementors should expect to be called with
+  any of the three variants of `ByteSource`, because BonsaiDb's internal code
+  only passes borrowed slices in some code paths.
+
+  Thank you to @asonix for the request and help on implementation!
+
 [#240]: https://github.com/khonsulabs/bonsaidb/issues/240
+[#254]: https://github.com/khonsulabs/bonsaidb/issues/254
 
 ### Added
 
