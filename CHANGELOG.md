@@ -113,6 +113,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   additional information such as what collections and views each schema
   contains.
 
+- `bonsaidb::cli::Command` now flattens the `server` command rather than
+  in-lining the `admin` command. This introduces additional top-level commands
+  that were previously hidden underneath the `server` command.
+
 ### Added
 
 - [#239][239] `Key` can now be derived on enums and structs, allowing an easier way

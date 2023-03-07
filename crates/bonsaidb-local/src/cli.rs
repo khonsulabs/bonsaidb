@@ -7,6 +7,8 @@ use crate::{Error, Storage};
 
 /// Commands for administering the bonsaidb server.
 pub mod admin;
+/// Commands for querying the schemas.
+pub mod schema;
 
 /// Commands operating on local database storage.
 #[derive(Subcommand, Debug)]
@@ -20,6 +22,8 @@ pub enum StorageCommand {
     /// Executes an admin command.
     #[clap(subcommand)]
     Admin(admin::Command),
+    /// Executes a schema query.
+    Schema(schema::Command),
 }
 
 /// A backup location.
@@ -45,6 +49,7 @@ impl StorageCommand {
             StorageCommand::Backup(location) => location.backup(storage),
             StorageCommand::Restore(location) => location.restore(storage),
             StorageCommand::Admin(admin) => admin.execute(storage),
+            StorageCommand::Schema(schema) => schema.execute(storage),
         }
     }
 
@@ -55,6 +60,7 @@ impl StorageCommand {
             StorageCommand::Backup(location) => location.backup_async(storage).await,
             StorageCommand::Restore(location) => location.restore_async(storage).await,
             StorageCommand::Admin(admin) => admin.execute_async(storage).await,
+            StorageCommand::Schema(schema) => schema.execute_async(storage).await,
         }
     }
 }

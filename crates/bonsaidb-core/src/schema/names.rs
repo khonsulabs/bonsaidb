@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::fmt::{Debug, Display, Write};
 use std::ops::Deref;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -207,6 +208,14 @@ impl Display for QualifiedName {
     }
 }
 
+impl FromStr for QualifiedName {
+    type Err = InvalidNameError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse_encoded(s)
+    }
+}
+
 /// Functions for creating qualified names
 pub trait Qualified: Display + Sized {
     /// Creates a name that is not meant to be shared with other developers or
@@ -287,6 +296,14 @@ impl From<CollectionName> for SchemaName {
     }
 }
 
+impl FromStr for SchemaName {
+    type Err = InvalidNameError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse_encoded(s)
+    }
+}
+
 /// The namespaced name of a [`Collection`](super::Collection).
 #[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone, Ord, PartialOrd)]
 #[serde(transparent)]
@@ -312,8 +329,16 @@ impl Deref for CollectionName {
     }
 }
 
+impl FromStr for CollectionName {
+    type Err = InvalidNameError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse_encoded(s)
+    }
+}
+
 /// The name of a [`View`](super::View).
-#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone)]
+#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone, PartialOrd, Ord)]
 pub struct ViewName {
     /// The name of the collection that contains this view.
     pub collection: CollectionName,
@@ -341,6 +366,20 @@ impl Display for ViewName {
         Display::fmt(&self.collection, f)?;
         f.write_char('.')?;
         Display::fmt(&self.name, f)
+    }
+}
+
+impl FromStr for ViewName {
+    type Err = InvalidNameError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (first, view_name) = s
+            .rsplit_once('.')
+            .ok_or_else(|| InvalidNameError(s.to_string()))?;
+
+        let collection = first.parse()?;
+        let name = Name::parse_encoded(view_name)?;
+        Ok(Self { collection, name })
     }
 }
 

@@ -51,7 +51,6 @@ impl<'a> From<&'a Schematic> for SchemaSummary {
                     name.clone(),
                     ViewSummary {
                         name,
-                        eager: view.eager(),
                         lazy: view.lazy(),
                         unique: view.unique(),
                         version: view.version(),
@@ -91,9 +90,6 @@ pub struct ViewSummary {
     /// The name of the [`ViewSchema`](crate::schema::ViewSchema) this is a
     /// summary of.
     pub name: ViewName,
-    /// The result of [`ViewSchema::eager()`](crate::schema::ViewSchema::eager)
-    /// for this view.
-    pub eager: bool,
     /// The result of [`ViewSchema::lazy()`](crate::schema::ViewSchema::lazy)
     /// for this view.
     pub lazy: bool,

@@ -9,7 +9,6 @@ use bonsaidb_client::AsyncClient;
 use bonsaidb_core::async_trait::async_trait;
 #[cfg(any(feature = "password-hashing", feature = "token-authentication"))]
 use bonsaidb_core::connection::AsyncStorageConnection;
-use bonsaidb_local::cli::admin;
 use bonsaidb_server::{Backend, CustomServer, NoBackend, ServerConfiguration};
 use clap::{Parser, Subcommand};
 use url::Url;
@@ -20,11 +19,8 @@ use crate::AnyServerConnection;
 #[derive(Subcommand, Debug)]
 pub enum Command<Cli: CommandLine> {
     /// Execute a BonsaiDb server command.
-    #[clap(subcommand)]
+    #[clap(flatten)]
     Server(bonsaidb_server::cli::Command<Cli::Backend>),
-    /// Executes an administrative command.
-    #[clap(subcommand)]
-    Admin(admin::Command),
     /// An external command.
     #[clap(flatten)]
     External(Cli::Subcommand),
@@ -52,7 +48,7 @@ where
 
                 server.execute_on(cli.open_server().await?).await?;
             }
-            other => {
+            Command::External(command) => {
                 let connection = if let Some(server_url) = server_url {
                     // TODO how does custom API handling work here?
                     let mut client = AsyncClient::build(server_url);
@@ -86,11 +82,7 @@ where
                     connection
                 };
 
-                match other {
-                    Command::Admin(admin) => admin.execute_async(&connection).await?,
-                    Command::External(external) => cli.execute(external, connection).await?,
-                    Command::Server(_) => unreachable!(),
-                }
+                cli.execute(command, connection).await?;
             }
         }
         Ok(())

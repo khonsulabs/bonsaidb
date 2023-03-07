@@ -3824,7 +3824,6 @@ pub async fn basic_server_connection_tests<C: AsyncStorageConnection>(
     let by_parent_id = basic_collection.view(&BasicByParentId.view_name()).unwrap();
     assert!(!by_parent_id.unique);
     assert!(by_parent_id.lazy);
-    assert!(!by_parent_id.eager);
 
     assert!(schemas
         .iter()
@@ -3889,7 +3888,6 @@ pub fn blocking_basic_server_connection_tests<C: StorageConnection>(
     let by_parent_id = basic_collection.view(&BasicByParentId.view_name()).unwrap();
     assert!(!by_parent_id.unique);
     assert!(by_parent_id.lazy);
-    assert!(!by_parent_id.eager);
 
     assert!(schemas
         .iter()

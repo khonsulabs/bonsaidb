@@ -96,7 +96,7 @@ async fn test() -> anyhow::Result<()> {
     }
 
     CliBackend
-        .run_from(["executable", "server", "certificate", "install-self-signed"])
+        .run_from(["executable", "certificate", "install-self-signed"])
         .await?;
 
     // Execute a command locally (no server running).
@@ -113,7 +113,7 @@ async fn test() -> anyhow::Result<()> {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.spawn(async {
             CliBackend
-                .run_from(["executable", "server", "serve", "--listen-on", "[::1]:6004"])
+                .run_from(["executable", "serve", "--listen-on", "[::1]:6004"])
                 .await
                 .unwrap();
         });
@@ -155,7 +155,7 @@ async fn test() -> anyhow::Result<()> {
 
     // Back up the database
     CliBackend
-        .run_from(["executable", "server", "backup", "path", "cli-backup"])
+        .run_from(["executable", "backup", "path", "cli-backup"])
         .await?;
 
     // Remove the database and restore from backup.
@@ -163,7 +163,7 @@ async fn test() -> anyhow::Result<()> {
 
     // Restore the database
     CliBackend
-        .run_from(["executable", "server", "restore", "path", "cli-backup"])
+        .run_from(["executable", "restore", "path", "cli-backup"])
         .await?;
 
     // Re-open the database and verify the operations were made.
