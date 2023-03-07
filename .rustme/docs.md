@@ -28,6 +28,15 @@ activity](https://img.shields.io/github/commit-activity/m/khonsulabs/bonsaidb)).
 There may still be bugs that result in data loss. All users should regularly
 back up their data and test that restoring from backup works correctly.
 
+Around May 2022, a bug and a mistake in benchmarking were discovered. The bug
+was promptly fixed, but the net result is that BonsaiDb's transactional write
+performance is significantly slower than other databases. Unless you're buliding
+a very write-heavy application, the performance will likely still be acceptable.
+[Issue #251 on GitHub](https://github.com/khonsulabs/bonsaidb/issues/251) is
+where progress of the performance updates are being tracked. From a developer's
+perspective, migration is expected to be painless beyond the IO needed to copy
+the old database into the new format.
+
 ## Example
 
 To get an idea of how it works, let's review the [`view-examples` example][view-examples].
