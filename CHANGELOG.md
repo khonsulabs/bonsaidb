@@ -204,6 +204,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SO_REUSEADDR` flag should be specified on the underlying socket.
 - `CollectionDocument` now implements Serialize and/or Deserialize if both
   `PrimaryKey` and `Contents` are Serialize and/or Deserialize, respectively.
+- `Backend::client_session_ended` is a new function that is invoked any time a
+  connected client's session is ending.
 
 ### Changed
 

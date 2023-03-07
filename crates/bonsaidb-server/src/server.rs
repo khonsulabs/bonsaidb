@@ -475,6 +475,17 @@ impl<B: Backend> CustomServer<B> {
         };
 
         if let Some(client) = removed_client {
+            for session in client.all_sessions::<Vec<_>>() {
+                if let Err(err) = self
+                    .data
+                    .backend
+                    .client_session_ended(session, &client, true, self)
+                    .await
+                {
+                    log::error!("[server] Error in `client_session_ended`: {err:?}");
+                }
+            }
+
             if let Err(err) = self.data.backend.client_disconnected(client, self).await {
                 log::error!("[server] Error in `client_disconnected`: {err:?}");
             }

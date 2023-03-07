@@ -75,9 +75,9 @@ impl<B: Backend> ConnectedClient<B> {
         );
     }
 
-    pub(crate) fn log_out(&self, session: SessionId) {
+    pub(crate) fn log_out(&self, session: SessionId) -> Option<Session> {
         let mut sessions = self.data.sessions.write();
-        sessions.remove(&Some(session));
+        sessions.remove(&Some(session)).map(|cs| cs.session)
     }
 
     /// Sends a custom API response to the client.
@@ -107,6 +107,13 @@ impl<B: Backend> ConnectedClient<B> {
     pub fn session(&self, session_id: Option<SessionId>) -> Option<Session> {
         let sessions = self.data.sessions.read();
         sessions.get(&session_id).map(|data| data.session.clone())
+    }
+
+    /// Returns a collection of all active [`Sesssion`]s for this client.
+    #[must_use]
+    pub fn all_sessions<C: FromIterator<Session>>(&self) -> C {
+        let sessions = self.data.sessions.read();
+        sessions.values().map(|s| s.session.clone()).collect()
     }
 
     pub(crate) fn register_subscriber(

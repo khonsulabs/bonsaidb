@@ -225,7 +225,16 @@ impl<B: Backend> Handler<B, LogOutSession> for ServerDispatcher {
         session: HandlerSession<'_, B>,
         command: LogOutSession,
     ) -> HandlerResult<LogOutSession> {
-        session.client.log_out(command.0);
+        if let Some(logged_out) = session.client.log_out(command.0) {
+            if let Err(err) = session
+                .server
+                .backend()
+                .client_session_ended(logged_out, session.client, false, session.server)
+                .await
+            {
+                log::error!("[server] Error in `client_session_ended`: {err:?}");
+            }
+        }
 
         Ok(())
     }

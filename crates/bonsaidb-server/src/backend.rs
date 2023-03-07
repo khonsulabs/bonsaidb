@@ -85,6 +85,26 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
         );
         Ok(())
     }
+
+    /// A client's session has ended.
+    ///
+    /// If `disconnecting` is true, the session is ending because the client is
+    /// in the process of disconnecting.
+    #[allow(unused_variables)]
+    async fn client_session_ended(
+        &self,
+        session: Session,
+        client: &ConnectedClient<Self>,
+        disconnecting: bool,
+        server: &CustomServer<Self>,
+    ) -> Result<(), BackendError<Self::Error>> {
+        log::info!(
+            "{:?} client session ended {:?}",
+            client.transport(),
+            session.authentication
+        );
+        Ok(())
+    }
 }
 
 /// A [`Backend`] with no custom functionality.
