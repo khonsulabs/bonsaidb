@@ -24,7 +24,9 @@ use bonsaidb_core::permissions::bonsai::{
     BonsaiAction, ServerAction,
 };
 use bonsaidb_core::permissions::Permissions;
-use bonsaidb_core::schema::{Nameable, NamedCollection, Schema, SchemaName, Schematic};
+use bonsaidb_core::schema::{
+    Nameable, NamedCollection, Schema, SchemaName, SchemaSummary, Schematic,
+};
 use fs2::FileExt;
 use itertools::Itertools;
 use nebari::io::any::{AnyFile, AnyFileManager};
@@ -1013,9 +1015,19 @@ impl StorageConnection for StorageInstance {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
-    fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
+    fn list_available_schemas(&self) -> Result<Vec<SchemaSummary>, bonsaidb_core::Error> {
         let available_databases = self.data.available_databases.read();
-        Ok(available_databases.values().unique().cloned().collect())
+        let schemas = self.data.schemas.read();
+
+        Ok(available_databases
+            .values()
+            .unique()
+            .filter_map(|name| {
+                schemas
+                    .get(name)
+                    .map(|opener| SchemaSummary::from(opener.schematic()))
+            })
+            .collect())
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
@@ -1211,7 +1223,7 @@ impl StorageConnection for Storage {
         self.instance.list_databases()
     }
 
-    fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
+    fn list_available_schemas(&self) -> Result<Vec<SchemaSummary>, bonsaidb_core::Error> {
         self.check_permission(
             bonsaidb_resource_name(),
             &BonsaiAction::Server(ServerAction::ListAvailableSchemas),

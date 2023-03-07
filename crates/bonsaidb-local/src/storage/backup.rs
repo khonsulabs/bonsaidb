@@ -107,7 +107,7 @@ impl Storage {
                 Range::from(..),
                 Sort::Ascending,
                 None,
-                &collection,
+                collection,
             )?;
             let collection_name = collection.encoded();
             // TODO consider how to best parallelize -- perhaps a location can opt into parallelization?
@@ -147,8 +147,7 @@ impl Storage {
         for collection in database
             .schematic()
             .collections()
-            .into_iter()
-            .filter(|c| c != &database_collection)
+            .filter(|c| *c != &database_collection)
         {
             let collection_name = collection.encoded();
             for (id, id_string) in location

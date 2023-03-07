@@ -1,6 +1,7 @@
 mod collection;
 mod names;
 mod schematic;
+mod summary;
 /// Types for defining map/reduce-powered `View`s.
 pub mod view;
 use std::fmt::Debug;
@@ -16,6 +17,7 @@ pub use self::names::{
     ViewName,
 };
 pub use self::schematic::Schematic;
+pub use self::summary::{CollectionSummary, SchemaSummary, ViewSummary};
 pub use self::view::map::{Map, MappedValue, ViewMappedValue};
 pub use self::view::{
     CollectionViewSchema, DefaultViewSerialization, ReduceResult, SerializedView, View,

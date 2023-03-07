@@ -378,9 +378,15 @@ impl Database {
             .iter()
             .group_by(|doc| &collections[usize::from(doc.collection)])
         {
-            if let Some(views) = self.data.schema.views_in_collection(collection) {
+            let mut views = self
+                .data
+                .schema
+                .views_in_collection(collection)
+                .filter(|view| !view.eager())
+                .peekable();
+            if views.peek().is_some() {
                 let changed_documents = changed_documents.collect::<Vec<_>>();
-                for view in views.into_iter().filter(|view| !view.eager()) {
+                for view in views {
                     let view_name = view.view_name();
                     let tree_name = view_invalidated_docs_tree_name(&view_name);
                     for changed_document in &changed_documents {
@@ -662,11 +668,12 @@ impl Database {
         transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
     ) -> Result<(), Error> {
-        if let Some(eager_views) = self
+        let mut eager_views = self
             .data
             .schema
             .eager_views_in_collection(&operation.collection)
-        {
+            .peekable();
+        if eager_views.peek().is_some() {
             let documents = transaction
                 .unlocked_tree(tree_index_map[&document_tree_name(&operation.collection)])
                 .unwrap();
@@ -1144,18 +1151,14 @@ impl LowLevelConnection for Database {
             .map(|op| &op.collection)
             .collect::<HashSet<_>>()
         {
-            if let Some(views) = self.data.schema.views_in_collection(collection_name) {
-                for view in views {
-                    if view.eager() {
-                        if let Some(task) = self
-                            .storage
-                            .instance
-                            .tasks()
-                            .spawn_integrity_check(view, self)
-                        {
-                            eager_view_tasks.push(task);
-                        }
-                    }
+            for view in self.data.schema.eager_views_in_collection(collection_name) {
+                if let Some(task) = self
+                    .storage
+                    .instance
+                    .tasks()
+                    .spawn_integrity_check(view, self)
+                {
+                    eager_view_tasks.push(task);
                 }
             }
         }

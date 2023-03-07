@@ -21,7 +21,8 @@ use crate::key::{ByteSource, IntoPrefixRange, Key, KeyEncoding};
 use crate::permissions::Permissions;
 use crate::schema::view::map::MappedDocuments;
 use crate::schema::{
-    self, Map, MappedValue, Nameable, NamedReference, Schema, SchemaName, SerializedCollection,
+    self, Map, MappedValue, Nameable, NamedReference, Schema, SchemaName, SchemaSummary,
+    SerializedCollection,
 };
 use crate::{transaction, Error};
 
@@ -3029,7 +3030,7 @@ pub trait StorageConnection: HasSession + Sized + Send + Sync {
     fn list_databases(&self) -> Result<Vec<Database>, crate::Error>;
 
     /// Lists the [`SchemaName`]s registered with this storage.
-    fn list_available_schemas(&self) -> Result<Vec<SchemaName>, crate::Error>;
+    fn list_available_schemas(&self) -> Result<Vec<SchemaSummary>, crate::Error>;
 
     /// Creates a user.
     fn create_user(&self, username: &str) -> Result<u64, crate::Error>;
@@ -3221,7 +3222,7 @@ pub trait AsyncStorageConnection: HasSession + Sized + Send + Sync {
     async fn list_databases(&self) -> Result<Vec<Database>, crate::Error>;
 
     /// Lists the [`SchemaName`]s registered with this storage.
-    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, crate::Error>;
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaSummary>, crate::Error>;
 
     /// Creates a user.
     async fn create_user(&self, username: &str) -> Result<u64, crate::Error>;

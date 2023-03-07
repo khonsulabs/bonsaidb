@@ -1,5 +1,4 @@
 use arc_bytes::serde::Bytes;
-use schema::SchemaName;
 use serde::{Deserialize, Serialize};
 
 use crate::api::{Api, ApiName};
@@ -9,7 +8,7 @@ use crate::connection::{
 use crate::document::{DocumentId, Header, OwnedDocument};
 use crate::keyvalue::{KeyOperation, Output};
 use crate::schema::view::map::{self, MappedSerializedDocuments};
-use crate::schema::{self, CollectionName, NamedReference, Qualified, ViewName};
+use crate::schema::{CollectionName, NamedReference, Qualified, SchemaSummary, ViewName};
 use crate::transaction::{Executed, OperationResult, Transaction};
 
 /// The current protocol version.
@@ -81,7 +80,7 @@ pub struct ListAvailableSchemas;
 
 impl Api for ListAvailableSchemas {
     type Error = crate::Error;
-    type Response = Vec<SchemaName>;
+    type Response = Vec<SchemaSummary>;
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "ListAvailableSchemas")

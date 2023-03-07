@@ -7,7 +7,8 @@ use bonsaidb_core::connection::{
 use bonsaidb_core::document::{DocumentId, Header, OwnedDocument};
 use bonsaidb_core::schema::view::map::MappedSerializedValue;
 use bonsaidb_core::schema::{
-    self, Collection, CollectionName, Nameable, Schema, SchemaName, Schematic, ViewName,
+    self, Collection, CollectionName, Nameable, Schema, SchemaName, SchemaSummary, Schematic,
+    ViewName,
 };
 use bonsaidb_core::transaction::{Executed, OperationResult, Transaction};
 use bonsaidb_server::{Backend, CustomServer, NoBackend, ServerDatabase};
@@ -90,7 +91,7 @@ impl<B: Backend> AsyncStorageConnection for AnyServerConnection<B> {
         }
     }
 
-    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaSummary>, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => server.list_available_schemas().await,
             Self::Networked(client) => client.list_available_schemas().await,

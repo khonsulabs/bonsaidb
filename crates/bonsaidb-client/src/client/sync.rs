@@ -157,7 +157,7 @@ impl StorageConnection for BlockingClient {
 
     fn list_available_schemas(
         &self,
-    ) -> Result<Vec<bonsaidb_core::schema::SchemaName>, bonsaidb_core::Error> {
+    ) -> Result<Vec<bonsaidb_core::schema::SchemaSummary>, bonsaidb_core::Error> {
         Ok(self.send_api_request(&ListAvailableSchemas)?)
     }
 

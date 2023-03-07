@@ -21,7 +21,7 @@ use bonsaidb_core::networking::{
     MessageReceived, Payload, UnregisterSubscriber, CURRENT_PROTOCOL_VERSION,
 };
 use bonsaidb_core::permissions::Permissions;
-use bonsaidb_core::schema::{Nameable, Schema, SchemaName, Schematic};
+use bonsaidb_core::schema::{Nameable, Schema, SchemaName, SchemaSummary, Schematic};
 use bonsaidb_utils::fast_async_lock;
 use flume::Sender;
 use futures::future::BoxFuture;
@@ -684,7 +684,7 @@ impl AsyncStorageConnection for AsyncClient {
         Ok(self.send_api_request(&ListDatabases).await?)
     }
 
-    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaSummary>, bonsaidb_core::Error> {
         Ok(self.send_api_request(&ListAvailableSchemas).await?)
     }
 

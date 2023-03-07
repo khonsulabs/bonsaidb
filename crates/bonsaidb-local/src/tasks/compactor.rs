@@ -72,7 +72,7 @@ impl Target {
             Target::Database => {
                 let mut trees = Vec::new();
                 for collection in database.schematic().collections() {
-                    gather_collection_trees(database, &collection, &mut trees);
+                    gather_collection_trees(database, collection, &mut trees);
                 }
                 trees.push(Target::KeyValue);
                 compact_trees(database, trees)
@@ -105,15 +105,13 @@ fn gather_collection_trees(
     trees.push(Target::VersionedTree(document_tree_name(collection)));
     trees.push(Target::UnversionedTree(view_versions_tree_name(collection)));
 
-    if let Some(views) = database.data.schema.views_in_collection(collection) {
-        for view in views {
-            let name = view.view_name();
-            trees.push(Target::UnversionedTree(view_entries_tree_name(&name)));
-            trees.push(Target::UnversionedTree(view_document_map_tree_name(&name)));
-            trees.push(Target::UnversionedTree(view_invalidated_docs_tree_name(
-                &name,
-            )));
-        }
+    for view in database.data.schema.views_in_collection(collection) {
+        let name = view.view_name();
+        trees.push(Target::UnversionedTree(view_entries_tree_name(&name)));
+        trees.push(Target::UnversionedTree(view_document_map_tree_name(&name)));
+        trees.push(Target::UnversionedTree(view_invalidated_docs_tree_name(
+            &name,
+        )));
     }
 }
 

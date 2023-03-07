@@ -157,33 +157,33 @@ impl Schematic {
     }
 
     /// Iterates over all views that belong to `collection`.
-    #[must_use]
     pub fn views_in_collection(
         &self,
         collection: &CollectionName,
-    ) -> Option<Vec<&'_ dyn view::Serialized>> {
-        self.views_by_collection.get(collection).map(|view_ids| {
-            view_ids
-                .iter()
-                .filter_map(|id| self.views.get(id).map(AsRef::as_ref))
-                .collect()
-        })
+    ) -> impl Iterator<Item = &'_ dyn view::Serialized> {
+        self.views_by_collection
+            .get(collection)
+            .into_iter()
+            .flat_map(|view_ids| {
+                view_ids
+                    .iter()
+                    .filter_map(|id| self.views.get(id).map(AsRef::as_ref))
+            })
     }
 
     /// Iterates over all views that are eagerly updated that belong to
     /// `collection`.
-    #[must_use]
     pub fn eager_views_in_collection(
         &self,
         collection: &CollectionName,
-    ) -> Option<Vec<&'_ dyn view::Serialized>> {
+    ) -> impl Iterator<Item = &'_ dyn view::Serialized> {
         self.eager_views_by_collection
             .get(collection)
-            .map(|view_ids| {
+            .into_iter()
+            .flat_map(|view_ids| {
                 view_ids
                     .iter()
                     .filter_map(|id| self.views.get(id).map(AsRef::as_ref))
-                    .collect()
             })
     }
 
@@ -194,9 +194,8 @@ impl Schematic {
     }
 
     /// Returns a list of all collections contained in this schematic.
-    #[must_use]
-    pub fn collections(&self) -> Vec<CollectionName> {
-        self.contained_collections.iter().cloned().collect()
+    pub fn collections(&self) -> impl Iterator<Item = &CollectionName> {
+        self.contained_collections.iter()
     }
 }
 

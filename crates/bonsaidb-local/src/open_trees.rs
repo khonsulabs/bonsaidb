@@ -52,27 +52,25 @@ impl OpenTrees {
             vault.clone(),
         );
 
-        if let Some(views) = schema.views_in_collection(collection) {
-            for view in views {
-                let view_name = view.view_name();
-                if view.eager() {
-                    self.open_tree::<Unversioned>(
-                        &view_document_map_tree_name(&view_name),
-                        #[cfg(any(feature = "encryption", feature = "compression"))]
-                        vault.clone(),
-                    );
-                    self.open_tree::<Unversioned>(
-                        &view_entries_tree_name(&view_name),
-                        #[cfg(any(feature = "encryption", feature = "compression"))]
-                        vault.clone(),
-                    );
-                } else {
-                    self.open_tree::<Unversioned>(
-                        &view_invalidated_docs_tree_name(&view_name),
-                        #[cfg(any(feature = "encryption", feature = "compression"))]
-                        vault.clone(),
-                    );
-                }
+        for view in schema.views_in_collection(collection) {
+            let view_name = view.view_name();
+            if view.eager() {
+                self.open_tree::<Unversioned>(
+                    &view_document_map_tree_name(&view_name),
+                    #[cfg(any(feature = "encryption", feature = "compression"))]
+                    vault.clone(),
+                );
+                self.open_tree::<Unversioned>(
+                    &view_entries_tree_name(&view_name),
+                    #[cfg(any(feature = "encryption", feature = "compression"))]
+                    vault.clone(),
+                );
+            } else {
+                self.open_tree::<Unversioned>(
+                    &view_invalidated_docs_tree_name(&view_name),
+                    #[cfg(any(feature = "encryption", feature = "compression"))]
+                    vault.clone(),
+                );
             }
         }
     }

@@ -45,7 +45,7 @@ fn collections() {
     let schematic = Schematic::from_schema::<TestSchema>().unwrap();
     assert!(schematic
         .collections()
-        .contains(&CollectionName::private("name")));
+        .any(|collection| collection == &CollectionName::private("name")));
 
     #[derive(Collection, Debug)]
     #[collection(name = "name")]
@@ -64,7 +64,7 @@ fn plugins() {
     let schematic = Schematic::from_schema::<TestSchema>().unwrap();
     assert!(schematic
         .collections()
-        .contains(&CollectionName::private("name")));
+        .any(|collection| collection == &CollectionName::private("name")));
 
     #[derive(Collection, Debug)]
     #[collection(name = "name")]

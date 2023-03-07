@@ -101,6 +101,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#240]: https://github.com/khonsulabs/bonsaidb/issues/240
 [#254]: https://github.com/khonsulabs/bonsaidb/issues/254
 
+- `Schematic` has had several methods changed to `impl Iterator` of the original
+  type being returned to avoid extra unnecessary allocations. These methods are:
+
+  - `Schematic::views_in_collection`
+  - `Schematic::eager_views_in_collection`
+  - `Schematic::collections`
+
+- `StorageConnection::list_available_schemas`/`AsyncStorageConnection::list_available_schemas`
+  now return a `Vec<SchemaSummary>`. The `SchemaSummary` type contains
+  additional information such as what collections and views each schema
+  contains.
+
 ### Added
 
 - [#239][239] `Key` can now be derived on enums and structs, allowing an easier way

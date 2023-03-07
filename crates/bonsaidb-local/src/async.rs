@@ -12,7 +12,7 @@ use bonsaidb_core::permissions::Permissions;
 use bonsaidb_core::pubsub::{self, AsyncPubSub, AsyncSubscriber, PubSub, Receiver};
 use bonsaidb_core::schema::view::map::MappedSerializedValue;
 use bonsaidb_core::schema::{
-    self, CollectionName, Nameable, Schema, SchemaName, Schematic, ViewName,
+    self, CollectionName, Nameable, Schema, SchemaName, SchemaSummary, Schematic, ViewName,
 };
 use bonsaidb_core::transaction::{self, OperationResult, Transaction};
 
@@ -417,7 +417,7 @@ impl AsyncStorageConnection for AsyncStorage {
             .map_err(Error::from)?
     }
 
-    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaSummary>, bonsaidb_core::Error> {
         let task_self = self.clone();
         self.runtime
             .spawn_blocking(move || task_self.storage.list_available_schemas())

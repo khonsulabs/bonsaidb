@@ -19,7 +19,7 @@ use bonsaidb_core::connection::{
 use bonsaidb_core::networking::{self, Payload, CURRENT_PROTOCOL_VERSION};
 use bonsaidb_core::permissions::bonsai::{bonsaidb_resource_name, BonsaiAction, ServerAction};
 use bonsaidb_core::permissions::Permissions;
-use bonsaidb_core::schema::{self, Nameable, NamedCollection, Schema};
+use bonsaidb_core::schema::{self, Nameable, NamedCollection, Schema, SchemaSummary};
 use bonsaidb_local::config::Builder;
 use bonsaidb_local::{AsyncStorage, Storage, StorageNonBlocking};
 use bonsaidb_utils::fast_async_lock;
@@ -911,7 +911,7 @@ impl<B: Backend> AsyncStorageConnection for CustomServer<B> {
         self.storage.list_databases().await
     }
 
-    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaSummary>, bonsaidb_core::Error> {
         self.storage.list_available_schemas().await
     }
 

@@ -3808,10 +3808,27 @@ pub async fn basic_server_connection_tests<C: AsyncStorageConnection>(
     server: C,
     newdb_name: &str,
 ) -> anyhow::Result<()> {
-    let mut schemas = server.list_available_schemas().await?;
-    schemas.sort();
-    assert!(schemas.contains(&BasicSchema::schema_name()));
-    assert!(schemas.contains(&SchemaName::new("khonsulabs", "bonsaidb-admin")));
+    let schemas = server.list_available_schemas().await?;
+
+    let basic_schema = schemas
+        .iter()
+        .find(|s| s.name == BasicSchema::schema_name())
+        .unwrap();
+    assert!(basic_schema
+        .collections()
+        .any(|c| c.name == Basic::collection_name()));
+    let basic_collection = basic_schema.collection(&Basic::collection_name()).unwrap();
+    assert!(basic_collection
+        .views()
+        .any(|v| v.name == BasicByParentId.view_name()));
+    let by_parent_id = basic_collection.view(&BasicByParentId.view_name()).unwrap();
+    assert!(!by_parent_id.unique);
+    assert!(by_parent_id.lazy);
+    assert!(!by_parent_id.eager);
+
+    assert!(schemas
+        .iter()
+        .any(|s| s.name == SchemaName::new("khonsulabs", "bonsaidb-admin")));
 
     let databases = server.list_databases().await?;
     assert!(databases.iter().any(|db| db.name == "tests"));
@@ -3857,10 +3874,26 @@ pub fn blocking_basic_server_connection_tests<C: StorageConnection>(
     server: &C,
     newdb_name: &str,
 ) -> anyhow::Result<()> {
-    let mut schemas = server.list_available_schemas()?;
-    schemas.sort();
-    assert!(schemas.contains(&BasicSchema::schema_name()));
-    assert!(schemas.contains(&SchemaName::new("khonsulabs", "bonsaidb-admin")));
+    let schemas = server.list_available_schemas()?;
+    let basic_schema = schemas
+        .iter()
+        .find(|s| s.name == BasicSchema::schema_name())
+        .unwrap();
+    assert!(basic_schema
+        .collections()
+        .any(|c| c.name == Basic::collection_name()));
+    let basic_collection = basic_schema.collection(&Basic::collection_name()).unwrap();
+    assert!(basic_collection
+        .views()
+        .any(|v| v.name == BasicByParentId.view_name()));
+    let by_parent_id = basic_collection.view(&BasicByParentId.view_name()).unwrap();
+    assert!(!by_parent_id.unique);
+    assert!(by_parent_id.lazy);
+    assert!(!by_parent_id.eager);
+
+    assert!(schemas
+        .iter()
+        .any(|s| s.name == SchemaName::new("khonsulabs", "bonsaidb-admin")));
 
     let databases = server.list_databases()?;
     assert!(databases.iter().any(|db| db.name == "tests"));
