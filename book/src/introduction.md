@@ -7,3 +7,10 @@ This user's guide aims to provide a guided walkthrough for users to understand h
 If you have any feedback on this guide, please [file an issue](https://github.com/khonsulabs/bonsaidb/issues), and we will try to address any issues or shortcomings.
 
 Thank you for exploring BonsaiDb.
+
+## About `dev.bonsaidb.io`
+
+The domain that is hosting this user guide is powered by [Dossier][dossier]. Dossier is a static file hosting project that is powered by BonsaiDb's [file storage features][bonsaidb-files], currently served on a [Stardust instance in Amsterdam at Scaleway](https://www.scaleway.com/en/stardust-instances/). Every page/image/script is loaded from BonsaiDb (although the domain has caching by Cloudflare).
+
+[dossier]: https://github.com/khonsulabs/dossier
+[bonsaidb-files]: {{DOCS_BASE_URL}}/bonsaidb_files/
