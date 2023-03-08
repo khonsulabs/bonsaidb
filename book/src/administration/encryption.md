@@ -11,8 +11,7 @@ let storage = Storage::open(
     StorageConfiguration::new(&directory)
         .vault_key_storage(vault_key_storage)
         .default_encryption_key(KeyId::Master)
-)
-.await?;
+)?;
 ```
 
 ## Enabling at-rest encryption on a per-collection basis

@@ -1,13 +1,14 @@
 # StorageConnection
 
-The [`StorageConnection` trait][storageconnection] contains functions for interacting with BonsaiDb's multi-database storage. This trait is implemented by these types:
+The [`StorageConnection`][storageconnection]/[`AsyncStorageConnection`][asyncstorageconnection] traits contain functions for interacting with BonsaiDb's multi-database storage. These traits are implemented by the [`Storage`](../about/concepts/storage.md) types.
 
-- For bonsaidb-local: [`Storage`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Storage.html)
-- For bonsaidb-server: [`CustomServer<Backend>`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html) / [`Server`]({{DOCS_BASE_URL}}/bonsaidb/server/type.Server.html)
-- For bonsaidb-client: [`BlockingClient`]({{DOCS_BASE_URL}}/bonsaidb/client/struct.BlockingClient.html)
+Using these trait, you can write code that generically works with BonsaiDb's multi-database storage types regardless of whether BonsaiDb is operationg locally with no network connection or across the globe.
 
-Using this trait, you can write code that generically can work regardless of whether BonsaiDb is operationg locally with no network connection or across the globe.
-
-This is an [async trait](https://crates.io/crates/async-trait), which unfortunately yields [messy documentation][storageconnection].
+The only differences between `StorageConnection` and `AsyncStorageConnection` is that
+`AsyncStorageConnection` is able to be used in async code and the `StorageConnection` trait is
+designed to block the current thread. BonsaiDb is designed to try to make it
+hard to accidentally call a blocking function from async code accidentally,
+while still supporting both async and blocking access patterns.
 
 [storageconnection]: {{DOCS_BASE_URL}}/bonsaidb/core/connection/trait.StorageConnection.html
+[asyncstorageconnection]: {{DOCS_BASE_URL}}/bonsaidb/core/connection/trait.AsyncStorageConnection.html

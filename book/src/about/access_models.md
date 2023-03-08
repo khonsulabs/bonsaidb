@@ -11,7 +11,7 @@ graph LR
   code <--> local
 ```
 
-A working example of how to use a local database can be found at [`examples/basic-local/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-local/examples/basic-local.rs).
+A working example of how to use a local database can be found at [`examples/basic-local/examples/basic-local.rs`]({{REPO_BASE_URL}}/examples/basic-local/examples/basic-local.rs).
 
 ## Multi-database model (No networking)
 
@@ -44,7 +44,7 @@ graph LR
   server-code <--> server
 ```
 
-A working example of this model can be found at [`examples/basic-server/examples/basic-server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/basic-server.rs). When writing client/server applications that utilize BonsaiDb, you can have the BonsaiDb server running withing your server application. This means that your server still has the ability not use networking to interact with BonsaiDb. Regardless of if you run any other server code, your BonsaiDb server will be accessible through a `Client` over the network.
+A working example of this model can be found at [`examples/basic-server/examples/basic-server.rs`]({{REPO_BASE_URL}}/examples/basic-server/examples/basic-server.rs). When writing client/server applications that utilize BonsaiDb, you can have the BonsaiDb server running withing your server application. This means that your server still has the ability not use networking to interact with BonsaiDb. Regardless of if you run any other server code, your BonsaiDb server will be accessible through a `Client` over the network.
 
 ## API Platform model (QUIC or WebSockets)
 

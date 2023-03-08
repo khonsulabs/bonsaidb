@@ -87,9 +87,8 @@ Both `first_value()` and `next_value()` by default return
 `NextValueError::Unimplemented`. If any error occurs while trying to assign a
 unique id, the transaction will be aborted and rolled back.
 
-[example]: https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-local/examples/primary-keys.rs
+[example]: {{REPO_BASE_URL}}/examples/basic-local/examples/primary-keys.rs
 [primary-key]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.Collection.html#associatedtype.PrimaryKey
-[primary-key-derive]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.Collection.html#selecting-a-primary-key-type
 [key]: {{DOCS_BASE_URL}}/bonsaidb/core/key/trait.Key.html
 [key-first-value]: {{DOCS_BASE_URL}}/bonsaidb/core/key/trait.Key.html#method.first_value
 [key-next-value]: {{DOCS_BASE_URL}}/bonsaidb/core/key/trait.Key.html#method.next_value

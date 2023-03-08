@@ -44,4 +44,4 @@ The full example these snippets are taken from is [available in the repository][
 
 [handler]: {{DOCS_BASE_URL}}/bonsaidb/server/api/trait.Handler.html
 [handler-session]: {{DOCS_BASE_URL}}/bonsaidb/server/api/struct.HandlerSession.html
-[full-example]: https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/custom-api.rs
+[full-example]: {{REPO_BASE_URL}}/examples/basic-server/examples/custom-api.rs

@@ -4,7 +4,7 @@ To access BonsaiDb over the network, you're going to be writing two pieces of co
 
 ## Your BonsaiDb Server
 
-The first step is to create a [`Server`][storage], which uses local [`Storage`][storage] under the hood. This means that if you're already using BonsaiDb in local mode, you can swap your usage of [`Storage`][storage] with [`Server`][server] in your server code without running your database through any tools. Here's the setup code from [`basic-server/examples/basic-server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/basic-server.rs)
+The first step is to create a [`Server`][storage], which uses local [`Storage`][storage] under the hood. This means that if you're already using BonsaiDb in local mode, you can swap your usage of [`Storage`][storage] with [`Server`][server] in your server code without running your database through any tools. Here's the setup code from [`basic-server/examples/basic-server.rs`]({{REPO_BASE_URL}}/examples/basic-server/examples/basic-server.rs)
 
 ```rust,noplayground,no_run
 {{#include ../../../examples/basic-server/examples/basic-server.rs:setup}}
@@ -31,19 +31,18 @@ If you're not running any of your own code on the server, and you're only using 
 
 ## From the Client
 
-The [`Client`][client] can support both the native protocol and WebSockets. It determines which protocol to use based on the scheme in the URL:
+[`BlockingClient`][blockingclient] and [`AsyncClient`][asyncclient] can support both the native protocol and WebSockets. They determine which protocol to use based on the scheme in the URL:
 
-* `bonsaidb://host:port` will connect using the native BonsaiDb protocol.
-* `ws://host:port` will connect using WebSockets.
+* `bonsaidb://*` will connect using the native BonsaiDb protocol.
+* `ws://*` or `wss://*` will connect using WebSockets.
 
-Here's how to connect, from [`examples/basic-server/examples/basic-server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/basic-server.rs):
+Here's how to connect over BonsaiDb's native protocol, from [`examples/basic-server/examples/basic-server.rs`]({{REPO_BASE_URL}}/examples/basic-server/examples/basic-server.rs):
 
 ```rust,noplayground,no_run
-Client::new(
-    Url::parse("bonsaidb://localhost:5645")?,
-    Some(certificate),
-)
-.await?
+AsyncClient::build(Url::parse("bonsaidb://localhost:5645")?)
+    .with_certificate(certificate)
+    .build()
+    .await?
 ```
 
 This is using a pinned certificate to connect. Other methods are supported, but better certificate management is coming soon.
@@ -52,11 +51,14 @@ This is using a pinned certificate to connect. Other methods are supported, but 
 
 ## Common Traits
 
-* [`Server`][server] implements [`StorageConnection`](../traits/storage_connection.md).
+The examples above use types that are powered by common traits, allowing code to be written with generic trait bounds that can operate the same regardless of whether the code is being called locally or remotely.
+
+* [`Server`][server] implements [`AsyncStorageConnection`](../traits/storage_connection.md). [`Server::as_blocking()`](https://docs.rs/bonsaidb/latest/bonsaidb/server/struct.CustomServer.html#method.as_blocking) can be used to receive a type that implements [`StorageConnection`](../traits/storage_connection.md).
 * [`Server::database()`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html#method.database) returns a local [`Database`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Database.html), which implements [`Connection`](../traits/connection.md), [`KeyValue`](../traits/key-value.md), and [`PubSub`](../traits/pubsub.md). Local access in the server executable doesn't go over the network.
-* [`BlockingClient`][client] implements [`StorageConnection`](../traits/storage_connection.md).
-* [`Client::database()`]({{DOCS_BASE_URL}}/bonsaidb/client/struct.BlockingClient.html#method.database) returns a [`BlockingRemoteDatabase`]({{DOCS_BASE_URL}}/bonsaidb/client/struct.BlockingRemoteDatabase.html), which implements [`Connection`](../traits/connection.md), [`KeyValue`](../traits/key-value.md), and [`PubSub`](../traits/pubsub.md).
+* [`BlockingClient`][blockingclient]/[`AsyncClient`][asyncclient] implement [`StorageConnection` / `AsyncStorageConnection`](../traits/storage_connection.md).
+* [`BlockingClient::database()`]({{DOCS_BASE_URL}}/bonsaidb/client/struct.BlockingClient.html#method.database)/[`AsyncClient::database()`]({{DOCS_BASE_URL}}/bonsaidb/client/struct.AsyncClient.html#method.database) return types that implement [`Connection`/`AsyncConnection`](../traits/connection.md), [`KeyValue`/`AsyncKeyValue`](../traits/key-value.md), and [`PubSub`/`AsyncPubSub`](../traits/pubsub.md).
 
 [server]: {{DOCS_BASE_URL}}/bonsaidb/server/type.Server.html
 [storage]: {{DOCS_BASE_URL}}/bonsaidb/local/struct.Storage.html
-[client]: {{DOCS_BASE_URL}}/bonsaidb/client/struct.BlockingClient.html
+[blockingclient]: {{DOCS_BASE_URL}}/bonsaidb/client/struct.BlockingClient.html
+[asyncclient]: {{DOCS_BASE_URL}}/bonsaidb/client/struct.AsyncClient.html

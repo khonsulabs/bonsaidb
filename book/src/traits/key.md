@@ -36,4 +36,3 @@ By implementing `Key` you can take full control of converting your view keys.
 [as-ord]: {{DOCS_BASE_URL}}/bonsaidb/core/key/trait.KeyEncoding.html#tymethod.as_ord_bytes
 [from-ord]: {{DOCS_BASE_URL}}/bonsaidb/core/key/trait.Key.html#tymethod.from_ord_bytes
 [ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
-[uuid]: https://docs.rs/uuid/latest/uuid/struct.Uuid.html

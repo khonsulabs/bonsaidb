@@ -19,6 +19,7 @@ use_env = true
 
 [preprocessor.variables.variables]
 DOCS_BASE_URL = "https://dev.bonsaidb.io/main/docs"
+REPO_BASE_URL = "https://github.com/khonsulabs/bonsaidb/blob/main"
 
 [output.linkcheck.http-headers]
 # Any hyperlink that contains this regexp will be sent

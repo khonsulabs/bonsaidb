@@ -16,7 +16,7 @@ Let's insert this data for these examples:
 {{#include ../../../book-examples/tests/view-example-string.rs:insert_data}}
 ```
 
-> All examples on this page are available in their full form in the repository at [book/book-examples/tests](https://github.com/khonsulabs/bonsaidb/tree/main/book/book-examples/tests).
+> All examples on this page are available in their full form in the repository at [book/book-examples/tests]({{REPO_BASE_URL}}/book/book-examples/tests).
 
 While `category` should be an enum, let's first explore using `String` and upgrade to an enum at the end (it requires one additional step). Let's implement a View that will allow users to find blog posts by their category as well as count the number of posts in each category.
 
