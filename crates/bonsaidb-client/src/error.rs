@@ -1,7 +1,7 @@
 use bonsaidb_core::arc_bytes::serde::Bytes;
 use bonsaidb_core::schema::Name;
 
-/// Errors related to working with [`Client`](crate::Client)
+/// Errors related to working with the BonsaiDb client.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[cfg(feature = "websockets")]

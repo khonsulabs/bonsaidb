@@ -19,7 +19,7 @@ use derive_where::derive_where;
 pub enum AnyServerConnection<B: Backend> {
     /// A local server.
     Local(CustomServer<B>),
-    /// A server accessed with a [`Client`].
+    /// A server accessed with an [`AsyncClient`].
     Networked(AsyncClient),
 }
 
@@ -238,7 +238,7 @@ impl<B: Backend> AsyncStorageConnection for AnyServerConnection<B> {
 pub enum AnyDatabase<B: Backend = NoBackend> {
     /// A local database.
     Local(ServerDatabase<B>),
-    /// A networked database accessed with a [`Client`].
+    /// A networked database accessed with an [`AsyncRemoteDatabase`].
     Networked(AsyncRemoteDatabase),
 }
 

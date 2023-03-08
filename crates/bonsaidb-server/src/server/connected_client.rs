@@ -109,7 +109,7 @@ impl<B: Backend> ConnectedClient<B> {
         sessions.get(&session_id).map(|data| data.session.clone())
     }
 
-    /// Returns a collection of all active [`Sesssion`]s for this client.
+    /// Returns a collection of all active [`Session`]s for this client.
     #[must_use]
     pub fn all_sessions<C: FromIterator<Session>>(&self) -> C {
         let sessions = self.data.sessions.read();

@@ -77,14 +77,24 @@ Configuration(
                 release: "https://docs.rs/bonsaidb",
             ),
             "client-type": (
-                default: "https://dev.bonsaidb.io/main/docs/bonsaidb_client/struct.Client.html",
-                release: "https://docs.rs/bonsaidb-client/*/bonsaidb_client/struct.Client.html",
-                for_docs: "crate::Client",
+                default: "https://dev.bonsaidb.io/main/docs/bonsaidb_client/struct.BlockingClient.html",
+                release: "https://docs.rs/bonsaidb-client/*/bonsaidb_client/struct.BlockingClient.html",
+                for_docs: "crate::BlockingClient",
+            ),
+            "async-client-type": (
+                default: "https://dev.bonsaidb.io/main/docs/bonsaidb_client/struct.AsyncClient.html",
+                release: "https://docs.rs/bonsaidb-client/*/bonsaidb_client/struct.AsyncClient.html",
+                for_docs: "crate::AsyncClient",
             ),
             "storage-connection-trait": (
                 default: "https://dev.bonsaidb.io/main/docs/bonsaidb/core/connection/trait.StorageConnection.html",
                 release: "https://docs.rs/bonsaidb-core/*/bonsaidb_core/connection/trait.StorageConnection.html",
                 for_docs: "::bonsaidb_core::connection::StorageConnection",
+            ),
+            "async-storage-connection-trait": (
+                default: "https://dev.bonsaidb.io/main/docs/bonsaidb/core/connection/trait.AsyncStorageConnection.html",
+                release: "https://docs.rs/bonsaidb-core/*/bonsaidb_core/connection/trait.AsyncStorageConnection.html",
+                for_docs: "::bonsaidb_core::connection::AsyncStorageConnection",
             ),
             "schema-trait": (
                 default: "https://dev.bonsaidb.io/main/docs/bonsaidb/core/schema/trait.Schema.html",

@@ -9,8 +9,10 @@ QUIC is a new protocol built atop UDP. It is designed to operate more
 reliably than TCP, and features TLS built-in at the protocol level.
 WebSockets are an established protocol built atop TCP and HTTP.
 
-[`Client`](https://dev.bonsaidb.io/main/docs/bonsaidb_client/struct.Client.html) provides access to BonsaiDb by implementing the
-[`StorageConnection`](https://dev.bonsaidb.io/main/docs/bonsaidb/core/connection/trait.StorageConnection.html) trait.
+[`BlockingClient`](https://dev.bonsaidb.io/main/docs/bonsaidb_client/struct.BlockingClient.html) provides access to BonsaiDb by implementing
+the [`StorageConnection`](https://dev.bonsaidb.io/main/docs/bonsaidb/core/connection/trait.StorageConnection.html) trait.
+[`AsyncClient`](https://dev.bonsaidb.io/main/docs/bonsaidb_client/struct.AsyncClient.html) provides access to BonsaiDb by implementing
+the [`AsyncStorageConnection`](https://dev.bonsaidb.io/main/docs/bonsaidb/core/connection/trait.AsyncStorageConnection.html) trait.
 
 ## Minimum Supported Rust Version (MSRV)
 

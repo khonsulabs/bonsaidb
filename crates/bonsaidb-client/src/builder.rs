@@ -20,7 +20,7 @@ pub struct Async;
 #[cfg(not(target_arch = "wasm32"))]
 pub struct Blocking;
 
-/// Builds a new [`Client`] with custom settings.
+/// Builder for a [`BlockingClient`] or an [`AsyncClient`].
 #[must_use]
 pub struct Builder<AsyncMode> {
     url: Url,
