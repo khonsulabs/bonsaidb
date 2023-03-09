@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Install Rust
         uses: hecrj/setup-rust-action@v1
@@ -44,9 +44,9 @@ jobs:
         ports:
           # Maps port 6379 on service container to the host
           - 6379:6379
-          
+
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Install Rust
         uses: hecrj/setup-rust-action@v1
@@ -57,7 +57,7 @@ jobs:
       - name: Run clippy
         continue-on-error: true
         run: |
-          cargo clippy --all-targets ${{ matrix.options.cargo_args }} -- -D warnings 
+          cargo clippy --all-targets ${{ matrix.options.cargo_args }} -- -D warnings
         env:
           RUST_TOOLCHAIN: ${{ matrix.options.toolchain }}
 
@@ -76,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Install Rust
         uses: hecrj/setup-rust-action@v1

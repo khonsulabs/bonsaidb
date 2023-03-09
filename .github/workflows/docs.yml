@@ -13,15 +13,15 @@ jobs:
         run: |
           cargo doc --no-deps --all-features
 
-      - name: Deploy Docs
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || startsWith(github.ref, 'refs/tags/')
-        run: |
-          wget https://khonsu.dev/dossier/builds/main/dossier
-          chmod a+x dossier
-          ./dossier --token $TOKEN --url wss://khonsu.dev/_ws project sync bonsaidb target/doc/ /${{ github.ref_name }}/docs
-        env:
-          TOKEN: ${{ secrets.DOSSIER_API_KEY_ID }}
-          BONSAIDB_TOKEN_SECRET: ${{ secrets.DOSSIER_API_KEY }}
+      - name: Deploy
+        uses: khonsulabs/sync-to-dossier@main
+        with:
+          url: ${{ secrets.DOSSIER_URL }}
+          api-key-id: ${{ secrets.DOSSIER_API_KEY_ID }}
+          api-key: ${{ secrets.DOSSIER_API_KEY }}
+          project: bonsaidb
+          from: target/doc/
+          to: /${{ github.ref_name }}/docs
 
   book:
     runs-on: ubuntu-latest

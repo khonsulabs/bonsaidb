@@ -10,19 +10,19 @@ jobs:
       - name: Install Rust
         uses: hecrj/setup-rust-action@v1
       - name: Cache
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: |
             ~/.cargo/.crates.toml
             ~/.cargo/.crates2.json
             ~/.cargo/bin/cargo-deny
           key: cargo-deny
-          
+
       - name: Install cargo-deny
         run: cargo -v install cargo-deny
 
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Audit
         run: |

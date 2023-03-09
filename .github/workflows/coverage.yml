@@ -30,7 +30,7 @@ jobs:
           - 5432:5432
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Install Rust
         uses: hecrj/setup-rust-action@v1
@@ -47,12 +47,12 @@ jobs:
           UPDATE_COMPATIBILITY: true
           RUST_BACKTRACE: 1
 
-      - name: Deploy Docs
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || startsWith(github.ref, 'refs/tags/')
-        run: |
-          wget https://khonsu.dev/dossier/builds/main/dossier
-          chmod a+x dossier
-          ./dossier --token $TOKEN --url wss://khonsu.dev/_ws project sync bonsaidb coverage/ /${{ github.ref_name }}/coverage
-        env:
-          TOKEN: ${{ secrets.DOSSIER_API_KEY_ID }}
-          BONSAIDB_TOKEN_SECRET: ${{ secrets.DOSSIER_API_KEY }}
+      - name: Deploy
+        uses: khonsulabs/sync-to-dossier@main
+        with:
+          url: ${{ secrets.DOSSIER_URL }}
+          api-key-id: ${{ secrets.DOSSIER_API_KEY_ID }}
+          api-key: ${{ secrets.DOSSIER_API_KEY }}
+          project: bonsaidb
+          from: coverage/
+          to: /${{ github.ref_name }}/coverage
