@@ -6,7 +6,7 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Install Rust
         uses: hecrj/setup-rust-action@v1
       - name: Generate Docs
@@ -31,11 +31,11 @@ jobs:
     needs: docs
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           ref: ${{ matrix.branch }}
       - name: Cache
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: |
             ~/.cargo/.crates.toml
@@ -55,11 +55,11 @@ jobs:
         run: cd book && mdbook build
 
       - name: Deploy
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || startsWith(github.ref, 'refs/tags/')
-        run: |
-          wget https://khonsu.dev/dossier/builds/main/dossier
-          chmod a+x dossier
-          ./dossier --token $TOKEN --url wss://khonsu.dev/_ws project sync bonsaidb book/book/html/ /${{ github.ref_name }}/guide
-        env:
-          TOKEN: ${{ secrets.DOSSIER_API_KEY_ID }}
-          BONSAIDB_TOKEN_SECRET: ${{ secrets.DOSSIER_API_KEY }}
+        uses: khonsulabs/sync-to-dossier@main
+        with:
+          url: ${{ secrets.DOSSIER_URL }}
+          api-key-id: ${{ secrets.DOSSIER_API_KEY_ID }}
+          api-key: ${{ secrets.DOSSIER_API_KEY }}
+          project: bonsaidb
+          from: book/book/html/
+          to: /${{ github.ref_name }}/guide
