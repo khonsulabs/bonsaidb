@@ -3,7 +3,9 @@ use std::io::{ErrorKind, Write};
 
 use ordered_varint::Variable;
 
-use crate::key::{ByteSource, CompositeKeyError, Key, KeyEncoding, NextValueError};
+use crate::key::{
+    ByteSource, CompositeKeyError, CompositeKind, Key, KeyEncoding, KeyVisitor, NextValueError,
+};
 
 /// Encodes a value using the `Key` trait in such a way that multiple values can
 /// still be ordered at the byte level when chained together.
@@ -85,6 +87,11 @@ pub fn decode_composite_field<'a, 'k, T: Key<'k>>(
 #[deprecated = "This type preserves a version of tuple encoding for backwards compatibility. It it is known to have improper key ordering. See https://github.com/khonsulabs/bonsaidb/issues/240."]
 pub struct TupleEncodingV1<T>(pub T);
 
+macro_rules! count_args {
+    () => (0usize);
+    ( $arg:tt $($remaining:tt)* ) => (1usize + count_args!($($remaining)*));
+}
+
 macro_rules! impl_key_for_tuple_v1 {
     ($(($index:tt, $varname:ident, $generic:ident)),+) => {
         #[allow(deprecated)]
@@ -118,6 +125,14 @@ macro_rules! impl_key_for_tuple_v1 {
                 ($(Some($varname)),+,) => Some($($varname +)+ 0),
                 _ => None,
             };
+
+            fn describe<Visitor>(visitor: &mut Visitor)
+            where
+                Visitor: KeyVisitor,
+            {
+                visitor.visit_composite(CompositeKind::Tuple, count_args!($($generic)+));
+                $($generic::describe(visitor);)+
+            }
 
             fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
                 let mut bytes = Vec::new();
@@ -211,6 +226,14 @@ where
     type Error = T::Error;
 
     const LENGTH: Option<usize> = T::LENGTH;
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_composite(CompositeKind::Option, 1);
+        T::describe(visitor);
+    }
 
     /// # Panics
     ///

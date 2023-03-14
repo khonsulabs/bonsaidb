@@ -17,7 +17,7 @@ use crate::admin::{Role, User};
 use crate::document::{
     CollectionDocument, CollectionHeader, Document, HasHeader, Header, OwnedDocument,
 };
-use crate::key::{ByteSource, IntoPrefixRange, Key, KeyEncoding};
+use crate::key::{ByteSource, IntoPrefixRange, Key, KeyEncoding, KeyKind, KeyVisitor};
 use crate::permissions::Permissions;
 use crate::schema::view::map::MappedDocuments;
 use crate::schema::{
@@ -3406,6 +3406,13 @@ impl<'k> KeyEncoding<'k, Self> for SensitiveString {
 
     const LENGTH: Option<usize> = None;
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::String);
+    }
+
     fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
         self.0.as_ord_bytes()
     }
@@ -3462,6 +3469,13 @@ impl<'k> KeyEncoding<'k, Self> for SensitiveBytes {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Bytes);
+    }
 
     fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
         self.0.as_ord_bytes()

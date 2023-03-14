@@ -1,12 +1,12 @@
 use std::any::TypeId;
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map, HashMap};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use derive_where::derive_where;
 
 use crate::document::{BorrowedDocument, DocumentId, KeyId};
-use crate::key::{ByteSource, Key};
+use crate::key::{ByteSource, Key, KeyDescription};
 use crate::schema::collection::Collection;
 use crate::schema::view::map::{self, MappedValue};
 use crate::schema::view::{self, Serialized, SerializedView, ViewSchema};
@@ -18,7 +18,7 @@ use crate::Error;
 pub struct Schematic {
     /// The name of the schema this was built from.
     pub name: SchemaName,
-    contained_collections: HashSet<CollectionName>,
+    contained_collections: HashMap<CollectionName, KeyDescription>,
     collections_by_type_id: HashMap<TypeId, CollectionName>,
     collection_encryption_keys: HashMap<CollectionName, KeyId>,
     collection_id_generators: HashMap<CollectionName, Box<dyn IdGenerator>>,
@@ -33,7 +33,7 @@ impl Schematic {
     pub fn from_schema<S: Schema + ?Sized>() -> Result<Self, Error> {
         let mut schematic = Self {
             name: S::schema_name(),
-            contained_collections: HashSet::new(),
+            contained_collections: HashMap::new(),
             collections_by_type_id: HashMap::new(),
             collection_encryption_keys: HashMap::new(),
             collection_id_generators: HashMap::new(),
@@ -49,18 +49,19 @@ impl Schematic {
     /// Adds the collection `C` and its views.
     pub fn define_collection<C: Collection + 'static>(&mut self) -> Result<(), Error> {
         let name = C::collection_name();
-        if self.contained_collections.contains(&name) {
-            Err(Error::CollectionAlreadyDefined)
-        } else {
-            self.collections_by_type_id
-                .insert(TypeId::of::<C>(), name.clone());
-            if let Some(key) = C::encryption_key() {
-                self.collection_encryption_keys.insert(name.clone(), key);
+        match self.contained_collections.entry(name.clone()) {
+            hash_map::Entry::Vacant(entry) => {
+                self.collections_by_type_id
+                    .insert(TypeId::of::<C>(), name.clone());
+                if let Some(key) = C::encryption_key() {
+                    self.collection_encryption_keys.insert(name.clone(), key);
+                }
+                self.collection_id_generators
+                    .insert(name, Box::<KeyIdGenerator<C>>::default());
+                entry.insert(KeyDescription::for_key::<C::PrimaryKey>());
+                C::define_views(self)
             }
-            self.collection_id_generators
-                .insert(name.clone(), Box::<KeyIdGenerator<C>>::default());
-            self.contained_collections.insert(name);
-            C::define_views(self)
+            hash_map::Entry::Occupied(_) => Err(Error::CollectionAlreadyDefined),
         }
     }
 
@@ -114,10 +115,14 @@ impl Schematic {
         self.collections_by_type_id.contains_key(&TypeId::of::<C>())
     }
 
-    /// Returns `true` if this schema contains the collection `C`.
+    /// Returns the description of the primary keyof the collection with the
+    /// given name, or `None` if the collection can't be found.
     #[must_use]
-    pub fn contains_collection_name(&self, collection: &CollectionName) -> bool {
-        self.contained_collections.contains(collection)
+    pub fn collection_primary_key_description<'a>(
+        &'a self,
+        collection: &CollectionName,
+    ) -> Option<&'a KeyDescription> {
+        self.contained_collections.get(collection)
     }
 
     /// Returns the next id in sequence for the collection, if the primary key
@@ -195,7 +200,7 @@ impl Schematic {
 
     /// Returns a list of all collections contained in this schematic.
     pub fn collections(&self) -> impl Iterator<Item = &CollectionName> {
-        self.contained_collections.iter()
+        self.contained_collections.keys()
     }
 }
 
@@ -213,6 +218,10 @@ where
 {
     fn collection(&self) -> CollectionName {
         <<V as View>::Collection as Collection>::collection_name()
+    }
+
+    fn key_description(&self) -> KeyDescription {
+        KeyDescription::for_key::<<V as View>::Key>()
     }
 
     fn unique(&self) -> bool {

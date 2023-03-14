@@ -254,13 +254,15 @@ impl Database {
         Ok(())
     }
 
-    fn apply_transaction_to_roots(
-        &self,
-        transaction: &Transaction,
-    ) -> Result<Vec<OperationResult>, Error> {
+    fn open_trees_for_transaction(&self, transaction: &Transaction) -> Result<OpenTrees, Error> {
         let mut open_trees = OpenTrees::default();
         for op in &transaction.operations {
-            if !self.data.schema.contains_collection_name(&op.collection) {
+            if self
+                .data
+                .schema
+                .collection_primary_key_description(&op.collection)
+                .is_none()
+            {
                 return Err(Error::Core(bonsaidb_core::Error::CollectionNotFound));
             }
 
@@ -297,6 +299,15 @@ impl Database {
                 vault,
             );
         }
+
+        Ok(open_trees)
+    }
+
+    fn apply_transaction_to_roots(
+        &self,
+        transaction: &Transaction,
+    ) -> Result<Vec<OperationResult>, Error> {
+        let open_trees = self.open_trees_for_transaction(transaction)?;
 
         let mut roots_transaction = self
             .data

@@ -7,8 +7,8 @@ use bonsaidb_core::connection::{Bound, BoundRef, Connection, RangeRef, ViewMappi
 use bonsaidb_core::document::{CollectionDocument, Emit};
 use bonsaidb_core::key::time::TimestampAsNanoseconds;
 use bonsaidb_core::key::{
-    ByteSource, CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError, IntoPrefixRange, Key,
-    KeyEncoding,
+    ByteSource, CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError, CompositeKind,
+    IntoPrefixRange, Key, KeyEncoding, KeyKind,
 };
 use bonsaidb_core::schema::{
     Collection, CollectionName, CollectionViewSchema, DefaultSerialization, SerializedCollection,
@@ -510,6 +510,13 @@ impl<'k> KeyEncoding<'k, Self> for OwnedFileKey {
 
     const LENGTH: Option<usize> = None;
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: bonsaidb_core::key::KeyVisitor,
+    {
+        FileKey::describe(visitor);
+    }
+
     fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
         self.0.as_ord_bytes()
     }
@@ -519,6 +526,18 @@ impl<'k, 'fk> KeyEncoding<'k, OwnedFileKey> for FileKey<'fk> {
     type Error = CompositeKeyError;
 
     const LENGTH: Option<usize> = None;
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: bonsaidb_core::key::KeyVisitor,
+    {
+        visitor.visit_composite(
+            CompositeKind::Struct(Cow::Borrowed("bonsaidb_files::schema::file::FileKey")),
+            2,
+        );
+        visitor.visit_type(KeyKind::String);
+        visitor.visit_type(KeyKind::String);
+    }
 
     fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
         match self {

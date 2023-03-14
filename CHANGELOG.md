@@ -101,6 +101,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#240]: https://github.com/khonsulabs/bonsaidb/issues/240
 [#254]: https://github.com/khonsulabs/bonsaidb/issues/254
 
+- `KeyEncoding::describe` is a new function that allows a key encoder to
+  document the data contained within the encoded representation. The goal of
+  this is to allow tools to generically operate on key types used within
+  BonsaiDb. This function is automatically implemented when using the `Key`
+  derive.
+
+  The new `KeyDescription` type uses this function to create a nested
+  representation of the contained information.
+
+  Types that utilize a custom encoding format can use `KeyDescription::Other` to
+  uniquely identify the key.
+
 - `Schematic` has had several methods changed to `impl Iterator` of the original
   type being returned to avoid extra unnecessary allocations. These methods are:
 

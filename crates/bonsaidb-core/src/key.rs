@@ -4,6 +4,7 @@ pub mod time;
 mod deprecated;
 
 use std::borrow::{Borrow, Cow};
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::io::ErrorKind;
 use std::num::TryFromIntError;
@@ -22,7 +23,7 @@ use crate::AnyError;
 
 /// A trait that enables a type to convert itself into a `memcmp`-compatible
 /// sequence of bytes.
-pub trait KeyEncoding<'k, K>: Send + Sync
+pub trait KeyEncoding<'k, K = Self>: Send + Sync
 where
     K: Key<'k>,
 {
@@ -33,6 +34,17 @@ where
     /// The size of the key, if constant. If this type doesn't produce the same
     /// number of bytes for each value, this should be `None`.
     const LENGTH: Option<usize>;
+
+    /// Describes this type by invoking functions on `visitor` describing the
+    /// key being encoded.
+    ///
+    /// See the [`KeyVisitor`] trait for more information.
+    ///
+    /// [`KeyDescription::for_key()`]/[`KeyDescription::for_key_encoding()`] are
+    /// built-in functions
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor;
 
     /// Convert `self` into a `Cow<[u8]>` containing bytes that are able to be
     /// compared via `memcmp` in a way that is comptaible with its own Ord
@@ -131,8 +143,266 @@ where
 
     const LENGTH: Option<usize> = K::LENGTH;
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        KE::describe(visitor);
+    }
+
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         (*self).as_ord_bytes()
+    }
+}
+
+/// A Visitor for information about a [`KeyEncoding`].
+///
+/// This trait is used in [`KeyEncoding::describe`] to report information about
+/// the type of data contained within the key. Using this information,
+/// generically interpreting the bytes of a key type can be possible as long as
+/// the key type uses [`CompositeKeyEncoder`].
+///
+/// This trait is not something that most users will ever need to implement.
+/// Instead,
+/// [`KeyDescription::for_key()`]/[`KeyDescription::for_key_encoding()`] are
+/// built-in functions to retrieve the information reported by this trait in an
+/// easier-to-use interface.
+pub trait KeyVisitor {
+    /// Report that a basic key type is encoded next in this key.
+    fn visit_type(&mut self, kind: KeyKind);
+
+    /// Report that a composite type made up of `count` fields is encoded next in
+    /// this key.
+    ///
+    /// `KeyVisitor` implementations may panic if there are less than or more
+    /// than `count` fields reported by either `visit_type()` or
+    /// `visit_composite()`.
+    fn visit_composite(&mut self, kind: CompositeKind, count: usize);
+
+    /// Report that the current composite type has extra metadata.
+    ///
+    /// This can be used to encode const generic parameters that are helpful in
+    /// interpretting the contents of a type. For example,
+    /// [`LimitedResolutionTimestamp`](time::limited::LimitedResolutionTimestamp)
+    /// uses this function to report the `TimeEpoch`'s nanoseconds since the
+    /// Unix epoch.
+    fn visit_composite_attribute(
+        &mut self,
+        key: impl Into<Cow<'static, str>>,
+        value: impl Into<KeyAttibuteValue>,
+    );
+}
+
+/// The type of a single field contained in a key.
+///
+/// # Opaque Types
+///
+/// Some `Key` implementations will have custom encoding formats. These can be
+/// represented by [`KeyKind::Other`].
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+pub enum KeyKind {
+    /// A String encoded using BonsaiDb's built-in `KeyEncoding`.
+    String,
+    /// A byte array encoded using BonsaiDb's built-in `KeyEncoding`.
+    Bytes,
+    /// A `u8` encoded in big-endian encoding.
+    U8,
+    /// A `u16` encoded in big-endian encoding.
+    U16,
+    /// A `u32` encoded in big-endian encoding.
+    U32,
+    /// A `u64` encoded in big-endian encoding.
+    U64,
+    /// A `u128` encoded in big-endian encoding.
+    U128,
+    /// A `usize` encoded in big-endian encoding.
+    Usize,
+    /// A `i8` encoded in big-endian encoding.
+    I8,
+    /// A `i16` encoded in big-endian encoding.
+    I16,
+    /// A `i32` encoded in big-endian encoding.
+    I32,
+    /// A `i64` encoded in big-endian encoding.
+    I64,
+    /// A `i128` encoded in big-endian encoding.
+    I128,
+    /// A `isize` encoded in big-endian encoding.
+    Isize,
+    /// A [`Signed`] number encoded using [`ordered_varint`].
+    Signed,
+    /// An [`Unsigned`] number encoded using [`ordered_varint`].
+    Unsigned,
+    /// A `bool` encoded as a single byte.
+    Bool,
+    /// A `unit` type, encoded with no length.
+    Unit,
+}
+
+/// A value used as part of [`KeyVisitor::visit_composite_attribute`].
+#[derive(Debug, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
+pub enum KeyAttibuteValue {
+    /// An `u8` value.
+    U8(u8),
+    /// An `i8` value.
+    I8(i8),
+    /// An `u16` value.
+    U16(u16),
+    /// An `i16` value.
+    I16(i16),
+    /// An `u32` value.
+    U32(u32),
+    /// An `i32` value.
+    I32(i32),
+    /// An `u64` value.
+    U64(u64),
+    /// An `i64` value.
+    I64(i64),
+    /// An `u128` value.
+    U128(u128),
+    /// An `i128` value.
+    I128(i128),
+    /// An `usize` value.
+    Usize(usize),
+    /// An `isize` value.
+    Isize(isize),
+    // /// An `&'static str` value.
+    // Str(&'static str),
+    // /// An `&'static [u8]` value.
+    // Bytes(&'static [u8]),
+}
+
+macro_rules! impl_const_key_from {
+    ($from:ty, $constkey:expr) => {
+        impl From<$from> for KeyAttibuteValue {
+            fn from(value: $from) -> Self {
+                $constkey(value)
+            }
+        }
+    };
+}
+
+impl_const_key_from!(u8, KeyAttibuteValue::U8);
+impl_const_key_from!(i8, KeyAttibuteValue::I8);
+impl_const_key_from!(u16, KeyAttibuteValue::U16);
+impl_const_key_from!(i16, KeyAttibuteValue::I16);
+impl_const_key_from!(u32, KeyAttibuteValue::U32);
+impl_const_key_from!(i32, KeyAttibuteValue::I32);
+impl_const_key_from!(u64, KeyAttibuteValue::U64);
+impl_const_key_from!(i64, KeyAttibuteValue::I64);
+impl_const_key_from!(u128, KeyAttibuteValue::U128);
+impl_const_key_from!(i128, KeyAttibuteValue::I128);
+impl_const_key_from!(usize, KeyAttibuteValue::Usize);
+impl_const_key_from!(isize, KeyAttibuteValue::Isize);
+// impl_const_key_from!(&'static str, KeyAttibuteValue::Str);
+// impl_const_key_from!(&'static [u8], KeyAttibuteValue::Bytes);
+
+/// A description of the kind of a composite key.
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+pub enum CompositeKind {
+    /// An [`Option`], which always contains a single field.
+    Option,
+    /// An [`Result`], which reports two fields -- the first for the `Ok` type,
+    /// and the second for the `Err` type.
+    Result,
+    /// A sequence of fields.
+    Tuple,
+    /// A sequence of fields, identified by the fully qualified name. E.g.,
+    /// `"std::time::SystemTime"` is the value that the
+    /// [`SystemTime`](std::time::SystemTime)'s `KeyEncoding` implementation
+    /// reports.
+    Struct(Cow<'static, str>),
+}
+
+/// A description of an encoded [`Key`].
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+pub enum KeyDescription {
+    /// A basic key type.
+    Basic(KeyKind),
+    /// A composite key made up of more than one field.
+    Composite(CompositeKeyDescription),
+    /// Another type with a custom encoding format.
+    Other(Cow<'static, str>),
+}
+
+impl KeyDescription {
+    /// Returns a description of the given [`KeyEncoding`] implementor.
+    #[must_use]
+    pub fn for_encoding<KE: for<'k> KeyEncoding<'k, K>, K: for<'k> Key<'k>>() -> Self {
+        let mut describer = KeyDescriber::default();
+        KE::describe(&mut describer);
+        describer
+            .result
+            .expect("invalid KeyEncoding::describe implementation -- imbalanced visit calls")
+    }
+
+    /// Returns the description of a given [`Key`] implementor.
+    #[must_use]
+    pub fn for_key<K: for<'k> Key<'k>>() -> Self {
+        Self::for_encoding::<K, K>()
+    }
+}
+
+/// A description of a multi-field key encoded using [`CompositeKeyEncoder`].
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+pub struct CompositeKeyDescription {
+    /// The kind of composite key.
+    pub kind: CompositeKind,
+    /// The fields contained within this key.
+    pub fields: Vec<KeyDescription>,
+    /// The attributes of this key.
+    pub attributes: HashMap<Cow<'static, str>, KeyAttibuteValue>,
+}
+
+#[derive(Default)]
+struct KeyDescriber {
+    stack: Vec<CompositeKeyDescription>,
+    result: Option<KeyDescription>,
+}
+
+impl KeyDescriber {
+    fn record(&mut self, description: KeyDescription) {
+        match self.stack.last_mut() {
+            Some(composite) => {
+                composite.fields.push(description);
+                if composite.fields.len() == composite.fields.capacity() {
+                    // The composite key is finished, pop the state.
+                    let completed = self.stack.pop().expect("just matched");
+                    self.record(KeyDescription::Composite(completed));
+                }
+            }
+            None => {
+                // Stack has been completed.
+                assert!(self.result.replace(description).is_none());
+            }
+        }
+    }
+}
+
+impl KeyVisitor for KeyDescriber {
+    fn visit_type(&mut self, kind: KeyKind) {
+        let description = KeyDescription::Basic(kind);
+        self.record(description);
+    }
+
+    fn visit_composite(&mut self, kind: CompositeKind, count: usize) {
+        self.stack.push(CompositeKeyDescription {
+            kind,
+            fields: Vec::with_capacity(count),
+            attributes: HashMap::new(),
+        });
+    }
+
+    fn visit_composite_attribute(
+        &mut self,
+        key: impl Into<Cow<'static, str>>,
+        value: impl Into<KeyAttibuteValue>,
+    ) {
+        let current = self
+            .stack
+            .last_mut()
+            .expect("visit_composite_attribute must be called only after visit_composite");
+        current.attributes.insert(key.into(), value.into());
     }
 }
 
@@ -256,6 +526,13 @@ impl<'k> KeyEncoding<'k, Self> for Cow<'k, [u8]> {
 
     const LENGTH: Option<usize> = None;
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Bytes);
+    }
+
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(self.clone())
     }
@@ -267,6 +544,13 @@ macro_rules! impl_u8_slice_key_encoding {
             type Error = Infallible;
 
             const LENGTH: Option<usize> = None;
+
+            fn describe<Visitor>(visitor: &mut Visitor)
+            where
+                Visitor: KeyVisitor,
+            {
+                visitor.visit_type(KeyKind::Bytes)
+            }
 
             fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
                 Ok(Cow::Borrowed(self))
@@ -314,6 +598,13 @@ where
 
     const LENGTH: Option<usize> = TBorrowed::LENGTH;
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        TBorrowed::describe(visitor);
+    }
+
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         match self {
             MaybeOwned::Owned(value) => value.as_ord_bytes(),
@@ -351,6 +642,13 @@ impl<'k> KeyEncoding<'k, Self> for Vec<u8> {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Bytes);
+    }
 
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
@@ -394,6 +692,13 @@ impl<'k, const N: usize> KeyEncoding<'k, Self> for [u8; N] {
 
     const LENGTH: Option<usize> = Some(N);
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Bytes);
+    }
+
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
@@ -426,6 +731,13 @@ impl<'k> KeyEncoding<'k, Self> for ArcBytes<'k> {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Bytes);
+    }
 
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
@@ -480,6 +792,13 @@ impl<'k> KeyEncoding<'k, Self> for CowBytes<'k> {
 
     const LENGTH: Option<usize> = None;
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Bytes);
+    }
+
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(self.0.clone())
     }
@@ -532,6 +851,13 @@ impl<'k> KeyEncoding<'k, Self> for Bytes {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Bytes);
+    }
 
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
@@ -586,6 +912,13 @@ impl<'k> KeyEncoding<'k, Self> for String {
 
     const LENGTH: Option<usize> = None;
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::String);
+    }
+
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self.as_bytes()))
     }
@@ -595,6 +928,13 @@ impl<'k> KeyEncoding<'k, String> for str {
     type Error = FromUtf8Error;
 
     const LENGTH: Option<usize> = None;
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::String);
+    }
 
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self.as_bytes()))
@@ -683,6 +1023,13 @@ impl<'k> KeyEncoding<'k, Self> for Cow<'k, str> {
 
     const LENGTH: Option<usize> = None;
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::String);
+    }
+
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self.as_bytes()))
     }
@@ -724,6 +1071,13 @@ impl<'k> KeyEncoding<'k, Self> for () {
 
     const LENGTH: Option<usize> = Some(0);
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Unit);
+    }
+
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::default())
     }
@@ -747,6 +1101,13 @@ impl<'k> KeyEncoding<'k, Self> for bool {
 
     const LENGTH: Option<usize> = Some(1);
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Bool);
+    }
+
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         if *self {
             Ok(Cow::Borrowed(&[1_u8]))
@@ -754,6 +1115,11 @@ impl<'k> KeyEncoding<'k, Self> for bool {
             Ok(Cow::Borrowed(&[0_u8]))
         }
     }
+}
+
+macro_rules! count_args {
+    () => (0usize);
+    ( $arg:tt $($remaining:tt)* ) => (1usize + count_args!($($remaining)*));
 }
 
 macro_rules! impl_key_for_tuple {
@@ -768,7 +1134,7 @@ macro_rules! impl_key_for_tuple {
                 $(let $varname = decoder.decode::<$generic>()?;)+
                 decoder.finish()?;
 
-                    Ok(($($varname),+,))
+                Ok(($($varname),+,))
             }
         }
 
@@ -782,6 +1148,14 @@ macro_rules! impl_key_for_tuple {
                 ($(Some($varname)),+,) => Some($($varname +)+ 0),
                 _ => None,
             };
+
+            fn describe<Visitor>(visitor: &mut Visitor)
+            where
+                Visitor: KeyVisitor,
+            {
+                visitor.visit_composite(CompositeKind::Tuple, count_args!($($generic) +));
+                $($generic::describe(visitor);)+
+            }
 
             fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
                 let mut encoder = CompositeKeyEncoder::default();
@@ -1206,6 +1580,13 @@ impl<'k> KeyEncoding<'k, Self> for Signed {
 
     const LENGTH: Option<usize> = None;
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Signed);
+    }
+
     fn as_ord_bytes(&self) -> Result<Cow<'k, [u8]>, Self::Error> {
         self.to_variable_vec().map(Cow::Owned)
     }
@@ -1236,6 +1617,13 @@ impl<'k> KeyEncoding<'k, Self> for Unsigned {
 
     const LENGTH: Option<usize> = None;
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Unsigned);
+    }
+
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         self.to_variable_vec().map(Cow::Owned)
     }
@@ -1261,6 +1649,13 @@ impl<'k> KeyEncoding<'k, Self> for isize {
     type Error = std::io::Error;
 
     const LENGTH: Option<usize> = None;
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Signed);
+    }
 
     fn as_ord_bytes(&self) -> Result<Cow<'k, [u8]>, Self::Error> {
         self.to_variable_vec().map(Cow::Owned)
@@ -1288,6 +1683,13 @@ impl<'k> KeyEncoding<'k, Self> for usize {
 
     const LENGTH: Option<Self> = None;
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Unsigned);
+    }
+
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         self.to_variable_vec().map(Cow::Owned)
     }
@@ -1307,6 +1709,14 @@ impl<'k> KeyEncoding<'k, Self> for uuid::Uuid {
     type Error = std::array::TryFromSliceError;
 
     const LENGTH: Option<usize> = Some(16);
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_composite(CompositeKind::Struct(Cow::Borrowed("uuid::Uuid")), 1);
+        visitor.visit_type(KeyKind::Bytes);
+    }
 
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self.as_bytes()))
@@ -1364,6 +1774,14 @@ where
         None => None,
     };
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_composite(CompositeKind::Option, 1);
+        T::describe(visitor);
+    }
+
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         if let Some(contents) = self {
             let mut contents = contents.as_ord_bytes()?.to_vec();
@@ -1419,6 +1837,15 @@ where
     type Error = <TBorrowed as KeyEncoding<'k, T>>::Error;
 
     const LENGTH: Option<usize> = None;
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_composite(CompositeKind::Result, 2);
+        TBorrowed::describe(visitor);
+        EBorrowed::describe(visitor);
+    }
 
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         let (header, contents) = match self {
@@ -1516,6 +1943,13 @@ where
 
     const LENGTH: Option<usize> = None;
 
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Unsigned);
+    }
+
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         let integer = self
             .0
@@ -1528,7 +1962,7 @@ where
 // ANCHOR_END: impl_key_for_enumkey
 
 macro_rules! impl_key_for_primitive {
-    ($type:ident) => {
+    ($type:ident, $keykind:expr) => {
         impl<'k> Key<'k> for $type {
             const CAN_OWN_BYTES: bool = false;
 
@@ -1549,6 +1983,13 @@ macro_rules! impl_key_for_primitive {
 
             const LENGTH: Option<usize> = Some(std::mem::size_of::<$type>());
 
+            fn describe<Visitor>(visitor: &mut Visitor)
+            where
+                Visitor: KeyVisitor,
+            {
+                visitor.visit_type($keykind);
+            }
+
             fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
                 Ok(Cow::from(self.to_be_bytes().to_vec()))
             }
@@ -1556,16 +1997,18 @@ macro_rules! impl_key_for_primitive {
     };
 }
 
-impl_key_for_primitive!(i8);
-impl_key_for_primitive!(u8);
-impl_key_for_primitive!(i16);
-impl_key_for_primitive!(u16);
-impl_key_for_primitive!(i32);
-impl_key_for_primitive!(u32);
-impl_key_for_primitive!(i64);
-impl_key_for_primitive!(u64);
-impl_key_for_primitive!(i128);
-impl_key_for_primitive!(u128);
+impl_key_for_primitive!(i8, KeyKind::I8);
+impl_key_for_primitive!(u8, KeyKind::U8);
+impl_key_for_primitive!(i16, KeyKind::I16);
+impl_key_for_primitive!(u16, KeyKind::U16);
+impl_key_for_primitive!(i32, KeyKind::I32);
+impl_key_for_primitive!(u32, KeyKind::U32);
+impl_key_for_primitive!(i64, KeyKind::I64);
+impl_key_for_primitive!(u64, KeyKind::U64);
+impl_key_for_primitive!(i128, KeyKind::I128);
+impl_key_for_primitive!(u128, KeyKind::U128);
+// impl_key_for_primitive!(isize, KeyKind::Isize);
+// impl_key_for_primitive!(usize, KeyKind::Usize);
 
 #[test]
 #[allow(clippy::cognitive_complexity)] // I disagree - @ecton
@@ -1718,4 +2161,40 @@ fn enum_derive_tests() -> anyhow::Result<()> {
     assert!(matches!(value.0, SomeEnum::NineNineNine));
 
     Ok(())
+}
+
+#[test]
+fn key_descriptions() {
+    use time::limited::TimeEpoch;
+    assert_eq!(
+        KeyDescription::for_key::<Vec<u8>>(),
+        KeyDescription::Basic(KeyKind::Bytes)
+    );
+    assert_eq!(
+        dbg!(KeyDescription::for_key::<time::TimestampAsNanoseconds>()),
+        KeyDescription::Composite(CompositeKeyDescription {
+            kind: CompositeKind::Struct(Cow::Borrowed(
+                "bonsaidb::core::key::time::LimitedResolutionTimestamp"
+            )),
+            fields: vec![KeyDescription::Basic(KeyKind::I64),],
+            attributes: [(
+                Cow::Borrowed("epoch"),
+                KeyAttibuteValue::U128(time::limited::BonsaiEpoch::epoch_offset().as_nanos())
+            )]
+            .into_iter()
+            .collect()
+        })
+    );
+    assert_eq!(
+        KeyDescription::for_key::<(u64, String, Bytes)>(),
+        KeyDescription::Composite(CompositeKeyDescription {
+            kind: CompositeKind::Tuple,
+            fields: vec![
+                KeyDescription::Basic(KeyKind::U64),
+                KeyDescription::Basic(KeyKind::String),
+                KeyDescription::Basic(KeyKind::Bytes),
+            ],
+            attributes: HashMap::new(),
+        })
+    );
 }

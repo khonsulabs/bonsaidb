@@ -7,7 +7,7 @@ use transmog_pot::Pot;
 
 use crate::connection::{self, AsyncConnection, Connection};
 use crate::document::{BorrowedDocument, CollectionDocument};
-use crate::key::{ByteSource, Key};
+use crate::key::{ByteSource, Key, KeyDescription};
 use crate::schema::view::map::{Mappings, ViewMappedValue};
 use crate::schema::{Collection, CollectionName, Name, SerializedCollection, ViewName};
 use crate::AnyError;
@@ -283,6 +283,8 @@ where
 pub trait Serialized: Send + Sync + Debug {
     /// Wraps returing [`<View::Collection as Collection>::collection_name()`](crate::schema::Collection::collection_name)
     fn collection(&self) -> CollectionName;
+    /// Returns the description of the view's `Key`.
+    fn key_description(&self) -> KeyDescription;
     /// Wraps [`ViewSchema::unique`]
     fn unique(&self) -> bool;
     /// Wraps [`ViewSchema::lazy`]

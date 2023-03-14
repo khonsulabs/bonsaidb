@@ -3,7 +3,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::key::{ByteSource, IncorrectByteLength, Key, KeyEncoding};
+use crate::key::{
+    ByteSource, CompositeKind, IncorrectByteLength, Key, KeyEncoding, KeyKind, KeyVisitor,
+};
 
 /// A timestamp relative to [`UNIX_EPOCH`].
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Default)]
@@ -92,6 +94,18 @@ impl<'k> KeyEncoding<'k, Self> for Timestamp {
     type Error = IncorrectByteLength;
 
     const LENGTH: Option<usize> = Some(12);
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_composite(
+            CompositeKind::Struct(Cow::Borrowed("std::time::Timestamp")),
+            2,
+        );
+        visitor.visit_type(KeyKind::U64);
+        visitor.visit_type(KeyKind::U32);
+    }
 
     fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
         let seconds_bytes: &[u8] = &self.seconds.to_be_bytes();

@@ -10,7 +10,7 @@ use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 use tinyvec::{Array, TinyVec};
 
-use crate::key::{ByteSource, Key, KeyEncoding};
+use crate::key::{ByteSource, Key, KeyEncoding, KeyKind, KeyVisitor};
 
 /// The serialized representation of a document's unique ID.
 #[derive(Default, Ord, Hash, Eq, PartialEq, PartialOrd, Clone)]
@@ -318,6 +318,13 @@ where
     type Error = crate::Error;
 
     const LENGTH: Option<usize> = None;
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Bytes);
+    }
 
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))

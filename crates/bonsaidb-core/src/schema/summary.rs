@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::key::KeyDescription;
 use crate::schema::{CollectionName, SchemaName, Schematic, ViewName};
 
 /// A summary of a [`Schema`](crate::schema::Schema)/[`Schematic`].
@@ -43,6 +44,10 @@ impl<'a> From<&'a Schematic> for SchemaSummary {
                 .entry(collection_name.clone())
                 .or_insert_with(|| CollectionSummary {
                     name: collection_name.clone(),
+                    primary_key: schematic
+                        .collection_primary_key_description(collection_name)
+                        .expect("invalid schematic")
+                        .clone(),
                     views: HashMap::new(),
                 });
             for view in schematic.views_in_collection(collection_name) {
@@ -51,6 +56,7 @@ impl<'a> From<&'a Schematic> for SchemaSummary {
                     name.clone(),
                     ViewSummary {
                         name,
+                        key: view.key_description(),
                         lazy: view.lazy(),
                         unique: view.unique(),
                         version: view.version(),
@@ -68,6 +74,8 @@ impl<'a> From<&'a Schematic> for SchemaSummary {
 pub struct CollectionSummary {
     /// The name of the [`Collection`](crate::schema::Collection) this is a summary of.
     pub name: CollectionName,
+    /// The description of [`Collection::PrimaryKey`](crate::schema::Collection::PrimaryKey).
+    pub primary_key: KeyDescription,
     views: HashMap<ViewName, ViewSummary>,
 }
 
@@ -90,6 +98,8 @@ pub struct ViewSummary {
     /// The name of the [`ViewSchema`](crate::schema::ViewSchema) this is a
     /// summary of.
     pub name: ViewName,
+    /// The description of [`View::Key`](crate::schema::View::Key).
+    pub key: KeyDescription,
     /// The result of [`ViewSchema::lazy()`](crate::schema::ViewSchema::lazy)
     /// for this view.
     pub lazy: bool,

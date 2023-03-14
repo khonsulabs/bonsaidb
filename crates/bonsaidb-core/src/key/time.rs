@@ -6,7 +6,7 @@ use ordered_varint::Variable;
 use serde::{Deserialize, Serialize};
 
 use crate::key::time::limited::{BonsaiEpoch, UnixEpoch};
-use crate::key::{ByteSource, Key, KeyEncoding};
+use crate::key::{ByteSource, CompositeKind, Key, KeyEncoding, KeyKind, KeyVisitor};
 
 impl<'k> Key<'k> for Duration {
     const CAN_OWN_BYTES: bool = false;
@@ -23,6 +23,17 @@ impl<'k> KeyEncoding<'k, Self> for Duration {
     type Error = TimeError;
 
     const LENGTH: Option<usize> = None;
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_composite(
+            CompositeKind::Struct(Cow::Borrowed("std::time::Duration")),
+            1,
+        );
+        visitor.visit_type(KeyKind::Unsigned);
+    }
 
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         let merged = u128::from(self.as_secs()) << 30 | u128::from(self.subsec_nanos());
@@ -64,6 +75,17 @@ impl<'k> KeyEncoding<'k, Self> for SystemTime {
     type Error = TimeError;
 
     const LENGTH: Option<usize> = None;
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_composite(
+            CompositeKind::Struct(Cow::Borrowed("std::time::SystemTime")),
+            1,
+        );
+        visitor.visit_type(KeyKind::Unsigned);
+    }
 
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         let since_epoch = self.duration_since(UNIX_EPOCH).unwrap();
@@ -133,7 +155,7 @@ pub mod limited {
     use serde::{Deserialize, Serialize};
 
     use crate::key::time::TimeError;
-    use crate::key::{ByteSource, Key, KeyEncoding};
+    use crate::key::{ByteSource, CompositeKind, Key, KeyEncoding, KeyVisitor};
 
     /// A [`Duration`] of time stored with a limited `Resolution`. This type may be
     /// preferred to [`std::time::Duration`] because `Duration` takes a full 12
@@ -166,6 +188,7 @@ pub mod limited {
         type Representation: Variable
             + Serialize
             + for<'de> Deserialize<'de>
+            + for<'k> Key<'k>
             + Display
             + Hash
             + Eq
@@ -299,6 +322,19 @@ pub mod limited {
         type Error = TimeError;
 
         const LENGTH: Option<usize> = None;
+
+        fn describe<Visitor>(visitor: &mut Visitor)
+        where
+            Visitor: KeyVisitor,
+        {
+            visitor.visit_composite(
+                CompositeKind::Struct(Cow::Borrowed(
+                    "bonsaidb::core::key::time::LimitedResolutionDuration",
+                )),
+                1,
+            );
+            <Resolution::Representation as KeyEncoding<'_>>::describe(visitor);
+        }
 
         fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
             self.representation
@@ -907,6 +943,10 @@ pub mod limited {
 
     /// An epoch for [`LimitedResolutionTimestamp`].
     pub trait TimeEpoch: Sized + Send + Sync {
+        /// The name of this epoch, used in [`KeyEncoding::describe`] to
+        /// disambiguate timestamps with different epochs.
+        fn name() -> &'static str;
+
         /// The offset from [`UNIX_EPOCH`] for this epoch.
         fn epoch_offset() -> Duration;
     }
@@ -1138,6 +1178,20 @@ pub mod limited {
 
         const LENGTH: Option<usize> = None;
 
+        fn describe<Visitor>(visitor: &mut Visitor)
+        where
+            Visitor: KeyVisitor,
+        {
+            visitor.visit_composite(
+                CompositeKind::Struct(Cow::Borrowed(
+                    "bonsaidb::core::key::time::LimitedResolutionTimestamp",
+                )),
+                1,
+            );
+            visitor.visit_composite_attribute("epoch", Epoch::epoch_offset().as_nanos());
+            <Resolution::Representation as KeyEncoding<'_>>::describe(visitor);
+        }
+
         fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
             self.0.as_ord_bytes()
         }
@@ -1221,6 +1275,10 @@ pub mod limited {
     pub struct UnixEpoch;
 
     impl TimeEpoch for UnixEpoch {
+        fn name() -> &'static str {
+            "Unix"
+        }
+
         fn epoch_offset() -> Duration {
             Duration::ZERO
         }
@@ -1255,6 +1313,10 @@ pub mod limited {
     }
 
     impl TimeEpoch for BonsaiEpoch {
+        fn name() -> &'static str {
+            "BonsaiDb"
+        }
+
         fn epoch_offset() -> Duration {
             Self::EPOCH
         }

@@ -395,6 +395,7 @@ struct KeyAttribute {
     allow_null_bytes: bool,
     can_own_bytes: bool,
     enum_repr: Option<Type>,
+    name: Option<String>,
 }
 
 /// Derives the `bonsaidb::core::key::Key` trait.
@@ -441,7 +442,13 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         allow_null_bytes,
         enum_repr,
         can_own_bytes,
+        name,
     } = KeyAttribute::from_attributes(&attrs).unwrap_or_abort();
+
+    let name = name.map_or_else(
+        || quote!(std::any::type_name::<Self>()),
+        |name| quote!(#name),
+    );
 
     if matches!(data, Data::Struct(_)) && enum_repr.is_some() {
         // TODO better span when attribute-derive supports that
@@ -469,45 +476,80 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         .push(syn::GenericParam::Lifetime(parse_quote!('key)));
     let (impl_generics, _, where_clause) = generics.split_for_impl();
 
-    let (encode_fields, decode_fields): (TokenStream, TokenStream) = match data {
+    let (encode_fields, decode_fields, describe, composite_kind, field_count): (
+        TokenStream,
+        TokenStream,
+        TokenStream,
+        TokenStream,
+        usize,
+    ) = match data {
         Data::Struct(DataStruct { fields, .. }) => {
-            let (encode_fields, decode_fields) = match fields {
+            let (encode_fields, decode_fields, describe, field_count) = match fields {
                 Fields::Named(FieldsNamed { named, .. }) => {
-                    let (encode_fields, decode_fields): (TokenStream, TokenStream) = named
+                    let field_count = named.len();
+                    let (encode_fields, (decode_fields, describe)): (
+                        TokenStream,
+                        (TokenStream, TokenStream),
+                    ) = named
                         .into_iter()
-                        .map(|Field { ident, .. }| {
+                        .map(|Field { ident, ty, .. }| {
                             let ident = ident.expect("named fields have idents");
                             (
                                 quote!($encoder.encode(&self.#ident)?;),
-                                quote!(#ident: $decoder.decode()?,),
+                                (
+                                    quote!(#ident: $decoder.decode()?,),
+                                    quote!(#ty::describe(visitor);),
+                                ),
                             )
                         })
                         .unzip();
-                    (encode_fields, quote!( Self { #decode_fields }))
+                    (
+                        encode_fields,
+                        quote!( Self { #decode_fields }),
+                        describe,
+                        field_count,
+                    )
                 }
                 Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => {
-                    let (encode_fields, decode_fields): (TokenStream, TokenStream) = unnamed
+                    let field_count = unnamed.len();
+                    let (encode_fields, (decode_fields, describe)): (
+                        TokenStream,
+                        (TokenStream, TokenStream),
+                    ) = unnamed
                         .into_iter()
                         .enumerate()
-                        .map(|(idx, _)| {
+                        .map(|(idx, field)| {
+                            let ty = field.ty;
                             let idx = Index::from(idx);
                             (
                                 quote!($encoder.encode(&self.#idx)?;),
-                                quote!($decoder.decode()?,),
+                                (quote!($decoder.decode()?,), quote!(#ty::describe(visitor);)),
                             )
                         })
                         .unzip();
-                    (encode_fields, quote!(Self(#decode_fields)))
+                    (
+                        encode_fields,
+                        quote!(Self(#decode_fields)),
+                        describe,
+                        field_count,
+                    )
                 }
                 Fields::Unit => abort_call_site!("unit structs are not supported"),
             };
-            (encode_fields, quote!(let $self_ = #decode_fields;))
+            (
+                encode_fields,
+                quote!(let $self_ = #decode_fields;),
+                describe,
+                quote!(#core::key::CompositeKind::Struct(std::borrow::Cow::Borrowed(#name))),
+                field_count,
+            )
         }
         Data::Enum(DataEnum { variants, .. }) => {
             let mut prev_ident = None;
-            let (consts, (encode_variants, decode_variants)): (
+            let field_count = variants.len();
+            let (consts, (encode_variants, (decode_variants, describe))): (
                 TokenStream,
-                (TokenStream, TokenStream),
+                (TokenStream, (TokenStream, TokenStream)),
             ) = variants
                 .into_iter()
                 .enumerate()
@@ -537,18 +579,21 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                             const_,
                             match fields {
                                 Fields::Named(FieldsNamed { named, .. }) => {
-                                    let (idents, (encode_fields, decode_fields)): (
+                                    let (idents, (encode_fields, (decode_fields, describe))): (
                                         Punctuated<_, Token![,]>,
-                                        (TokenStream, TokenStream),
+                                        (TokenStream, (TokenStream, TokenStream)),
                                     ) = named
                                         .into_iter()
-                                        .map(|Field { ident, .. }| {
+                                        .map(|Field { ident, ty, .. }| {
                                             let ident = ident.expect("named fields have idents");
                                             (
                                                 ident.clone(),
                                                 (
                                                     quote!($encoder.encode(#ident)?;),
-                                                    quote!(#ident: $decoder.decode()?,),
+                                                    (
+                                                        quote!(#ident: $decoder.decode()?,),
+                                                        quote!(#ty::describe(visitor);),
+                                                    ),
                                                 ),
                                             )
                                         })
@@ -560,25 +605,32 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                                 #encode_fields
                                             },
                                         },
-                                        quote! {
-                                            #const_ident => Self::#ident{#decode_fields},
-                                        },
+                                        (
+                                            quote! {
+                                                #const_ident => Self::#ident{#decode_fields},
+                                            },
+                                            describe,
+                                        ),
                                     )
                                 }
                                 Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => {
-                                    let (idents, (encode_fields, decode_fields)): (
+                                    let (idents, (encode_fields, (decode_fields, describe))): (
                                         Punctuated<_, Token![,]>,
-                                        (TokenStream, TokenStream),
+                                        (TokenStream, (TokenStream, TokenStream)),
                                     ) = unnamed
                                         .into_iter()
                                         .enumerate()
-                                        .map(|(idx, _)| {
+                                        .map(|(idx, field)| {
                                             let ident = format_ident!("$field_{idx}");
+                                            let ty = field.ty;
                                             (
                                                 ident.clone(),
                                                 (
                                                     quote!($encoder.encode(#ident)?;),
-                                                    quote!($decoder.decode()?,),
+                                                    (
+                                                        quote!($decoder.decode()?,),
+                                                        quote!(#ty::describe(visitor);),
+                                                    ),
                                                 ),
                                             )
                                         })
@@ -590,14 +642,20 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                                 #encode_fields
                                             },
                                         },
-                                        quote! {
-                                            #const_ident => Self::#ident(#decode_fields),
-                                        },
+                                        (
+                                            quote! {
+                                                #const_ident => Self::#ident(#decode_fields),
+                                            },
+                                            describe,
+                                        ),
                                     )
                                 }
                                 Fields::Unit => (
                                     quote!(Self::#ident => $encoder.encode(&#const_ident)?,),
-                                    quote!(#const_ident => Self::#ident,),
+                                    (
+                                        quote!(#const_ident => Self::#ident,),
+                                        quote!(visitor.visit_type(#core::key::KeyKind::Unit);),
+                                    ),
                                 ),
                             },
                         );
@@ -623,6 +681,9 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         )))
                     };
                 },
+                describe,
+                quote!(#core::key::CompositeKind::Tuple),
+                field_count,
             )
         }
         Data::Union(_) => abort_call_site!("unions are not supported"),
@@ -630,7 +691,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     quote! {
         # use std::{borrow::Cow, io::{self, ErrorKind}};
-        # use #core::key::{ByteSource, CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError, Key, KeyEncoding};
+        # use #core::key::{ByteSource, CompositeKeyDecoder, KeyVisitor, CompositeKeyEncoder, CompositeKeyError, Key, KeyEncoding};
 
         impl #impl_generics Key<'key> for #ident #ty_generics #where_clause {
             const CAN_OWN_BYTES: bool = #can_own_bytes;
@@ -653,6 +714,14 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             // TODO fixed width if possible
             const LENGTH: Option<usize> = None;
 
+            fn describe<Visitor>(visitor: &mut Visitor)
+            where
+                Visitor: KeyVisitor,
+            {
+                visitor.visit_composite(#composite_kind, #field_count);
+                #describe
+            }
+
             fn as_ord_bytes(&'key self) -> Result<Cow<'key, [u8]>, Self::Error> {
                 let mut $encoder = CompositeKeyEncoder::default();
 
@@ -666,6 +735,24 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     }
     .into()
 }
+
+// fn unzip_token_streams_3(
+//     streams: impl Iterator<Item = (TokenStream, TokenStream, TokenStream)>,
+// ) -> (TokenStream, TokenStream, TokenStream) {
+//     let (mut a, mut b, mut c) = (
+//         TokenStream::default(),
+//         TokenStream::default(),
+//         TokenStream::default(),
+//     );
+
+//     for (ta, tb, tc) in streams {
+//         a.extend(Some(ta));
+//         b.extend(Some(tb));
+//         c.extend(Some(tc));
+//     }
+
+//     (a, b, c)
+// }
 
 #[derive(Attribute)]
 #[attribute(ident = "api")]
