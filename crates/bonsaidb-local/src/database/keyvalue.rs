@@ -869,7 +869,7 @@ impl Job for ExpirationLoader {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use bonsaidb_core::arc_bytes::serde::Bytes;
     use bonsaidb_core::test_util::{TestDirectory, TimingTest};
@@ -907,23 +907,23 @@ mod tests {
 
     #[test]
     fn basic_expiration() -> anyhow::Result<()> {
-        run_test("kv-basic-expiration", |sender, sled| {
-            loop {
-                sled.delete_tree(KEY_TREE)?;
-                let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
-                tree.set(b"atree\0akey", b"somevalue")?;
-                let timing = TimingTest::new(Duration::from_millis(100));
-                sender.update_key_expiration(
-                    full_key(Some("atree"), "akey"),
-                    Some(Timestamp::now() + Duration::from_millis(100)),
-                );
-                if !timing.wait_until(Duration::from_secs(1)) {
-                    println!("basic_expiration restarting due to timing discrepency");
-                    continue;
-                }
-                assert!(tree.get(b"akey")?.is_none());
-                break;
-            }
+        run_test("kv-basic-expiration", |context, roots| {
+            // Initialize the test state
+            let mut persistence_watcher = context.kv_persistence_watcher();
+            roots.delete_tree(KEY_TREE)?;
+            let tree = roots.tree(Unversioned::tree(KEY_TREE))?;
+            tree.set(b"atree\0akey", b"somevalue")?;
+
+            // Expire the existing key
+            context.update_key_expiration(
+                full_key(Some("atree"), "akey"),
+                Some(Timestamp::now() + Duration::from_millis(100)),
+            );
+            // Wait for persistence.
+            persistence_watcher.next_value()?;
+
+            // Verify it is gone.
+            assert!(tree.get(b"akey")?.is_none());
 
             Ok(())
         })
@@ -931,31 +931,30 @@ mod tests {
 
     #[test]
     fn updating_expiration() -> anyhow::Result<()> {
-        run_test("kv-updating-expiration", |sender, sled| {
-            loop {
-                sled.delete_tree(KEY_TREE)?;
-                let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
-                tree.set(b"atree\0akey", b"somevalue")?;
-                let timing = TimingTest::new(Duration::from_millis(100));
-                sender.update_key_expiration(
-                    full_key(Some("atree"), "akey"),
-                    Some(Timestamp::now() + Duration::from_millis(100)),
-                );
-                sender.update_key_expiration(
-                    full_key(Some("atree"), "akey"),
-                    Some(Timestamp::now() + Duration::from_secs(1)),
-                );
-                if timing.elapsed() > Duration::from_millis(100)
-                    || !timing.wait_until(Duration::from_millis(500))
-                {
-                    continue;
-                }
-                assert!(tree.get(b"atree\0akey")?.is_some());
+        run_test("kv-updating-expiration", |context, roots| {
+            // Initialize the test state
+            let mut persistence_watcher = context.kv_persistence_watcher();
+            roots.delete_tree(KEY_TREE)?;
+            let tree = roots.tree(Unversioned::tree(KEY_TREE))?;
+            tree.set(b"atree\0akey", b"somevalue")?;
+            let start = Timestamp::now();
 
-                timing.wait_until(Duration::from_secs_f32(1.5));
-                assert_eq!(tree.get(b"atree\0akey")?, None);
-                break;
-            }
+            // Set the expiration once.
+            context.update_key_expiration(
+                full_key(Some("atree"), "akey"),
+                Some(start + Duration::from_millis(100)),
+            );
+            // Set the expiration to a longer value.
+            let correct_expiration = start + Duration::from_secs(1);
+            context
+                .update_key_expiration(full_key(Some("atree"), "akey"), Some(correct_expiration));
+
+            // Wait for persistence, and ensure that the next persistence is
+            // after our expiration timestamp.
+            assert!(persistence_watcher.next_value()? > correct_expiration);
+
+            // Verify the key is gone now.
+            assert_eq!(tree.get(b"atree\0akey")?, None);
 
             Ok(())
         })
@@ -963,34 +962,32 @@ mod tests {
 
     #[test]
     fn multiple_keys_expiration() -> anyhow::Result<()> {
-        run_test("kv-multiple-keys-expiration", |sender, sled| {
-            loop {
-                sled.delete_tree(KEY_TREE)?;
-                let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
-                tree.set(b"atree\0akey", b"somevalue")?;
-                tree.set(b"atree\0bkey", b"somevalue")?;
+        run_test("kv-multiple-keys-expiration", |context, roots| {
+            // Initialize the test state
+            let mut persistence_watcher = context.kv_persistence_watcher();
+            roots.delete_tree(KEY_TREE)?;
+            let tree = roots.tree(Unversioned::tree(KEY_TREE))?;
+            tree.set(b"atree\0akey", b"somevalue")?;
+            tree.set(b"atree\0bkey", b"somevalue")?;
 
-                let timing = TimingTest::new(Duration::from_millis(100));
-                sender.update_key_expiration(
-                    full_key(Some("atree"), "akey"),
-                    Some(Timestamp::now() + Duration::from_millis(100)),
-                );
-                sender.update_key_expiration(
-                    full_key(Some("atree"), "bkey"),
-                    Some(Timestamp::now() + Duration::from_secs(1)),
-                );
+            // Expire both keys, one for a shorter time than the other.
+            context.update_key_expiration(
+                full_key(Some("atree"), "akey"),
+                Some(Timestamp::now() + Duration::from_millis(100)),
+            );
+            context.update_key_expiration(
+                full_key(Some("atree"), "bkey"),
+                Some(Timestamp::now() + Duration::from_secs(1)),
+            );
 
-                if !timing.wait_until(Duration::from_millis(200)) {
-                    continue;
-                }
+            // Wait for the first persistence.
+            persistence_watcher.next_value()?;
+            assert!(tree.get(b"atree\0akey")?.is_none());
+            assert!(tree.get(b"atree\0bkey")?.is_some());
 
-                assert!(tree.get(b"atree\0akey")?.is_none());
-                assert!(tree.get(b"atree\0bkey")?.is_some());
-                timing.wait_until(Duration::from_millis(1100));
-                assert!(tree.get(b"atree\0bkey")?.is_none());
-
-                break;
-            }
+            // Wait for the second persistence.
+            persistence_watcher.next_value()?;
+            assert!(tree.get(b"atree\0bkey")?.is_none());
 
             Ok(())
         })
@@ -1024,13 +1021,13 @@ mod tests {
 
     #[test]
     fn out_of_order_expiration() -> anyhow::Result<()> {
-        run_test("kv-out-of-order-expiration", |context, sled| loop {
+        run_test("kv-out-of-order-expiration", |context, roots| loop {
             context.update_key_expiration(full_key(Some("atree"), "akey"), None);
             context.update_key_expiration(full_key(Some("atree"), "bkey"), None);
             context.update_key_expiration(full_key(Some("atree"), "ckey"), None);
             let mut persistence_watcher = context.kv_persistence_watcher();
-            drop(sled.delete_tree(KEY_TREE));
-            let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
+            drop(roots.delete_tree(KEY_TREE));
+            let tree = roots.tree(Unversioned::tree(KEY_TREE))?;
             tree.set(b"atree\0akey", b"somevalue")?;
             tree.set(b"atree\0bkey", b"somevalue")?;
             tree.set(b"atree\0ckey", b"somevalue")?;
@@ -1100,71 +1097,67 @@ mod tests {
                 PersistenceThreshold::after_changes(2),
                 PersistenceThreshold::after_changes(1).and_duration(Duration::from_secs(2)),
             ]),
-            &|sender, sled| {
-                loop {
-                    let timing = TimingTest::new(Duration::from_millis(200));
-                    let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
-                    // Set three keys in quick succession. The first two should
-                    // persist immediately, and the third should show up after 2
-                    // seconds.
-                    sender
-                        .perform_kv_operation(KeyOperation {
-                            namespace: None,
-                            key: String::from("key1"),
-                            command: Command::Set(SetCommand {
-                                value: Value::Bytes(Bytes::default()),
-                                expiration: None,
-                                keep_existing_expiration: false,
-                                check: None,
-                                return_previous_value: false,
-                            }),
-                        })
-                        .unwrap();
-                    sender
-                        .perform_kv_operation(KeyOperation {
-                            namespace: None,
-                            key: String::from("key2"),
-                            command: Command::Set(SetCommand {
-                                value: Value::Bytes(Bytes::default()),
-                                expiration: None,
-                                keep_existing_expiration: false,
-                                check: None,
-                                return_previous_value: false,
-                            }),
-                        })
-                        .unwrap();
-                    sender
-                        .perform_kv_operation(KeyOperation {
-                            namespace: None,
-                            key: String::from("key3"),
-                            command: Command::Set(SetCommand {
-                                value: Value::Bytes(Bytes::default()),
-                                expiration: None,
-                                keep_existing_expiration: false,
-                                check: None,
-                                return_previous_value: false,
-                            }),
-                        })
-                        .unwrap();
-                    // Persisting is handled in the background. Sleep for a bit
-                    // to give it a chance to happen, but not long enough to
-                    // trigger the longer time-based rule.
-                    if timing.elapsed() > Duration::from_millis(500)
-                        || !timing.wait_until(Duration::from_secs(1))
-                    {
-                        println!("basic_persistence restarting due to timing discrepency");
-                        continue;
-                    }
-                    assert!(tree.get(b"\0key1").unwrap().is_some());
-                    assert!(tree.get(b"\0key2").unwrap().is_some());
-                    assert!(tree.get(b"\0key3").unwrap().is_none());
-                    if !timing.wait_until(Duration::from_secs(3)) {
-                        println!("basic_persistence restarting due to timing discrepency");
-                        continue;
-                    }
-                    assert!(tree.get(b"\0key3").unwrap().is_some());
-                    break;
-                }
+            &|context, roots| {
+                // Initialize the test state
+                let mut persistence_watcher = context.kv_persistence_watcher();
+                let tree = roots.tree(Unversioned::tree(KEY_TREE))?;
+                let start = Instant::now();
+                // Set three keys in quick succession. The first two should
+                // persist immediately after the second is set, and the
+                // third should show up after 2 seconds.
+                context
+                    .perform_kv_operation(KeyOperation {
+                        namespace: None,
+                        key: String::from("key1"),
+                        command: Command::Set(SetCommand {
+                            value: Value::Bytes(Bytes::default()),
+                            expiration: None,
+                            keep_existing_expiration: false,
+                            check: None,
+                            return_previous_value: false,
+                        }),
+                    })
+                    .unwrap();
+                context
+                    .perform_kv_operation(KeyOperation {
+                        namespace: None,
+                        key: String::from("key2"),
+                        command: Command::Set(SetCommand {
+                            value: Value::Bytes(Bytes::default()),
+                            expiration: None,
+                            keep_existing_expiration: false,
+                            check: None,
+                            return_previous_value: false,
+                        }),
+                    })
+                    .unwrap();
+                context
+                    .perform_kv_operation(KeyOperation {
+                        namespace: None,
+                        key: String::from("key3"),
+                        command: Command::Set(SetCommand {
+                            value: Value::Bytes(Bytes::default()),
+                            expiration: None,
+                            keep_existing_expiration: false,
+                            check: None,
+                            return_previous_value: false,
+                        }),
+                    })
+                    .unwrap();
+                // Wait for the first persistence to occur.
+                persistence_watcher.next_value()?;
+
+                assert!(tree.get(b"\0key1").unwrap().is_some());
+                assert!(tree.get(b"\0key2").unwrap().is_some());
+                assert!(tree.get(b"\0key3").unwrap().is_none());
+
+                // Wait for the second persistence
+                persistence_watcher.next_value()?;
+                assert!(tree.get(b"\0key3").unwrap().is_some());
+                // The total operation should have taken *at least* two seconds,
+                // since the second persistence should have delayed for two
+                // seconds itself.
+                assert!(start.elapsed() > Duration::from_secs(2));
 
                 Ok(())
             },
