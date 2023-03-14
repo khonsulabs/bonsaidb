@@ -1,4 +1,4 @@
-use bonsaidb::core::key::{Key, KeyDescription, NextValueError};
+use bonsaidb::core::key::{Key, NextValueError};
 use bonsaidb::core::schema::{Collection, Schema, SerializedCollection};
 use bonsaidb::local::config::{Builder, StorageConfiguration};
 use bonsaidb::local::Database;
@@ -81,7 +81,6 @@ fn main() -> Result<(), bonsaidb::core::Error> {
         bonsaidb::core::Error::DocumentPush(_, NextValueError::Unsupported)
     ));
 
-    dbg!(KeyDescription::for_key::<AssociatedProfileKey>());
     Ok(())
 }
 

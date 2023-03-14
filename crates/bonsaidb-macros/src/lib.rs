@@ -736,24 +736,6 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     .into()
 }
 
-// fn unzip_token_streams_3(
-//     streams: impl Iterator<Item = (TokenStream, TokenStream, TokenStream)>,
-// ) -> (TokenStream, TokenStream, TokenStream) {
-//     let (mut a, mut b, mut c) = (
-//         TokenStream::default(),
-//         TokenStream::default(),
-//         TokenStream::default(),
-//     );
-
-//     for (ta, tb, tc) in streams {
-//         a.extend(Some(ta));
-//         b.extend(Some(tb));
-//         c.extend(Some(tc));
-//     }
-
-//     (a, b, c)
-// }
-
 #[derive(Attribute)]
 #[attribute(ident = "api")]
 #[attribute(

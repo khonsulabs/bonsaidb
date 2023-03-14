@@ -40,7 +40,7 @@ where
     ///
     /// See the [`KeyVisitor`] trait for more information.
     ///
-    /// [`KeyDescription::for_key()`]/[`KeyDescription::for_key_encoding()`] are
+    /// [`KeyDescription::for_key()`]/[`KeyDescription::for_encoding()`] are
     /// built-in functions
     fn describe<Visitor>(visitor: &mut Visitor)
     where
@@ -164,7 +164,7 @@ where
 ///
 /// This trait is not something that most users will ever need to implement.
 /// Instead,
-/// [`KeyDescription::for_key()`]/[`KeyDescription::for_key_encoding()`] are
+/// [`KeyDescription::for_key()`]/[`KeyDescription::for_encoding()`] are
 /// built-in functions to retrieve the information reported by this trait in an
 /// easier-to-use interface.
 pub trait KeyVisitor {
@@ -194,40 +194,33 @@ pub trait KeyVisitor {
 }
 
 /// The type of a single field contained in a key.
-///
-/// # Opaque Types
-///
-/// Some `Key` implementations will have custom encoding formats. These can be
-/// represented by [`KeyKind::Other`].
 #[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub enum KeyKind {
-    /// A String encoded using BonsaiDb's built-in `KeyEncoding`.
-    String,
-    /// A byte array encoded using BonsaiDb's built-in `KeyEncoding`.
-    Bytes,
-    /// A `u8` encoded in big-endian encoding.
+    /// An `unit` type, encoded with no length.
+    Unit,
+    /// An `u8` encoded in big-endian encoding.
     U8,
-    /// A `u16` encoded in big-endian encoding.
+    /// An `u16` encoded in big-endian encoding.
     U16,
-    /// A `u32` encoded in big-endian encoding.
+    /// An `u32` encoded in big-endian encoding.
     U32,
-    /// A `u64` encoded in big-endian encoding.
+    /// An `u64` encoded in big-endian encoding.
     U64,
-    /// A `u128` encoded in big-endian encoding.
+    /// An `u128` encoded in big-endian encoding.
     U128,
-    /// A `usize` encoded in big-endian encoding.
+    /// An `usize` encoded in big-endian encoding.
     Usize,
-    /// A `i8` encoded in big-endian encoding.
+    /// An `i8` encoded in big-endian encoding.
     I8,
-    /// A `i16` encoded in big-endian encoding.
+    /// An `i16` encoded in big-endian encoding.
     I16,
-    /// A `i32` encoded in big-endian encoding.
+    /// An `i32` encoded in big-endian encoding.
     I32,
-    /// A `i64` encoded in big-endian encoding.
+    /// An `i64` encoded in big-endian encoding.
     I64,
-    /// A `i128` encoded in big-endian encoding.
+    /// An `i128` encoded in big-endian encoding.
     I128,
-    /// A `isize` encoded in big-endian encoding.
+    /// An `isize` encoded in big-endian encoding.
     Isize,
     /// A [`Signed`] number encoded using [`ordered_varint`].
     Signed,
@@ -235,12 +228,14 @@ pub enum KeyKind {
     Unsigned,
     /// A `bool` encoded as a single byte.
     Bool,
-    /// A `unit` type, encoded with no length.
-    Unit,
+    /// A String encoded using BonsaiDb's built-in `KeyEncoding`.
+    String,
+    /// A byte array encoded using BonsaiDb's built-in `KeyEncoding`.
+    Bytes,
 }
 
 /// A value used as part of [`KeyVisitor::visit_composite_attribute`].
-#[derive(Debug, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub enum KeyAttibuteValue {
     /// An `u8` value.
     U8(u8),
@@ -266,10 +261,12 @@ pub enum KeyAttibuteValue {
     Usize(usize),
     /// An `isize` value.
     Isize(isize),
-    // /// An `&'static str` value.
-    // Str(&'static str),
-    // /// An `&'static [u8]` value.
-    // Bytes(&'static [u8]),
+    /// A `bool` value.
+    Bool(bool),
+    /// A string value.
+    Str(Cow<'static, str>),
+    /// A byte array value.
+    Bytes(Cow<'static, [u8]>),
 }
 
 macro_rules! impl_const_key_from {
@@ -294,8 +291,15 @@ impl_const_key_from!(u128, KeyAttibuteValue::U128);
 impl_const_key_from!(i128, KeyAttibuteValue::I128);
 impl_const_key_from!(usize, KeyAttibuteValue::Usize);
 impl_const_key_from!(isize, KeyAttibuteValue::Isize);
-// impl_const_key_from!(&'static str, KeyAttibuteValue::Str);
-// impl_const_key_from!(&'static [u8], KeyAttibuteValue::Bytes);
+impl_const_key_from!(bool, KeyAttibuteValue::Bool);
+impl_const_key_from!(&'static str, |s: &'static str| KeyAttibuteValue::Str(
+    Cow::Borrowed(s)
+));
+impl_const_key_from!(String, |s: String| KeyAttibuteValue::Str(Cow::Owned(s)));
+impl_const_key_from!(&'static [u8], |b: &'static [u8]| KeyAttibuteValue::Bytes(
+    Cow::Borrowed(b)
+));
+impl_const_key_from!(Vec<u8>, |b: Vec<u8>| KeyAttibuteValue::Bytes(Cow::Owned(b)));
 
 /// A description of the kind of a composite key.
 #[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
@@ -2007,8 +2011,6 @@ impl_key_for_primitive!(i64, KeyKind::I64);
 impl_key_for_primitive!(u64, KeyKind::U64);
 impl_key_for_primitive!(i128, KeyKind::I128);
 impl_key_for_primitive!(u128, KeyKind::U128);
-// impl_key_for_primitive!(isize, KeyKind::Isize);
-// impl_key_for_primitive!(usize, KeyKind::Usize);
 
 #[test]
 #[allow(clippy::cognitive_complexity)] // I disagree - @ecton
