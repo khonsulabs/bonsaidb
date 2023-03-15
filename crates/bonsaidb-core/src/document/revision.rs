@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 /// Information about a `Document`'s revision history.
-#[derive(Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub struct Revision {
     /// The current revision id of the document. This value is sequentially incremented on each document update.
     pub id: u32,

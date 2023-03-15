@@ -252,6 +252,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   user management. This set of commands is also available on
   `bonsaidb::cli::Command` through the `Admin` variant, allowing for both local
   and remote administration.
+- `Header`, `CollectionHeader`, and `Revision` now all implement `Hash`.
 
 [239]: https://github.com/khonsulabs/bonsaidb/pull/239
 

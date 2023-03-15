@@ -8,7 +8,7 @@ use crate::schema::view::map::Mappings;
 use crate::schema::{Map, SerializedCollection};
 
 /// The header of a `Document`.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Header {
     /// The id of the Document. Unique across the collection the document is
     /// contained within.
@@ -75,7 +75,7 @@ impl Display for Header {
 }
 
 /// A header for a [`CollectionDocument`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct CollectionHeader<PrimaryKey> {
     /// The unique id of the document.
     pub id: PrimaryKey,
