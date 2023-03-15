@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::connection::{AsyncLowLevelConnection, LowLevelConnection};
 use crate::document::{CollectionHeader, DocumentId, HasHeader, Header, Revision};
+use crate::key::KeyEncoding;
 use crate::schema::{Collection, CollectionName, SerializedCollection};
 use crate::Error;
 
@@ -252,9 +253,12 @@ impl Operation {
     /// in `collection`. If a document with `id` exists, it will be overwritten.
     /// If a document with `id` doesn't exist, it will be created.
     pub fn overwrite_serialized<C: SerializedCollection, Key>(
-        id: &C::PrimaryKey,
+        id: &Key,
         contents: &C::Contents,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, Error>
+    where
+        Key: for<'k> KeyEncoding<'k, C::PrimaryKey> + ?Sized,
+    {
         let contents = C::serialize(contents)?;
         Ok(Self::overwrite(
             C::collection_name(),

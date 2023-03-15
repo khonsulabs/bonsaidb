@@ -280,6 +280,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   disconnecting clients after the optional grace period has elapsed.
   Additionally, QUIC-connected workers are sent the proper disconnection
   notification.
+- The `Key` generic parameter to `Operation::overwrite_serialized` is now used
+  in the function definition. Because previously `C::PrimaryKey` was hard-coded,
+  any existing code should work as long as the correct `Key` type was provided.
+  This fix also allows for types like `str` to be used instead of `String` with
+  this function.
 
 ## v0.4.1
 
