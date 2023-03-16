@@ -498,7 +498,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                 quote!($encoder.encode(&self.#ident)?;),
                                 (
                                     quote!(#ident: $decoder.decode()?,),
-                                    quote!(#ty::describe(visitor);),
+                                    quote!(<#ty>::describe(visitor);),
                                 ),
                             )
                         })

@@ -237,6 +237,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PrimaryKey` and `Contents` are Serialize and/or Deserialize, respectively.
 - `Backend::client_session_ended` is a new function that is invoked any time a
   connected client's session is ending.
+- `VarInt<T>` is a new type that implements `Key` using the `ordered-varint`
+  crate. This allows using types such as `VarInt<u64>` instead of `u64` to
+  reduce the number of bytes encoded keys consume on average.
 
 ### Changed
 

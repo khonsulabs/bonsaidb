@@ -1,5 +1,6 @@
 /// [`Key`] implementations for time types.
 pub mod time;
+mod varint;
 
 mod deprecated;
 
@@ -8,6 +9,7 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::io::ErrorKind;
 use std::num::TryFromIntError;
+use std::ops::Deref;
 use std::string::FromUtf8Error;
 
 use arc_bytes::serde::{Bytes, CowBytes};
@@ -17,6 +19,7 @@ pub use deprecated::*;
 use num_traits::{FromPrimitive, ToPrimitive};
 use ordered_varint::{Signed, Unsigned, Variable};
 use serde::{Deserialize, Serialize};
+pub use varint::{VarInt, VariableInteger};
 
 use crate::connection::{Bound, BoundRef, MaybeOwned, RangeRef};
 use crate::AnyError;
@@ -475,6 +478,14 @@ impl<'borrowed, 'ephemeral> AsRef<[u8]> for ByteSource<'borrowed, 'ephemeral> {
             Self::Ephemeral(bytes) => bytes,
             Self::Owned(ref bytes) => bytes.as_slice(),
         }
+    }
+}
+
+impl<'borrowed, 'ephemeral> Deref for ByteSource<'borrowed, 'ephemeral> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
     }
 }
 
