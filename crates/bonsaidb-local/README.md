@@ -1,4 +1,4 @@
-# BonsaiDb Client
+# BonsaiDb Local
 
 BonsaiDb's offline database implementation.
 
