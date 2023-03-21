@@ -31,7 +31,6 @@ use crate::key::{Key, KeyEncoding, KeyKind};
 ///
 /// #[derive(Key, Default, Clone)]
 /// # #[key(core = bonsaidb_core)]
-/// #[key(allow_null_bytes = true)]
 /// struct CustomKeyVariable {
 ///     pub customer_id: VarInt<u64>,
 ///     pub order_id: VarInt<u64>,
@@ -57,10 +56,10 @@ use crate::key::{Key, KeyEncoding, KeyKind};
 /// .len();
 /// assert_eq!(another_key_len, 16);
 ///
-/// // However, `CustomKeyVariable` will be able to encode in as few as 6 bytes,
+/// // However, `CustomKeyVariable` will be able to encode in as few as 8 bytes,
 /// // but can take up to 22 bytes if the entire u64 range is utilized.
 /// let default_key_len = CustomKeyVariable::default().as_ord_bytes().unwrap().len();
-/// assert_eq!(default_key_len, 6);
+/// assert_eq!(default_key_len, 8);
 /// let another_key_len = CustomKeyVariable {
 ///     customer_id: VarInt(u64::MAX),
 ///     order_id: VarInt(u64::MAX),

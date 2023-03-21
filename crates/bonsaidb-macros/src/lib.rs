@@ -11,7 +11,7 @@
 )]
 #![cfg_attr(doc, deny(rustdoc::all))]
 
-use attribute_derive::Attribute;
+use attribute_derive::{Attribute, ConvertParsed};
 use proc_macro2::{Span, TokenStream};
 use proc_macro_crate::{crate_name, FoundCrate};
 use proc_macro_error::{abort, abort_call_site, proc_macro_error, ResultExt};
@@ -387,15 +387,40 @@ pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
 #[derive(Attribute)]
 #[attribute(ident = "key")]
 #[attribute(
-    invalid_field = r#"Only `allow_null_bytes`, `enum_repr = NumberType` and `core = bonsaidb::core` is supported"#
+    invalid_field = r#"Only `null_handling = `, `enum_repr = NumberType` and `core = bonsaidb::core` is supported"#
 )]
 struct KeyAttribute {
     #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
     core: Option<Path>,
-    allow_null_bytes: bool,
+    null_handling: Option<NullHandling>,
     can_own_bytes: bool,
     enum_repr: Option<Type>,
     name: Option<String>,
+}
+
+enum NullHandling {
+    Escape,
+    Allow,
+    Deny,
+}
+
+impl ConvertParsed for NullHandling {
+    type Type = Ident;
+
+    fn convert(value: Self::Type) -> syn::Result<Self> {
+        if value == "escape" {
+            Ok(NullHandling::Escape)
+        } else if value == "allow" {
+            Ok(NullHandling::Allow)
+        } else if value == "deny" {
+            Ok(NullHandling::Deny)
+        } else {
+            Err(syn::Error::new(
+                Span::call_site(),
+                "only `escape`, `allow`, and `deny` are allowed for `null_handling`",
+            ))
+        }
+    }
 }
 
 /// Derives the `bonsaidb::core::key::Key` trait.
@@ -439,7 +464,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let KeyAttribute {
         core,
-        allow_null_bytes,
+        null_handling,
         enum_repr,
         can_own_bytes,
         name,
@@ -462,11 +487,12 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         })
     });
 
-    let allow_null_bytes = if allow_null_bytes {
-        quote!($encoder.allow_null_bytes_in_variable_fields();)
-    } else {
-        quote!()
-    };
+    let (encoder_constructor, decoder_constructor) =
+        match null_handling.unwrap_or(NullHandling::Escape) {
+            NullHandling::Escape => (quote!(default), quote!(default_for)),
+            NullHandling::Allow => (quote!(allowing_null_bytes), quote!(allowing_null_bytes)),
+            NullHandling::Deny => (quote!(denying_null_bytes), quote!(denying_null_bytes)),
+        };
 
     let core = core.unwrap_or_else(core_path);
     let (_, ty_generics, _) = generics.split_for_impl();
@@ -523,7 +549,10 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                             let idx = Index::from(idx);
                             (
                                 quote!($encoder.encode(&self.#idx)?;),
-                                (quote!($decoder.decode()?,), quote!(#ty::describe(visitor);)),
+                                (
+                                    quote!($decoder.decode()?,),
+                                    quote!(<#ty>::describe(visitor);),
+                                ),
                             )
                         })
                         .unzip();
@@ -592,7 +621,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                                     quote!($encoder.encode(#ident)?;),
                                                     (
                                                         quote!(#ident: $decoder.decode()?,),
-                                                        quote!(#ty::describe(visitor);),
+                                                        quote!(<#ty>::describe(visitor);),
                                                     ),
                                                 ),
                                             )
@@ -629,7 +658,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                                     quote!($encoder.encode(#ident)?;),
                                                     (
                                                         quote!($decoder.decode()?,),
-                                                        quote!(#ty::describe(visitor);),
+                                                        quote!(<#ty>::describe(visitor);),
                                                     ),
                                                 ),
                                             )
@@ -698,7 +727,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             fn from_ord_bytes<'b>(mut $bytes: ByteSource<'key, 'b>) -> Result<Self, Self::Error> {
 
-                let mut $decoder = CompositeKeyDecoder::new($bytes);
+                let mut $decoder = CompositeKeyDecoder::#decoder_constructor($bytes);
 
                 #decode_fields
 
@@ -723,9 +752,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
 
             fn as_ord_bytes(&'key self) -> Result<Cow<'key, [u8]>, Self::Error> {
-                let mut $encoder = CompositeKeyEncoder::default();
-
-                #allow_null_bytes
+                let mut $encoder = CompositeKeyEncoder::#encoder_constructor();
 
                 #encode_fields
 

@@ -495,7 +495,7 @@ impl<'k> Key<'k> for OwnedFileKey {
     const CAN_OWN_BYTES: bool = false;
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
-        let mut decoder = CompositeKeyDecoder::new(bytes);
+        let mut decoder = CompositeKeyDecoder::default_for(bytes);
 
         let path = Cow::Owned(decoder.decode::<String>()?);
         let name = Cow::Owned(decoder.decode::<String>()?);

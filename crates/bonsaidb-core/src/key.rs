@@ -80,18 +80,24 @@ where
 /// appears in the source code. The implementation uses [`CompositeKeyEncoder`]
 /// and [`CompositeKeyDecoder`] to encode each field.
 ///
-/// ## `allow_null_bytes`
+/// ## `null_handling`
 ///
-/// The derive macro offers an argument `allow_null_bytes`, which defaults to
-/// false. Null bytes can cause problematic sort behavior when multiple
-/// variable-length encoded fields are encoded as a composite key. Consider this
-/// example:
+/// The derive macro offers an argument `null_handling`, which defaults to
+/// `escape`. Escaping null bytes in variable length fields ensures all data
+/// encoded will sort correctly. In situations where speed is more important
+/// than sorting behavior, `allow` or `deny` can be specified. `allow` will
+/// permit null bytes to pass through encoding and decoding without being
+/// checked. `deny` will check for null bytes when encoding and return an error
+/// if any are present.
+///
+/// Null bytes can cause problematic sort behavior when multiple variable-length
+/// encoded fields are encoded as a composite key. Consider this example:
 ///
 /// ```rust
 /// use bonsaidb_core::key::Key;
 ///
 /// #[derive(Key, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
-/// #[key(allow_null_bytes = true)]
+/// #[key(null_handling = allow)]
 /// # #[key(core = bonsaidb_core)]
 /// struct CompositeKey {
 ///     a: String,
@@ -109,8 +115,7 @@ where
 ///
 /// In this table, `a` and `b` are ordered as `CompositeKey` would be ordered
 /// when compared using `Ord`. However, the order of the encoded bytes does not
-/// match. Without specifying `allow_null_bytes = true`, [`CompositeKeyEncoder`]
-/// will return an error when a null byte is encountered.
+/// match.
 ///
 /// This null-byte edge case only applies to variable length [`Key`]s
 /// ([`KeyEncoding::LENGTH`] is `None`).
@@ -1145,7 +1150,7 @@ macro_rules! impl_key_for_tuple {
         {
             const CAN_OWN_BYTES: bool = false;
             fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
-                let mut decoder = CompositeKeyDecoder::new(bytes);
+                let mut decoder = CompositeKeyDecoder::default_for(bytes);
                 $(let $varname = decoder.decode::<$generic>()?;)+
                 decoder.finish()?;
 
@@ -1226,22 +1231,16 @@ impl_key_for_tuple!(
 /// preserving the ordering guarantees necessary for [`Key`].
 ///
 /// The produced bytes can be decoded using [`CompositeKeyDecoder`].
-#[derive(Default)]
-pub struct CompositeKeyEncoder {
+pub struct CompositeKeyEncoder<NullHandling = EscapeNullBytes> {
     bytes: Vec<u8>,
     encoded_lengths: Vec<u16>,
-    allow_null_bytes: bool,
+    null_handling: NullHandling,
 }
 
-impl CompositeKeyEncoder {
-    /// Prevents checking for null bytes in variable length fields. [`Key`]
-    /// types that have a fixed width have no edge cases with null bytes. See
-    /// [`CompositeKeyFieldContainsNullByte`] for an explanation and example of
-    /// the edge case introduced when allowing null bytes to be encoded.
-    pub fn allow_null_bytes_in_variable_fields(&mut self) {
-        self.allow_null_bytes = true;
-    }
-
+impl<NullHandling> CompositeKeyEncoder<NullHandling>
+where
+    NullHandling: CompositeKeyNullHandler,
+{
     /// Encodes a single [`KeyEncoding`] implementing value.
     ///
     /// ```rust
@@ -1254,7 +1253,7 @@ impl CompositeKeyEncoder {
     /// encoder.encode(&value2).unwrap();
     /// let encoded = encoder.finish();
     ///
-    /// let mut decoder = CompositeKeyDecoder::new(ByteSource::Borrowed(&encoded));
+    /// let mut decoder = CompositeKeyDecoder::default_for(ByteSource::Borrowed(&encoded));
     /// let decoded_string = decoder.decode::<String>().unwrap();
     /// assert_eq!(decoded_string, value1);
     /// let decoded_u32 = decoder.decode::<u32>().unwrap();
@@ -1265,14 +1264,9 @@ impl CompositeKeyEncoder {
         &mut self,
         value: &'k T,
     ) -> Result<(), CompositeKeyError> {
-        let encoded = T::as_ord_bytes(value).map_err(CompositeKeyError::new)?;
+        let mut encoded = T::as_ord_bytes(value).map_err(CompositeKeyError::new)?;
         if T::LENGTH.is_none() {
-            if !self.allow_null_bytes && encoded.iter().any(|b| *b == 0) {
-                return Err(CompositeKeyError::new(std::io::Error::new(
-                    ErrorKind::InvalidData,
-                    CompositeKeyFieldContainsNullByte,
-                )));
-            }
+            self.null_handling.handle_nulls(&mut encoded)?;
             let encoded_length = u16::try_from(encoded.len())?;
             self.encoded_lengths.push(encoded_length);
         }
@@ -1313,6 +1307,185 @@ impl CompositeKeyEncoder {
     }
 }
 
+impl Default for CompositeKeyEncoder<EscapeNullBytes> {
+    fn default() -> Self {
+        Self {
+            bytes: Vec::new(),
+            encoded_lengths: Vec::new(),
+            null_handling: EscapeNullBytes,
+        }
+    }
+}
+
+impl CompositeKeyEncoder<AllowNullBytes> {
+    /// Returns an encoder that allows null bytes in variable length fields.
+    ///
+    /// See [`CompositeKeyFieldContainsNullByte`] for information about the edge
+    /// cases this may introduce.
+    #[must_use]
+    pub const fn allowing_null_bytes() -> Self {
+        Self {
+            bytes: Vec::new(),
+            encoded_lengths: Vec::new(),
+            null_handling: AllowNullBytes,
+        }
+    }
+}
+
+impl CompositeKeyEncoder<DenyNullBytes> {
+    /// Returns an encoder that denies null bytes in variable length fields by
+    /// returning an error when any null bytes are detected.
+    #[must_use]
+    pub const fn denying_null_bytes() -> Self {
+        Self {
+            bytes: Vec::new(),
+            encoded_lengths: Vec::new(),
+            null_handling: DenyNullBytes,
+        }
+    }
+}
+
+/// Escapes null bytes in variable length fields in composite keys. This option
+/// ensures proper sort order is maintained even when null bytes are used within
+/// vairable fields.
+///
+/// To see more information about the edge case encoding prevents, see
+/// [`CompositeKeyFieldContainsNullByte`].
+#[derive(Default, Debug, Clone, Copy)]
+pub struct EscapeNullBytes;
+/// Prevents checking for null bytes in variable length fields in composite
+/// keys. [`Key`] types that have a fixed width have no edge cases with null
+/// bytes. See [`CompositeKeyFieldContainsNullByte`] for an explanation and
+/// example of the edge case introduced when allowing null bytes to be used
+/// without escaping.
+#[derive(Default, Debug, Clone, Copy)]
+pub struct AllowNullBytes;
+#[derive(Default, Debug, Clone, Copy)]
+/// Checks for null bytes when encoding variable length fields in composite keys
+/// and returns an error if any are encountered. This prevents extra processing
+/// when encoding fields, but may introduce incorrect sort ordering (see
+/// [`CompositeKeyFieldContainsNullByte`] for more).
+pub struct DenyNullBytes;
+
+/// A null-byte handling approach for [`CompositeKeyEncoder`] and
+/// [`CompositeKeyDecoder`]. This type is only used when the fields being
+/// encoded are variable length.
+///
+/// Ensuring proper sort order with composite keys requires special handling of
+/// null bytes. The safest option is to use [`EscapeNullBytes`], but this option
+/// will cause extra allocations when keys contain null bytes.
+/// [`AllowNullBytes`] allows null-bytes through without any extra checks, but
+/// their usage can cause incorrect sorting behavior. See
+/// [`CompositeKeyFieldContainsNullByte`] for more information on this edge
+/// case. The last implementation is [`DenyNullBytes`] which checks for null
+/// bytes when encoding and returns an error if any are encountered. When
+/// decoding with this option, there is no extra processing performed before
+/// decoding individual fields.
+pub trait CompositeKeyNullHandler {
+    /// Process the null bytes in `field_bytes`, if needed.
+    fn handle_nulls(&self, field_bytes: &mut Cow<'_, [u8]>) -> Result<(), CompositeKeyError>;
+    /// Decode the null bytes in `encoded`, if needed.
+    fn decode_nulls_if_needed<'b, 'e>(
+        &self,
+        encoded: ByteSource<'b, 'e>,
+    ) -> Result<ByteSource<'b, 'e>, CompositeKeyError>;
+}
+
+impl CompositeKeyNullHandler for DenyNullBytes {
+    #[inline]
+    fn handle_nulls(&self, encoded: &mut Cow<'_, [u8]>) -> Result<(), CompositeKeyError> {
+        if encoded.iter().any(|b| *b == 0) {
+            Err(CompositeKeyError::new(std::io::Error::new(
+                ErrorKind::InvalidData,
+                CompositeKeyFieldContainsNullByte,
+            )))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[inline]
+    fn decode_nulls_if_needed<'b, 'e>(
+        &self,
+        encoded: ByteSource<'b, 'e>,
+    ) -> Result<ByteSource<'b, 'e>, CompositeKeyError> {
+        Ok(encoded)
+    }
+}
+
+impl CompositeKeyNullHandler for AllowNullBytes {
+    #[inline]
+    fn handle_nulls(&self, _encoded: &mut Cow<'_, [u8]>) -> Result<(), CompositeKeyError> {
+        Ok(())
+    }
+
+    #[inline]
+    fn decode_nulls_if_needed<'b, 'e>(
+        &self,
+        encoded: ByteSource<'b, 'e>,
+    ) -> Result<ByteSource<'b, 'e>, CompositeKeyError> {
+        Ok(encoded)
+    }
+}
+
+impl CompositeKeyNullHandler for EscapeNullBytes {
+    #[inline]
+    fn handle_nulls(&self, unescaped: &mut Cow<'_, [u8]>) -> Result<(), CompositeKeyError> {
+        let null_bytes = bytecount::count(unescaped, 0);
+        if null_bytes > 0 {
+            let mut null_encoded = Vec::with_capacity(unescaped.len() + null_bytes);
+            for unescaped in unescaped.as_ref() {
+                if *unescaped == 0 {
+                    null_encoded.extend_from_slice(&[0, 0]);
+                } else {
+                    null_encoded.push(*unescaped);
+                }
+            }
+            *unescaped = Cow::Owned(null_encoded);
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn decode_nulls_if_needed<'b, 'e>(
+        &self,
+        mut encoded: ByteSource<'b, 'e>,
+    ) -> Result<ByteSource<'b, 'e>, CompositeKeyError> {
+        // Find the first null byte
+        if let Some(mut index) = encoded
+            .iter()
+            .enumerate()
+            .find_map(|(index, b)| (*b == 0).then_some(index))
+        {
+            // The field has at least one null byte, we need to mutate the
+            // bytes.
+            let mut bytes = encoded.into_owned();
+            loop {
+                // Check that the next byte is a null. If so, we remove the
+                // current byte and look for the next null.
+                let next_index = index + 1;
+                if Some(0) == bytes.get(next_index).copied() {
+                    bytes.remove(index);
+                    index = next_index;
+                } else {
+                    todo!("error: unescaped null byte")
+                    // return Err(CompositeKeyError::new("unescaped null byte encountered"));
+                }
+
+                // Find the next null byte, if one exists.
+                let Some(next_index) = bytes[index..]
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, b)| (*b == 0).then_some(index))
+                    else { break };
+                index += next_index;
+            }
+            encoded = ByteSource::Owned(bytes);
+        }
+        Ok(encoded)
+    }
+}
+
 /// Null bytes in variable fields encoded with [`CompositeKeyEncoder`] can cause
 /// sort order to misbehave.
 ///
@@ -1336,24 +1509,65 @@ pub struct CompositeKeyFieldContainsNullByte;
 
 /// Decodes multiple [`Key`] values from a byte slice previously encoded with
 /// [`CompositeKeyEncoder`].
-#[derive(Default)]
-pub struct CompositeKeyDecoder<'key, 'ephemeral> {
+pub struct CompositeKeyDecoder<'key, 'ephemeral, NullHandling = EscapeNullBytes> {
     bytes: ByteSource<'key, 'ephemeral>,
     offset: usize,
     end: usize,
+    null_handling: NullHandling,
 }
 
-impl<'key, 'ephemeral> CompositeKeyDecoder<'key, 'ephemeral> {
-    /// Returns a new decoder for `bytes`.
+impl<'key, 'ephemeral> CompositeKeyDecoder<'key, 'ephemeral, EscapeNullBytes> {
+    /// Returns a decoder for `bytes` that decodes escaped null bytes.
+    ///
+    /// This function is compatible with keys encoded with
+    /// [`CompositeKeyEncoder::default()`].
     #[must_use]
-    pub fn new(bytes: ByteSource<'key, 'ephemeral>) -> Self {
+    pub fn default_for(bytes: ByteSource<'key, 'ephemeral>) -> Self {
         Self {
             end: bytes.as_ref().len(),
             bytes,
             offset: 0,
+            null_handling: EscapeNullBytes,
         }
     }
+}
 
+impl<'key, 'ephemeral> CompositeKeyDecoder<'key, 'ephemeral, AllowNullBytes> {
+    /// Returns a decoder for `bytes` that ignores null bytes.
+    ///
+    /// This function is compatible with keys encoded with
+    /// [`CompositeKeyEncoder::allow_null_bytes()`].
+    #[must_use]
+    pub fn allowing_null_bytes(bytes: ByteSource<'key, 'ephemeral>) -> Self {
+        Self {
+            end: bytes.as_ref().len(),
+            bytes,
+            offset: 0,
+            null_handling: AllowNullBytes,
+        }
+    }
+}
+
+impl<'key, 'ephemeral> CompositeKeyDecoder<'key, 'ephemeral, DenyNullBytes> {
+    /// Returns a decoder for `bytes` that ignores null bytes.
+    ///
+    /// This function is compatible with keys encoded with
+    /// [`CompositeKeyEncoder::denying_null_bytes()`].
+    #[must_use]
+    pub fn denying_null_bytes(bytes: ByteSource<'key, 'ephemeral>) -> Self {
+        Self {
+            end: bytes.as_ref().len(),
+            bytes,
+            offset: 0,
+            null_handling: DenyNullBytes,
+        }
+    }
+}
+
+impl<'key, 'ephemeral, NullHandling> CompositeKeyDecoder<'key, 'ephemeral, NullHandling>
+where
+    NullHandling: CompositeKeyNullHandler,
+{
     /// Decodes a value previously encoded using [`CompositeKeyEncoder`]. Calls
     /// to decode must be made in the same order as the values were encoded in.
     ///
@@ -1367,7 +1581,7 @@ impl<'key, 'ephemeral> CompositeKeyDecoder<'key, 'ephemeral> {
     /// encoder.encode(&value2).unwrap();
     /// let encoded = encoder.finish();
     ///
-    /// let mut decoder = CompositeKeyDecoder::new(ByteSource::Borrowed(&encoded));
+    /// let mut decoder = CompositeKeyDecoder::default_for(ByteSource::Borrowed(&encoded));
     /// let decoded_string = decoder.decode::<String>().unwrap();
     /// assert_eq!(decoded_string, value1);
     /// let decoded_u32 = decoder.decode::<u32>().unwrap();
@@ -1409,18 +1623,15 @@ impl<'key, 'ephemeral> CompositeKeyDecoder<'key, 'ephemeral> {
         };
         let end = self.offset + length;
         if end <= self.end {
-            let decoded = match &self.bytes {
-                ByteSource::Borrowed(bytes) => {
-                    T::from_ord_bytes(ByteSource::Borrowed(&bytes[self.offset..end]))
-                }
-                ByteSource::Ephemeral(bytes) => {
-                    T::from_ord_bytes(ByteSource::Ephemeral(&bytes[self.offset..end]))
-                }
-                ByteSource::Owned(bytes) => {
-                    T::from_ord_bytes(ByteSource::Ephemeral(&bytes[self.offset..end]))
-                }
+            let mut bytes = match &self.bytes {
+                ByteSource::Borrowed(bytes) => ByteSource::Borrowed(&bytes[self.offset..end]),
+                ByteSource::Ephemeral(bytes) => ByteSource::Ephemeral(&bytes[self.offset..end]),
+                ByteSource::Owned(bytes) => ByteSource::Ephemeral(&bytes[self.offset..end]),
+            };
+            if T::LENGTH.is_none() {
+                bytes = self.null_handling.decode_nulls_if_needed(bytes)?;
             }
-            .map_err(CompositeKeyError::new)?;
+            let decoded = T::from_ord_bytes(bytes).map_err(CompositeKeyError::new)?;
             self.offset = end;
             if T::LENGTH.is_none() {
                 // Variable fields always have an extra null byte to delimit the data
@@ -1448,16 +1659,27 @@ impl<'key, 'ephemeral> CompositeKeyDecoder<'key, 'ephemeral> {
 
 #[test]
 fn composite_key_null_check_test() {
-    let mut encoder = CompositeKeyEncoder::default();
+    let mut encoder = CompositeKeyEncoder::denying_null_bytes();
     encoder.encode(&vec![0_u8]).unwrap_err();
 
-    let mut encoder = CompositeKeyEncoder::default();
-    encoder.allow_null_bytes_in_variable_fields();
+    let mut encoder = CompositeKeyEncoder::allowing_null_bytes();
     encoder.encode(&vec![0_u8]).unwrap();
     let bytes = encoder.finish();
-    let mut decoder = CompositeKeyDecoder::new(ByteSource::Borrowed(&bytes));
+    let mut decoder = CompositeKeyDecoder::allowing_null_bytes(ByteSource::Borrowed(&bytes));
     let decoded_value = decoder.decode::<Cow<'_, [u8]>>().unwrap();
     assert_eq!(decoded_value.as_ref(), &[0]);
+    let mut decoder = CompositeKeyDecoder::denying_null_bytes(ByteSource::Borrowed(&bytes));
+    let decoded_value = decoder.decode::<Cow<'_, [u8]>>().unwrap();
+    assert_eq!(decoded_value.as_ref(), &[0]);
+
+    let mut encoder = CompositeKeyEncoder::default();
+    encoder.encode(&vec![1_u8, 0, 1]).unwrap();
+    let bytes = encoder.finish();
+    // One byte for the length, 3 original bytes, 1 escaped null, 1 field-delimiting null
+    assert_eq!(bytes.len(), 6);
+    let mut decoder = CompositeKeyDecoder::default_for(ByteSource::Borrowed(&bytes));
+    let decoded_value = decoder.decode::<Cow<'_, [u8]>>().unwrap();
+    assert_eq!(decoded_value.as_ref(), &[1, 0, 1]);
 }
 
 #[test]
