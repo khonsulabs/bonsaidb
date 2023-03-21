@@ -42,7 +42,7 @@ actionable = "0.2.0"
 anyhow = { version = "1", optional = true }
 itertools = "0.10"
 ordered-varint = "2.0.0"
-derive-where = "1.0.0"
+derive-where = "~1.2.0"
 transmog = "0.1.0"
 transmog-pot = "0.2.0"
 arc-bytes = { version = "0.3.3", features = ["serde"] }
