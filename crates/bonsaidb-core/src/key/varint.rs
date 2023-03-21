@@ -30,6 +30,7 @@ use crate::key::{Key, KeyEncoding, KeyKind};
 /// use bonsaidb_core::key::{Key, KeyEncoding, VarInt};
 ///
 /// #[derive(Key, Default, Clone)]
+/// # #[key(core = bonsaidb_core)]
 /// #[key(allow_null_bytes = true)]
 /// struct CustomKeyVariable {
 ///     pub customer_id: VarInt<u64>,
@@ -37,6 +38,7 @@ use crate::key::{Key, KeyEncoding, KeyKind};
 /// }
 ///
 /// #[derive(Key, Default, Clone)]
+/// # #[key(core = bonsaidb_core)]
 /// struct CustomKey {
 ///     pub customer_id: u64,
 ///     pub order_id: u64,
