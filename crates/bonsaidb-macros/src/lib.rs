@@ -538,6 +538,44 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 }
                 Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => {
                     let field_count = unnamed.len();
+                    if field_count == 1 {
+                        // Special case the implementation for 1
+                        // field -- just pass through to the
+                        // inner type so that this encoding is
+                        // completely transparent.
+                        let wrapped = unnamed.into_iter().next().expect("length just checked");
+                        let ty = wrapped.ty;
+
+                        return quote! {
+                            # use std::{borrow::Cow, io::{self, ErrorKind}};
+                            # use #core::key::{ByteSource, KeyVisitor, IncorrectByteLength, Key, KeyEncoding};
+
+                            impl #impl_generics Key<'key> for #ident #ty_generics #where_clause {
+                                const CAN_OWN_BYTES: bool = <#ty>::CAN_OWN_BYTES;
+
+                                fn from_ord_bytes<'b>(bytes: ByteSource<'key, 'b>) -> Result<Self, Self::Error> {
+                                    <#ty>::from_ord_bytes(bytes).map(Self)
+                                }
+                            }
+
+                            impl #impl_generics KeyEncoding<'key, Self> for #ident #ty_generics #where_clause {
+                                type Error = IncorrectByteLength;
+
+                                const LENGTH: Option<usize> = <#ty>::LENGTH;
+
+                                fn describe<Visitor>(visitor: &mut Visitor)
+                                where
+                                    Visitor: KeyVisitor,
+                                {
+                                    <#ty>::describe(visitor)
+                                }
+
+                                fn as_ord_bytes(&'key self) -> Result<Cow<'key, [u8]>, Self::Error> {
+                                    self.0.as_ord_bytes()
+                                }
+                            }
+                        }.into();
+                    }
                     let (encode_fields, (decode_fields, describe)): (
                         TokenStream,
                         (TokenStream, TokenStream),

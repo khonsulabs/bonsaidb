@@ -12,6 +12,14 @@ fn tuple_struct() {
 }
 
 #[test]
+fn transparent_tuple_struct() {
+    #[derive(Clone, Debug, Key)]
+    struct Test(i32);
+
+    assert_eq!(&[0, 0, 0, 1], Test(1).as_ord_bytes().unwrap().as_ref())
+}
+
+#[test]
 fn struct_struct() {
     #[derive(Clone, Debug, Key)]
     struct Test {
