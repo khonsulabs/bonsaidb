@@ -323,7 +323,7 @@ pub trait Builder: Sized {
     /// Registers the schema and returns self.
     fn with_schema<S: Schema>(self) -> Result<Self, Error>;
 
-    /// Sets [`StorageConfiguration::path`](StorageConfiguration#structfield.memory_only) to true and returns self.
+    /// Sets [`StorageConfiguration::memory_only`](StorageConfiguration#structfield.memory_only) to true and returns self.
     #[must_use]
     fn memory_only(self) -> Self;
     /// Sets [`StorageConfiguration::path`](StorageConfiguration#structfield.path) to `path` and returns self.
