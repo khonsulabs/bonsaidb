@@ -31,43 +31,28 @@ use crate::key::{Key, KeyEncoding, KeyKind};
 ///
 /// #[derive(Key, Default, Clone)]
 /// # #[key(core = bonsaidb_core)]
-/// struct CustomKeyVariable {
-///     pub customer_id: VarInt<u64>,
-///     pub order_id: VarInt<u64>,
-/// }
+/// struct UserId(u64);
+///
+/// // `UserId` type will always encode to 8 bytes, since u64 will encode
+/// // using `u64::to_be_bytes`.
+/// let default_key_len = UserId::default().as_ord_bytes().unwrap().len();
+/// assert_eq!(default_key_len, 8);
+/// let another_key_len = UserId(u64::MAX).as_ord_bytes().unwrap().len();
+/// assert_eq!(another_key_len, 8);
 ///
 /// #[derive(Key, Default, Clone)]
 /// # #[key(core = bonsaidb_core)]
-/// struct CustomKey {
-///     pub customer_id: u64,
-///     pub order_id: u64,
-/// }
+/// struct UserIdVariable(VarInt<u64>);
 ///
-/// // `CustomKey` type will always encode to 16 bytes, since u64 will encode
-/// // using `u64::to_be_bytes`.
-/// let default_key_len = CustomKey::default().as_ord_bytes().unwrap().len();
-/// assert_eq!(default_key_len, 16);
-/// let another_key_len = CustomKey {
-///     customer_id: u64::MAX,
-///     order_id: u64::MAX,
-/// }
-/// .as_ord_bytes()
-/// .unwrap()
-/// .len();
-/// assert_eq!(another_key_len, 16);
-///
-/// // However, `CustomKeyVariable` will be able to encode in as few as 8 bytes,
-/// // but can take up to 22 bytes if the entire u64 range is utilized.
-/// let default_key_len = CustomKeyVariable::default().as_ord_bytes().unwrap().len();
-/// assert_eq!(default_key_len, 8);
-/// let another_key_len = CustomKeyVariable {
-///     customer_id: VarInt(u64::MAX),
-///     order_id: VarInt(u64::MAX),
-/// }
-/// .as_ord_bytes()
-/// .unwrap()
-/// .len();
-/// assert_eq!(another_key_len, 22);
+/// // However, `UserIdVariable` will be able to encode in as little as 1 byte,
+/// // but can take up to 9 bytes if the entire u64 range is utilized.
+/// let default_key_len = UserIdVariable::default().as_ord_bytes().unwrap().len();
+/// assert_eq!(default_key_len, 1);
+/// let another_key_len = UserIdVariable(VarInt(u64::MAX))
+///     .as_ord_bytes()
+///     .unwrap()
+///     .len();
+/// assert_eq!(another_key_len, 9);
 /// ```
 ///
 ///

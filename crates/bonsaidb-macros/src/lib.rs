@@ -537,7 +537,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
 
             impl #impl_generics KeyEncoding<'key, Self> for #ident #ty_generics #where_clause {
-                type Error = IncorrectByteLength;
+                type Error = <#ty as KeyEncoding<'key>>::Error;
 
                 const LENGTH: Option<usize> = <#ty>::LENGTH;
 
