@@ -80,6 +80,70 @@ where
 /// appears in the source code. The implementation uses [`CompositeKeyEncoder`]
 /// and [`CompositeKeyDecoder`] to encode each field.
 ///
+/// ## Changing the `enum` representation type
+///
+/// By default, the derived `Key` implementation will use an `isize` for its
+/// representation, which is encoded using [`ordered_varint`]. If you wish to
+/// use a fixed-size encoding or use `usize`, `enum_repr` can be used to control
+/// the type being encoded.
+///
+/// The default behavior produces compact output for simple enums, but can also
+/// support growing to the limits of `isize`:
+///
+/// ```rust
+/// use bonsaidb_core::key::{Key, KeyEncoding};
+///
+/// #[derive(Key, Clone, Debug)]
+/// # #[key(core = bonsaidb_core)]
+/// enum Color {
+///     Red,
+///     Green,
+///     Blue,
+/// }
+///
+/// let encoded = Color::Red.as_ord_bytes().unwrap();
+/// assert_eq!(encoded.len(), 1);
+/// ```
+///
+/// If a `#[repr(...)]` attribute exists and its parameter is a built-in integer
+/// type, the `Key` derive will use that type for its representation instead:
+///
+/// ```rust
+/// use bonsaidb_core::key::{Key, KeyEncoding};
+///
+/// #[derive(Key, Clone, Debug)]
+/// # #[key(core = bonsaidb_core)]
+/// #[repr(u32)]
+/// enum Color {
+///     Red = 0xFF0000FF,
+///     Green = 0x00FF00FF,
+///     Blue = 0x0000FFFF,
+/// }
+///
+/// let encoded = Color::Red.as_ord_bytes().unwrap();
+/// assert_eq!(encoded.len(), 4);
+/// ```
+///
+/// If the type would rather use a different type for the key encoding than it
+/// uses for in-memory representation, the `enum_repr` parameter can be used:
+///
+/// ```rust
+/// use bonsaidb_core::key::{Key, KeyEncoding};
+///
+/// #[derive(Key, Clone, Debug)]
+/// # #[key(core = bonsaidb_core)]
+/// #[key(enum_repr = u32)]
+/// #[repr(usize)]
+/// enum Color {
+///     Red = 0xFF0000FF,
+///     Green = 0x00FF00FF,
+///     Blue = 0x0000FFFF,
+/// }
+///
+/// let encoded = Color::Red.as_ord_bytes().unwrap();
+/// assert_eq!(encoded.len(), 4);
+/// ```
+///
 /// ## `null_handling`
 ///
 /// The derive macro offers an argument `null_handling`, which defaults to
@@ -1501,7 +1565,7 @@ impl CompositeKeyNullHandler for EscapeNullBytes {
 ///
 /// By default, [`CompositeKeyEncoder`] checks for null bytes and returns an
 /// error when a null byte is found. See
-/// [`CompositeKeyEncoder::allow_null_bytes_in_variable_fields()`] if you wish
+/// [`CompositeKeyEncoder::allowing_null_bytes()`] if you wish
 /// to allow null bytes despite this edge case.
 #[derive(thiserror::Error, Debug)]
 #[error("a variable length field contained a null byte.")]
@@ -1536,7 +1600,7 @@ impl<'key, 'ephemeral> CompositeKeyDecoder<'key, 'ephemeral, AllowNullBytes> {
     /// Returns a decoder for `bytes` that ignores null bytes.
     ///
     /// This function is compatible with keys encoded with
-    /// [`CompositeKeyEncoder::allow_null_bytes()`].
+    /// [`CompositeKeyEncoder::allowing_null_bytes()`].
     #[must_use]
     pub fn allowing_null_bytes(bytes: ByteSource<'key, 'ephemeral>) -> Self {
         Self {
@@ -1775,7 +1839,8 @@ fn composite_key_tests() {
 pub struct CompositeKeyError(Box<dyn AnyError>);
 
 impl CompositeKeyError {
-    pub(crate) fn new<E: AnyError>(error: E) -> Self {
+    /// Returns a new instance wrapping `error`.
+    pub fn new<E: AnyError>(error: E) -> Self {
         Self(Box::new(error))
     }
 }

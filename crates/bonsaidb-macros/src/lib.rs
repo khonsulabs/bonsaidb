@@ -425,7 +425,7 @@ impl ConvertParsed for NullHandling {
 
 /// Derives the `bonsaidb::core::key::Key` trait.
 ///
-/// `#[key(allow_null_bytes, enum_repr = u8, core = bonsaidb::core)]`, all parameters are optional
+/// `#[key(null_handling = escape, enum_repr = u8, core = bonsaidb::core)]`, all parameters are optional
 #[proc_macro_error]
 #[proc_macro_derive(Key, attributes(key))]
 pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -660,6 +660,8 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         Data::Enum(DataEnum { variants, .. }) => {
             let mut prev_ident = None;
             let field_count = variants.len();
+            let all_variants_are_empty = variants.iter().all(|variant| variant.fields.is_empty());
+
             let (consts, (encode_variants, (decode_variants, describe))): (
                 TokenStream,
                 (TokenStream, (TokenStream, TokenStream)),
@@ -763,13 +765,20 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                         ),
                                     )
                                 }
-                                Fields::Unit => (
-                                    quote!(Self::#ident => $encoder.encode(&#const_ident)?,),
+                                Fields::Unit => {
+                                    let encode = if all_variants_are_empty {
+                                        quote!(Self::#ident => #const_ident.as_ord_bytes(),)
+                                    } else {
+                                        quote!(Self::#ident => $encoder.encode(&#const_ident)?,)
+                                    };
                                     (
-                                        quote!(#const_ident => Self::#ident,),
-                                        quote!(visitor.visit_type(#core::key::KeyKind::Unit);),
-                                    ),
-                                ),
+                                        encode,
+                                        (
+                                            quote!(#const_ident => Self::#ident,),
+                                            quote!(visitor.visit_type(#core::key::KeyKind::Unit);),
+                                        ),
+                                    )
+                                }
                             },
                         );
                         prev_ident = Some(const_ident);
@@ -777,6 +786,53 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     },
                 )
                 .unzip();
+
+            if all_variants_are_empty {
+                // Special case: if no enum variants have embedded values,
+                // implement Key as a plain value, avoiding the composite key
+                // overhead.
+                return quote! {
+                    # use std::{borrow::Cow, io::{self, ErrorKind}};
+                    # use #core::key::{ByteSource, CompositeKeyDecoder, KeyVisitor, CompositeKeyEncoder, CompositeKeyError, Key, KeyEncoding};
+
+                    impl #impl_generics Key<'key> for #ident #ty_generics #where_clause {
+                        const CAN_OWN_BYTES: bool = false;
+
+                        fn from_ord_bytes<'b>(mut $bytes: ByteSource<'key, 'b>) -> Result<Self, Self::Error> {
+                            #consts
+                            Ok(match <#repr>::from_ord_bytes($bytes).map_err(#core::key::CompositeKeyError::new)? {
+                                #decode_variants
+                                _ => return Err(#core::key::CompositeKeyError::from(io::Error::from(
+                                        ErrorKind::InvalidData,
+                                )))
+                            })
+                        }
+                    }
+
+                    impl #impl_generics KeyEncoding<'key, Self> for #ident #ty_generics #where_clause {
+                        type Error = CompositeKeyError;
+
+                        const LENGTH: Option<usize> = <#repr as KeyEncoding<'key>>::LENGTH;
+
+                        fn describe<Visitor>(visitor: &mut Visitor)
+                        where
+                            Visitor: KeyVisitor,
+                        {
+                            <#repr>::describe(visitor);
+                        }
+
+                        fn as_ord_bytes(&'key self) -> Result<Cow<'key, [u8]>, Self::Error> {
+                            #consts
+                            match self {
+                                #encode_variants
+                            }.map_err(#core::key::CompositeKeyError::new)
+                        }
+                    }
+                }
+                .into();
+            }
+
+            // At least one variant has a value, which means we need to encode a composite field.
             (
                 quote! {
                     #consts
