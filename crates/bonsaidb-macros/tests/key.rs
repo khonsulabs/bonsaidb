@@ -12,11 +12,19 @@ fn tuple_struct() {
 }
 
 #[test]
-fn transparent_tuple_struct() {
+fn transparent_structs() {
     #[derive(Clone, Debug, Key)]
     struct Test(i32);
+    #[derive(Clone, Debug, Key)]
+    struct TestNamed {
+        named: i32,
+    }
 
-    assert_eq!(&[0, 0, 0, 1], Test(1).as_ord_bytes().unwrap().as_ref())
+    assert_eq!(&[0, 0, 0, 1], Test(1).as_ord_bytes().unwrap().as_ref());
+    assert_eq!(
+        &[0, 0, 0, 1],
+        TestNamed { named: 1 }.as_ord_bytes().unwrap().as_ref()
+    )
 }
 
 #[test]
@@ -36,6 +44,14 @@ fn struct_struct() {
         .unwrap()
         .as_ref()
     )
+}
+
+#[test]
+fn unit_struct() {
+    #[derive(Clone, Debug, Key)]
+    struct Test;
+
+    assert_eq!(b"", Test.as_ord_bytes().unwrap().as_ref())
 }
 
 #[test]
