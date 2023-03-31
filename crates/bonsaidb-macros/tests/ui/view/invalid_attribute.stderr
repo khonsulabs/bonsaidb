@@ -4,7 +4,7 @@ error: expected identifier
 4 | #[view(name = "hi", "hi")]
   |                     ^^^^
 
-error: Only `collection = CollectionType`, `key = KeyType`, `name = \"by-name\"`, `value = ValueType` and `serialization = SerializationFormat` and `core = bonsaidb::core` are supported attributes
+error: supported fields are `collection`, `key`, `name`, `value`, `core` and `serialization`
  --> tests/ui/view/invalid_attribute.rs:8:21
   |
 8 | #[view(name = "hi", authority = "hello", "hi")]

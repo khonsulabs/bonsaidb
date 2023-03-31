@@ -14,7 +14,10 @@
 use attribute_derive::{Attribute, ConvertParsed};
 use proc_macro2::{Span, TokenStream};
 use proc_macro_crate::{crate_name, FoundCrate};
-use proc_macro_error::{abort, abort_call_site, proc_macro_error, ResultExt};
+use proc_macro_error::{
+    abort, abort_call_site, proc_macro_error, Diagnostic, DiagnosticExt, Level, ResultExt,
+    SpanRange,
+};
 use quote::ToTokens;
 use quote_use::{format_ident_namespaced as format_ident, quote_use as quote};
 use syn::punctuated::Punctuated;
@@ -57,36 +60,90 @@ fn core_path() -> Path {
     }
 }
 
+// TODO remove if proc_macro_error updates to synv2, or someone releases an updated fork
+fn unwrap_or_abort<T>(result: Result<T, syn::Error>) -> T {
+    result
+        .map_err(|err| {
+            // directly copied from https://docs.rs/proc-macro-error/latest/src/proc_macro_error/diagnostic.rs.html#291-349
+            // licensed under MIT or Apache-2.0
+            use proc_macro2::{Delimiter, TokenTree};
+
+            fn gut_error(ts: &mut impl Iterator<Item = TokenTree>) -> Option<(SpanRange, String)> {
+                let first = match ts.next() {
+                    // compile_error
+                    None => return None,
+                    Some(tt) => tt.span(),
+                };
+                ts.next().unwrap(); // !
+
+                let lit = match ts.next().unwrap() {
+                    TokenTree::Group(group) => {
+                        // Currently `syn` builds `compile_error!` invocations
+                        // exclusively in `ident{"..."}` (braced) form which is not
+                        // followed by `;` (semicolon).
+                        //
+                        // But if it changes to `ident("...");` (parenthesized)
+                        // or `ident["..."];` (bracketed) form,
+                        // we will need to skip the `;` as well.
+                        // Highly unlikely, but better safe than sorry.
+
+                        if group.delimiter() == Delimiter::Parenthesis
+                            || group.delimiter() == Delimiter::Bracket
+                        {
+                            ts.next().unwrap(); // ;
+                        }
+
+                        match group.stream().into_iter().next().unwrap() {
+                            TokenTree::Literal(lit) => lit,
+                            _ => unreachable!(),
+                        }
+                    }
+                    _ => unreachable!(),
+                };
+
+                let last = lit.span();
+                let mut msg = lit.to_string();
+
+                // "abc" => abc
+                msg.pop();
+                msg.remove(0);
+
+                Some((SpanRange { first, last }, msg))
+            }
+
+            let mut ts = err.to_compile_error().into_iter();
+
+            let (span_range, msg) = gut_error(&mut ts).unwrap();
+            let mut res = Diagnostic::spanned_range(span_range, Level::Error, msg);
+
+            while let Some((span_range, msg)) = gut_error(&mut ts) {
+                res = res.span_range_error(span_range, msg);
+            }
+
+            res
+        })
+        .unwrap_or_abort()
+}
+
 #[derive(Attribute)]
-#[attribute(ident = "collection")]
-#[attribute(
-    invalid_field = r#"Only `authority = "some-authority"`, `name = "some-name"`, `views = [SomeView, AnotherView]`, `primary_key = u64`, `natural_id = |contents: &Self| Some(contents.id)`, serialization = SerializationFormat` and `core = bonsaidb::core` are supported attributes"#
-)]
+#[attribute(ident = collection)]
 struct CollectionAttribute {
     authority: Option<Expr>,
-    #[attribute(
-        missing = r#"You need to specify the collection name via `#[collection(name = "name")]`"#
-    )]
+    #[attribute(example = "\"name\"")]
     name: String,
-    #[attribute(default)]
-    #[attribute(expected = r#"Specify the `views` like so: `view = [SomeView, AnotherView]`"#)]
+    #[attribute(optional, example = "[SomeView, AnotherView]")]
     views: Vec<Type>,
-    #[attribute(
-        expected = r#"Specify the `serialization` like so: `serialization = Format` or `serialization = None` to disable deriving it"#
-    )]
+    #[attribute(example = "Format or None")]
     serialization: Option<Path>,
-    // TODO add some explanaition when it is possble to integrate the parse error in the printed
-    // error message, for now the default error is probably more helpful
+    #[attribute(example = "Some(KeyId::Master)")]
     encryption_key: Option<Expr>,
     encryption_required: bool,
     encryption_optional: bool,
-    #[attribute(expected = r#"Specify the `primary_key` like so: `primary_key = u64`"#)]
+    #[attribute(example = "u64")]
     primary_key: Option<Type>,
-    #[attribute(
-        expected = r#"Specify the `natural_id` like so: `natural_id = function_name` or `natural_id = |doc| { .. }`"#
-    )]
+    #[attribute(example = "function_name or |doc| { .. }")]
     natural_id: Option<Expr>,
-    #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
+    #[attribute(example = "bosaidb::core")]
     core: Option<Path>,
 }
 
@@ -113,7 +170,7 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         encryption_key,
         encryption_required,
         encryption_optional,
-    } = CollectionAttribute::from_attributes(&attrs).unwrap_or_abort();
+    } = unwrap_or_abort(CollectionAttribute::from_attributes(&attrs));
 
     if encryption_required && encryption_key.is_none() {
         abort_call_site!("If `collection(encryption_required)` is set you need to provide an encryption key via `collection(encryption_key = EncryptionKey)`")
@@ -216,29 +273,20 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
 }
 
 #[derive(Attribute)]
-#[attribute(ident = "view")]
-#[attribute(
-    invalid_field = r#"Only `collection = CollectionType`, `key = KeyType`, `name = "by-name"`, `value = ValueType` and `serialization = SerializationFormat` and `core = bonsaidb::core` are supported attributes"#
-)]
+#[attribute(ident = view)]
 struct ViewAttribute {
-    #[attribute(
-        missing = r#"You need to specify the collection type via `#[view(collection = CollectionType)]`"#
-    )]
-    #[attribute(
-        expected = r#"Specify the collection type like so: `collection = CollectionType`"#
-    )]
+    #[attribute(example = "CollectionType")]
+    #[attribute(example = "CollectionType")]
     collection: Type,
-    #[attribute(missing = r#"You need to specify the key type via `#[view(key = KeyType)]`"#)]
-    #[attribute(expected = r#"Specify the key type like so: `key = KeyType`"#)]
+    #[attribute(example = "KeyType")]
     key: Type,
+    #[attribute(example = "\"by-name\"")]
     name: Option<LitStr>,
-    #[attribute(expected = r#"Specify the value type like so: `value = ValueType`"#)]
+    #[attribute(example = "ValueType")]
     value: Option<Type>,
-    #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
+    #[attribute(example = "bosaidb::core")]
     core: Option<Path>,
-    #[attribute(
-        expected = r#"Specify the `serialization` like so: `serialization = Format` or `serialization = None` to disable deriving it"#
-    )]
+    #[attribute(example = "Format or None")]
     serialization: Option<Path>,
 }
 
@@ -262,7 +310,7 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         value,
         core,
         serialization,
-    } = ViewAttribute::from_attributes(&attrs).unwrap_or_abort();
+    } = unwrap_or_abort(ViewAttribute::from_attributes(&attrs));
 
     let core = core.unwrap_or_else(core_path);
 
@@ -311,25 +359,17 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 }
 
 #[derive(Attribute)]
-#[attribute(ident = "schema")]
-#[attribute(
-    invalid_field = r#"Only `name = "name"`, `authority = "authority"`, `collections = [SomeCollection, AnotherCollection]`, `include = [OtherSchema]`, and `core = bonsaidb::core` are supported attributes"#
-)]
+#[attribute(ident = schema)]
 struct SchemaAttribute {
-    #[attribute(missing = r#"You need to specify the schema name via `#[schema(name = "name")]`"#)]
+    #[attribute(example = "\"name\"")]
     name: String,
+    #[attribute(example = "\"authority\"")]
     authority: Option<Expr>,
-    #[attribute(default)]
-    #[attribute(
-        expected = r#"Specify the `collections` like so: `collections = [SomeCollection, AnotherCollection]`"#
-    )]
+    #[attribute(optional, example = "[SomeCollection, AnotherCollection]")]
     collections: Vec<Type>,
-    #[attribute(default)]
-    #[attribute(
-        expected = r#"Specify other Schemas as plugins like so: `include = [SomeSchema, AnotherSchema]`"#
-    )]
+    #[attribute(optional, example = "[SomeSchema, AnotherSchema]")]
     include: Vec<Type>,
-    #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
+    #[attribute(example = "bosaidb::core")]
     core: Option<Path>,
 }
 
@@ -352,7 +392,7 @@ pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
         collections,
         include,
         core,
-    } = SchemaAttribute::from_attributes(&attrs).unwrap_or_abort();
+    } = unwrap_or_abort(SchemaAttribute::from_attributes(&attrs));
 
     let core = core.unwrap_or_else(core_path);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -385,16 +425,16 @@ pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
 }
 
 #[derive(Attribute)]
-#[attribute(ident = "key")]
-#[attribute(
-    invalid_field = r#"Only `null_handling = `, `enum_repr = NumberType` and `core = bonsaidb::core` is supported"#
-)]
+#[attribute(ident = key)]
 struct KeyAttribute {
-    #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
+    #[attribute(example = "bosaidb::core")]
     core: Option<Path>,
-    null_handling: Option<NullHandling>,
+    #[attribute(default = NullHandling::Escape, example = "escape")]
+    null_handling: NullHandling,
     can_own_bytes: bool,
+    #[attribute(example = "u8")]
     enum_repr: Option<Type>,
+    #[attribute(example = "\"name\"")]
     name: Option<String>,
 }
 
@@ -439,7 +479,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     // Only relevant if it is an enum, get's the representation to use for the variant key
     let repr = attrs.iter().find_map(|attr| {
-        attr.path
+        attr.path()
             .is_ident("repr")
             .then(|| attr.parse_args::<Ident>().ok())
             .flatten()
@@ -468,7 +508,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         enum_repr,
         can_own_bytes,
         name,
-    } = KeyAttribute::from_attributes(&attrs).unwrap_or_abort();
+    } = unwrap_or_abort(KeyAttribute::from_attributes(&attrs));
 
     let name = name.map_or_else(
         || quote!(std::any::type_name::<Self>()),
@@ -487,12 +527,11 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         })
     });
 
-    let (encoder_constructor, decoder_constructor) =
-        match null_handling.unwrap_or(NullHandling::Escape) {
-            NullHandling::Escape => (quote!(default), quote!(default_for)),
-            NullHandling::Allow => (quote!(allowing_null_bytes), quote!(allowing_null_bytes)),
-            NullHandling::Deny => (quote!(denying_null_bytes), quote!(denying_null_bytes)),
-        };
+    let (encoder_constructor, decoder_constructor) = match null_handling {
+        NullHandling::Escape => (quote!(default), quote!(default_for)),
+        NullHandling::Allow => (quote!(allowing_null_bytes), quote!(allowing_null_bytes)),
+        NullHandling::Deny => (quote!(denying_null_bytes), quote!(denying_null_bytes)),
+    };
 
     let core = core.unwrap_or_else(core_path);
     let (_, ty_generics, _) = generics.split_for_impl();
@@ -904,19 +943,17 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 }
 
 #[derive(Attribute)]
-#[attribute(ident = "api")]
-#[attribute(
-    invalid_field = r#"Only `name = "name"`, `authority = "authority"`, `response = ResponseType`, `error = ErrorType` and `core = bonsaidb::core` are supported attributes"#
-)]
+#[attribute(ident = api)]
 struct ApiAttribute {
-    #[attribute(missing = r#"You need to specify the api name via `#[api(name = "name")]`"#)]
+    #[attribute(example = "\"name\"")]
     name: String,
+    #[attribute(example = "\"authority\"")]
     authority: Option<Expr>,
-    #[attribute(expected = r#"Specify the response type like so: `response = ResponseType`"#)]
+    #[attribute(example = "ResponseType")]
     response: Option<Type>,
-    #[attribute(expected = r#"Specify the error type like so: `error = ErrorType`"#)]
+    #[attribute(example = "ErrorType")]
     error: Option<Type>,
-    #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
+    #[attribute(example = "bosaidb::core")]
     core: Option<Path>,
 }
 
@@ -939,7 +976,7 @@ pub fn api_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         response,
         error,
         core,
-    } = ApiAttribute::from_attributes(&attrs).unwrap_or_abort();
+    } = unwrap_or_abort(ApiAttribute::from_attributes(&attrs));
 
     let core = core.unwrap_or_else(core_path);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -991,23 +1028,21 @@ fn files_path() -> Path {
 }
 
 #[derive(Attribute)]
-#[attribute(ident = "file_config")]
-#[attribute(
-    invalid_field = r#"`metadata = MetadataType`, block_size = 65_536, `authority = "authority"`, `files_name = "files"`, `blocks_name = "blocks"`, `core = bonsaidb::core` and `files = bonsaidb::files` are supported attributes"#
-)]
+#[attribute(ident = file_config)]
 struct FileConfigAttribute {
-    #[attribute(expected = r#"Specify the metadata type like so: `metadata = MetadataType`"#)]
+    #[attribute(example = "MetadataType")]
     metadata: Option<Type>,
-    #[attribute(expected = r#"Specify the block size like so: `block_size = 65_536`"#)]
+    #[attribute(example = "65_536")]
     block_size: Option<usize>,
+    #[attribute(example = "\"authority\"")]
     authority: Option<Expr>,
+    #[attribute(example = "\"files\"")]
     files_name: Option<String>,
+    #[attribute(example = "\"blocks\"")]
     blocks_name: Option<String>,
-    #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
+    #[attribute(example = "bosaidb::core")]
     core: Option<Path>,
-    #[attribute(
-        expected = r#"Specify the the path to bonsaidb `files` like so: `files = bosaidb::files`"#
-    )]
+    #[attribute(example = "bosaidb::files")]
     files: Option<Path>,
 }
 
@@ -1032,7 +1067,7 @@ pub fn file_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
         blocks_name,
         core,
         files,
-    } = FileConfigAttribute::from_attributes(&attrs).unwrap_or_abort();
+    } = unwrap_or_abort(FileConfigAttribute::from_attributes(&attrs));
 
     let core = core.unwrap_or_else(core_path);
     let files = files.unwrap_or_else(files_path);

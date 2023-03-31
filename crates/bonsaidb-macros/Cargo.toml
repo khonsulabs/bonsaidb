@@ -16,13 +16,13 @@ rust-version = "1.65"
 proc-macro = true
 
 [dependencies]
-attribute-derive = "0.3.1"
+attribute-derive = "0.6.0"
 proc-macro-crate = "1.1.0"
 proc-macro-error = "1"
 proc-macro2 = { version = "1.0.37", features = ["nightly"] }
 quote = "1"
-quote-use = { version = "0.6.0", features = ["namespace_idents"] }
-syn = "1"
+quote-use = { version = "0.7.0", features = ["namespace_idents"] }
+syn = "2"
 trybuild = "1.0.54"
 
 [dev-dependencies]
