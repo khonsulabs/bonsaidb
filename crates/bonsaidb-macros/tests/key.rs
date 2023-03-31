@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use bonsaidb::core::key::{Key, KeyEncoding};
 
 #[test]
@@ -124,4 +126,18 @@ fn enum_u64() {
         Test::C.as_ord_bytes().unwrap().as_ref(),
         &[255, 255, 255, 255, 255, 255, 255, 255]
     );
+}
+
+#[test]
+fn lifetime() {
+    #[derive(Clone, Debug, Key)]
+    struct Test<'a, 'b>(Cow<'a, str>, Cow<'b, str>);
+
+    assert_eq!(
+        &[97, 0, 98, 0, 1, 1],
+        Test("a".into(), "b".into())
+            .as_ord_bytes()
+            .unwrap()
+            .as_ref()
+    )
 }

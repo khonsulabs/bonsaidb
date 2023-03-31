@@ -19,13 +19,14 @@ use proc_macro_error::{
     SpanRange,
 };
 use quote::ToTokens;
-use quote_use::{format_ident_namespaced as format_ident, quote_use as quote};
+use quote_use::{
+    format_ident_namespaced as format_ident, parse_quote_use as parse_quote, quote_use as quote,
+};
 use syn::punctuated::Punctuated;
 use syn::token::Paren;
 use syn::{
-    parse_macro_input, parse_quote, Data, DataEnum, DataStruct, DeriveInput, Expr, Field, Fields,
-    FieldsNamed, FieldsUnnamed, Ident, Index, LitStr, Path, Token, Type, TypePath, TypeTuple,
-    Variant,
+    parse_macro_input, Data, DataEnum, DataStruct, DeriveInput, Expr, Field, Fields, FieldsNamed,
+    FieldsUnnamed, Ident, Index, LitStr, Path, Token, Type, TypePath, TypeTuple, Variant,
 };
 
 // -----------------------------------------------------------------------------
@@ -477,7 +478,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         ..
     } = parse_macro_input!(input as DeriveInput);
 
-    // Only relevant if it is an enum, get's the representation to use for the variant key
+    // Only relevant if it is an enum, gets the representation to use for the variant key
     let repr = attrs.iter().find_map(|attr| {
         attr.path()
             .is_ident("repr")
@@ -536,9 +537,14 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let core = core.unwrap_or_else(core_path);
     let (_, ty_generics, _) = generics.split_for_impl();
     let mut generics = generics.clone();
+    let lifetimes: Vec<_> = generics.lifetimes().cloned().collect();
+    let where_clause = generics.make_where_clause();
+    for lifetime in lifetimes {
+        where_clause.predicates.push(parse_quote!($'key: #lifetime))
+    }
     generics
         .params
-        .push(syn::GenericParam::Lifetime(parse_quote!('key)));
+        .push(syn::GenericParam::Lifetime(parse_quote!($'key)));
     let (impl_generics, _, where_clause) = generics.split_for_impl();
 
     // Special case the implementation for 1
@@ -567,16 +573,16 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             # use std::{borrow::Cow, io::{self, ErrorKind}};
             # use #core::key::{ByteSource, KeyVisitor, IncorrectByteLength, Key, KeyEncoding};
 
-            impl #impl_generics Key<'key> for #ident #ty_generics #where_clause {
+            impl #impl_generics Key<$'key> for #ident #ty_generics #where_clause {
                 const CAN_OWN_BYTES: bool = <#ty>::CAN_OWN_BYTES;
 
-                fn from_ord_bytes<'b>(bytes: ByteSource<'key, 'b>) -> Result<Self, Self::Error> {
+                fn from_ord_bytes<$'b>(bytes: ByteSource<$'key, $'b>) -> Result<Self, Self::Error> {
                     <#ty>::from_ord_bytes(bytes).map(#map)
                 }
             }
 
-            impl #impl_generics KeyEncoding<'key, Self> for #ident #ty_generics #where_clause {
-                type Error = <#ty as KeyEncoding<'key>>::Error;
+            impl #impl_generics KeyEncoding<$'key, Self> for #ident #ty_generics #where_clause {
+                type Error = <#ty as KeyEncoding<$'key>>::Error;
 
                 const LENGTH: Option<usize> = <#ty>::LENGTH;
 
@@ -587,7 +593,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     <#ty>::describe(visitor)
                 }
 
-                fn as_ord_bytes(&'key self) -> Result<Cow<'key, [u8]>, Self::Error> {
+                fn as_ord_bytes(&$'key self) -> Result<Cow<$'key, [u8]>, Self::Error> {
                     self.#name.as_ord_bytes()
                 }
             }
@@ -661,15 +667,15 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         # use std::{borrow::Cow, io::{self, ErrorKind}};
                         # use #core::key::{ByteSource, KeyVisitor, IncorrectByteLength, Key, KeyKind, KeyEncoding};
 
-                        impl #impl_generics Key<'key> for #ident #ty_generics #where_clause {
+                        impl #impl_generics Key<$'key> for #ident #ty_generics #where_clause {
                             const CAN_OWN_BYTES: bool = false;
 
-                            fn from_ord_bytes<'b>(bytes: ByteSource<'key, 'b>) -> Result<Self, Self::Error> {
+                            fn from_ord_bytes<$'b>(bytes: ByteSource<$'key, $'b>) -> Result<Self, Self::Error> {
                                 Ok(Self)
                             }
                         }
 
-                        impl #impl_generics KeyEncoding<'key, Self> for #ident #ty_generics #where_clause {
+                        impl #impl_generics KeyEncoding<$'key, Self> for #ident #ty_generics #where_clause {
                             type Error = std::convert::Infallible;
 
                             const LENGTH: Option<usize> = Some(0);
@@ -681,7 +687,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                 visitor.visit_type(KeyKind::Unit);
                             }
 
-                            fn as_ord_bytes(&'key self) -> Result<Cow<'key, [u8]>, Self::Error> {
+                            fn as_ord_bytes(&$'key self) -> Result<Cow<$'key, [u8]>, Self::Error> {
                                 Ok(Cow::Borrowed(&[]))
                             }
                         }
@@ -834,10 +840,10 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     # use std::{borrow::Cow, io::{self, ErrorKind}};
                     # use #core::key::{ByteSource, CompositeKeyDecoder, KeyVisitor, CompositeKeyEncoder, CompositeKeyError, Key, KeyEncoding};
 
-                    impl #impl_generics Key<'key> for #ident #ty_generics #where_clause {
+                    impl #impl_generics Key<$'key> for #ident #ty_generics #where_clause {
                         const CAN_OWN_BYTES: bool = false;
 
-                        fn from_ord_bytes<'b>(mut $bytes: ByteSource<'key, 'b>) -> Result<Self, Self::Error> {
+                        fn from_ord_bytes<$'b>(mut $bytes: ByteSource<$'key, $'b>) -> Result<Self, Self::Error> {
                             #consts
                             Ok(match <#repr>::from_ord_bytes($bytes).map_err(#core::key::CompositeKeyError::new)? {
                                 #decode_variants
@@ -848,10 +854,10 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         }
                     }
 
-                    impl #impl_generics KeyEncoding<'key, Self> for #ident #ty_generics #where_clause {
+                    impl #impl_generics KeyEncoding<$'key, Self> for #ident #ty_generics #where_clause {
                         type Error = CompositeKeyError;
 
-                        const LENGTH: Option<usize> = <#repr as KeyEncoding<'key>>::LENGTH;
+                        const LENGTH: Option<usize> = <#repr as KeyEncoding<$'key>>::LENGTH;
 
                         fn describe<Visitor>(visitor: &mut Visitor)
                         where
@@ -860,7 +866,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                             <#repr>::describe(visitor);
                         }
 
-                        fn as_ord_bytes(&'key self) -> Result<Cow<'key, [u8]>, Self::Error> {
+                        fn as_ord_bytes(&$'key self) -> Result<Cow<$'key, [u8]>, Self::Error> {
                             #consts
                             match self {
                                 #encode_variants
@@ -901,10 +907,10 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         # use std::{borrow::Cow, io::{self, ErrorKind}};
         # use #core::key::{ByteSource, CompositeKeyDecoder, KeyVisitor, CompositeKeyEncoder, CompositeKeyError, Key, KeyEncoding};
 
-        impl #impl_generics Key<'key> for #ident #ty_generics #where_clause {
+        impl #impl_generics Key<$'key> for #ident #ty_generics #where_clause {
             const CAN_OWN_BYTES: bool = #can_own_bytes;
 
-            fn from_ord_bytes<'b>(mut $bytes: ByteSource<'key, 'b>) -> Result<Self, Self::Error> {
+            fn from_ord_bytes<$'b>(mut $bytes: ByteSource<$'key, $'b>) -> Result<Self, Self::Error> {
 
                 let mut $decoder = CompositeKeyDecoder::#decoder_constructor($bytes);
 
@@ -916,7 +922,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        impl #impl_generics KeyEncoding<'key, Self> for #ident #ty_generics #where_clause {
+        impl #impl_generics KeyEncoding<$'key, Self> for #ident #ty_generics #where_clause {
             type Error = CompositeKeyError;
 
             // TODO fixed width if possible
@@ -930,7 +936,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 #describe
             }
 
-            fn as_ord_bytes(&'key self) -> Result<Cow<'key, [u8]>, Self::Error> {
+            fn as_ord_bytes(&$'key self) -> Result<Cow<$'key, [u8]>, Self::Error> {
                 let mut $encoder = CompositeKeyEncoder::#encoder_constructor();
 
                 #encode_fields
