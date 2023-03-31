@@ -2987,8 +2987,7 @@ pub trait StorageConnection: HasSession + Sized + Send + Sync {
     ///   character (`[a-zA-Z0-9]`), and all remaining characters must be
     ///   alphanumeric, a period (`.`), or a hyphen (`-`).
     /// * [`Error::DatabaseNameAlreadyTaken`]: `name` was already used for a
-    ///   previous database name. Database names are case insensitive. Returned
-    ///   if `only_if_needed` is false.
+    ///   previous database name. Returned if `only_if_needed` is false.
     fn create_database<DB: Schema>(
         &self,
         name: &str,
@@ -3009,8 +3008,7 @@ pub trait StorageConnection: HasSession + Sized + Send + Sync {
     ///   character (`[a-zA-Z0-9]`), and all remaining characters must be
     ///   alphanumeric, a period (`.`), or a hyphen (`-`).
     /// * [`Error::DatabaseNameAlreadyTaken`]: `name` was already used for a
-    ///   previous database name. Database names are case insensitive. Returned
-    ///   if `only_if_needed` is false.
+    ///   previous database name. Returned if `only_if_needed` is false.
     fn create_database_with_schema(
         &self,
         name: &str,
@@ -3178,8 +3176,7 @@ pub trait AsyncStorageConnection: HasSession + Sized + Send + Sync {
     ///   character (`[a-zA-Z0-9]`), and all remaining characters must be
     ///   alphanumeric, a period (`.`), or a hyphen (`-`).
     /// * [`Error::DatabaseNameAlreadyTaken`]: `name` was already used for a
-    ///   previous database name. Database names are case insensitive. Returned
-    ///   if `only_if_needed` is false.
+    ///   previous database name. Returned if `only_if_needed` is false.
     async fn create_database<DB: Schema>(
         &self,
         name: &str,
@@ -3201,8 +3198,7 @@ pub trait AsyncStorageConnection: HasSession + Sized + Send + Sync {
     ///   character (`[a-zA-Z0-9]`), and all remaining characters must be
     ///   alphanumeric, a period (`.`), or a hyphen (`-`).
     /// * [`Error::DatabaseNameAlreadyTaken`]: `name` was already used for a
-    ///   previous database name. Database names are case insensitive. Returned
-    ///   if `only_if_needed` is false.
+    ///   previous database name. Returned if `only_if_needed` is false.
     async fn create_database_with_schema(
         &self,
         name: &str,

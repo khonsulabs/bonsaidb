@@ -256,6 +256,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bonsaidb::cli::Command` through the `Admin` variant, allowing for both local
   and remote administration.
 - `Header`, `CollectionHeader`, and `Revision` now all implement `Hash`.
+- Database names are no longer case insensitive. This was implemented poorly,
+  and in hindsight, the feature was removed in favor of strictness. Because the
+  database name is used as a directory name on-disk, care must be taken on
+  case-insensitive filesystems to not attempt to create two databases with
+  different casing.
 
 [239]: https://github.com/khonsulabs/bonsaidb/pull/239
 
@@ -289,6 +294,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   any existing code should work as long as the correct `Key` type was provided.
   This fix also allows for types like `str` to be used instead of `String` with
   this function.
+- Limited case insensitivity was implemented incorrectly yielding inconsistent
+  results.
 
 ## v0.4.1
 

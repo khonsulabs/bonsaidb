@@ -990,7 +990,7 @@ impl StorageConnection for StorageInstance {
 
         if let Some(entry) = admin
             .view::<database::ByName>()
-            .with_key(&name.to_ascii_lowercase())
+            .with_key(name)
             .query()?
             .first()
         {
