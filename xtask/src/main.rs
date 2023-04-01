@@ -197,6 +197,10 @@ fn all_tests() -> &'static [TestSuite] {
             cargo_args: "--package bonsaidb-files --no-default-features",
             toolchain: "stable",
         },
+        TestSuite {
+            cargo_args: "--package bonsaidb-macros",
+            toolchain: "stable",
+        },
     ]
 }
 

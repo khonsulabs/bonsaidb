@@ -14,10 +14,7 @@
 use attribute_derive::{Attribute, ConvertParsed};
 use proc_macro2::{Span, TokenStream};
 use proc_macro_crate::{crate_name, FoundCrate};
-use proc_macro_error::{
-    abort, abort_call_site, proc_macro_error, Diagnostic, DiagnosticExt, Level, ResultExt,
-    SpanRange,
-};
+use proc_macro_error::{abort, abort_call_site, proc_macro_error};
 use quote::ToTokens;
 use quote_use::{
     format_ident_namespaced as format_ident, parse_quote_use as parse_quote, quote_use as quote,
@@ -61,69 +58,15 @@ fn core_path() -> Path {
     }
 }
 
-// TODO remove if proc_macro_error updates to synv2, or someone releases an updated fork
-fn unwrap_or_abort<T>(result: Result<T, syn::Error>) -> T {
-    result
-        .map_err(|err| {
-            // directly copied from https://docs.rs/proc-macro-error/latest/src/proc_macro_error/diagnostic.rs.html#291-349
-            // licensed under MIT or Apache-2.0
-            use proc_macro2::{Delimiter, TokenTree};
-
-            fn gut_error(ts: &mut impl Iterator<Item = TokenTree>) -> Option<(SpanRange, String)> {
-                let first = match ts.next() {
-                    // compile_error
-                    None => return None,
-                    Some(tt) => tt.span(),
-                };
-                ts.next().unwrap(); // !
-
-                let lit = match ts.next().unwrap() {
-                    TokenTree::Group(group) => {
-                        // Currently `syn` builds `compile_error!` invocations
-                        // exclusively in `ident{"..."}` (braced) form which is not
-                        // followed by `;` (semicolon).
-                        //
-                        // But if it changes to `ident("...");` (parenthesized)
-                        // or `ident["..."];` (bracketed) form,
-                        // we will need to skip the `;` as well.
-                        // Highly unlikely, but better safe than sorry.
-
-                        if group.delimiter() == Delimiter::Parenthesis
-                            || group.delimiter() == Delimiter::Bracket
-                        {
-                            ts.next().unwrap(); // ;
-                        }
-
-                        match group.stream().into_iter().next().unwrap() {
-                            TokenTree::Literal(lit) => lit,
-                            _ => unreachable!(),
-                        }
-                    }
-                    _ => unreachable!(),
-                };
-
-                let last = lit.span();
-                let mut msg = lit.to_string();
-
-                // "abc" => abc
-                msg.pop();
-                msg.remove(0);
-
-                Some((SpanRange { first, last }, msg))
+macro_rules! unwrap_or_abort {
+    ($expr:expr) => {
+        match $expr {
+            Ok(t) => t,
+            Err(e) => {
+                return e.into_compile_error().into();
             }
-
-            let mut ts = err.to_compile_error().into_iter();
-
-            let (span_range, msg) = gut_error(&mut ts).unwrap();
-            let mut res = Diagnostic::spanned_range(span_range, Level::Error, msg);
-
-            while let Some((span_range, msg)) = gut_error(&mut ts) {
-                res = res.span_range_error(span_range, msg);
-            }
-
-            res
-        })
-        .unwrap_or_abort()
+        }
+    };
 }
 
 #[derive(Attribute)]
@@ -171,7 +114,7 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         encryption_key,
         encryption_required,
         encryption_optional,
-    } = unwrap_or_abort(CollectionAttribute::from_attributes(&attrs));
+    } = unwrap_or_abort!(CollectionAttribute::from_attributes(&attrs));
 
     if encryption_required && encryption_key.is_none() {
         abort_call_site!("If `collection(encryption_required)` is set you need to provide an encryption key via `collection(encryption_key = EncryptionKey)`")
@@ -311,7 +254,7 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         value,
         core,
         serialization,
-    } = unwrap_or_abort(ViewAttribute::from_attributes(&attrs));
+    } = unwrap_or_abort!(ViewAttribute::from_attributes(&attrs));
 
     let core = core.unwrap_or_else(core_path);
 
@@ -393,7 +336,7 @@ pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
         collections,
         include,
         core,
-    } = unwrap_or_abort(SchemaAttribute::from_attributes(&attrs));
+    } = unwrap_or_abort!(SchemaAttribute::from_attributes(&attrs));
 
     let core = core.unwrap_or_else(core_path);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -509,7 +452,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         enum_repr,
         can_own_bytes,
         name,
-    } = unwrap_or_abort(KeyAttribute::from_attributes(&attrs));
+    } = unwrap_or_abort!(KeyAttribute::from_attributes(&attrs));
 
     let name = name.map_or_else(
         || quote!(std::any::type_name::<Self>()),
@@ -982,7 +925,7 @@ pub fn api_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         response,
         error,
         core,
-    } = unwrap_or_abort(ApiAttribute::from_attributes(&attrs));
+    } = unwrap_or_abort!(ApiAttribute::from_attributes(&attrs));
 
     let core = core.unwrap_or_else(core_path);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -1073,7 +1016,7 @@ pub fn file_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
         blocks_name,
         core,
         files,
-    } = unwrap_or_abort(FileConfigAttribute::from_attributes(&attrs));
+    } = unwrap_or_abort!(FileConfigAttribute::from_attributes(&attrs));
 
     let core = core.unwrap_or_else(core_path);
     let files = files.unwrap_or_else(files_path);
