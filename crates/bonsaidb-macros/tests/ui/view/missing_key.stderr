@@ -1,4 +1,6 @@
-error: You need to specify the key type via `#[view(key = KeyType)]`
+error: required `key` is not specified
+
+       = help: try `#[view(key=KeyType)]`
  --> tests/ui/view/missing_key.rs:3:10
   |
 3 | #[derive(View)]
