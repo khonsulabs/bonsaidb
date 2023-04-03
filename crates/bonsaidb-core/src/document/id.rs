@@ -304,7 +304,13 @@ impl<'de> Visitor<'de> for DocumentIdVisitor {
 }
 
 impl<'k> Key<'k> for DocumentId {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         Self::try_from(bytes.as_ref())

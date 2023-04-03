@@ -189,6 +189,13 @@ pub trait Key<'k>: KeyEncoding<'k, Self> + Clone + Send + Sync {
     /// decoding operations to avoid extra allocations.
     const CAN_OWN_BYTES: bool;
 
+    /// The fully owned, `'static`-lifetime version of this type.
+    type Owned: 'static;
+
+    /// Convert this key instance to a fully owned instance with a `'static`
+    /// lifetime.
+    fn into_owned(self) -> Self::Owned;
+
     /// Deserialize a sequence of bytes previously encoded with
     /// [`KeyEncoding::as_ord_bytes`].
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error>;
@@ -598,7 +605,13 @@ fn next_byte_sequence(start: &[u8]) -> Option<Vec<u8>> {
 }
 
 impl<'k> Key<'k> for Cow<'k, [u8]> {
+    type Owned = Cow<'static, [u8]>;
+
     const CAN_OWN_BYTES: bool = true;
+
+    fn into_owned(self) -> <Self as Key<'k>>::Owned {
+        Cow::Owned(self.into_owned())
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         Ok(bytes.into_borrowed())
@@ -665,8 +678,18 @@ impl<'a, 'k, TOwned, TBorrowed> Key<'k> for MaybeOwned<'a, TOwned, TBorrowed>
 where
     TBorrowed: KeyEncoding<'k, TOwned, Error = TOwned::Error> + PartialEq + ?Sized,
     TOwned: Key<'k> + PartialEq<TBorrowed>,
+    <TOwned as Key<'k>>::Owned: From<&'a TBorrowed>,
 {
+    type Owned = <TOwned as Key<'k>>::Owned;
+
     const CAN_OWN_BYTES: bool = TOwned::CAN_OWN_BYTES;
+
+    fn into_owned(self) -> <Self as Key<'k>>::Owned {
+        match self {
+            MaybeOwned::Owned(owned) => owned.into_owned(),
+            MaybeOwned::Borrowed(borrowed) => borrowed.into(),
+        }
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         TOwned::from_ord_bytes(bytes).map(Self::Owned)
@@ -677,6 +700,7 @@ impl<'a, 'k, TOwned, TBorrowed> KeyEncoding<'k, Self> for MaybeOwned<'a, TOwned,
 where
     TBorrowed: KeyEncoding<'k, TOwned, Error = TOwned::Error> + PartialEq + ?Sized,
     TOwned: Key<'k> + PartialEq<TBorrowed>,
+    <TOwned as Key<'k>>::Owned: From<&'a TBorrowed>,
 {
     type Error = TOwned::Error;
 
@@ -715,7 +739,13 @@ fn cow_prefix_range_tests() {
 }
 
 impl<'k> Key<'k> for Vec<u8> {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = true;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         Ok(bytes.into_owned())
@@ -758,7 +788,13 @@ impl<'k> IntoPrefixRange<'k, Self> for Vec<u8> {
 }
 
 impl<'k, const N: usize> Key<'k> for [u8; N] {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         if bytes.as_ref().len() == N {
@@ -804,7 +840,13 @@ fn vec_prefix_range_tests() {
 }
 
 impl<'k> Key<'k> for ArcBytes<'k> {
+    type Owned = ArcBytes<'static>;
+
     const CAN_OWN_BYTES: bool = true;
+
+    fn into_owned(self) -> Self::Owned {
+        self.into_owned()
+    }
 
     fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
         Ok(Self::from(bytes.into_borrowed()))
@@ -864,7 +906,13 @@ fn arcbytes_prefix_range_tests() {
 }
 
 impl<'k> Key<'k> for CowBytes<'k> {
+    type Owned = CowBytes<'static>;
+
     const CAN_OWN_BYTES: bool = true;
+
+    fn into_owned(self) -> Self::Owned {
+        CowBytes(Cow::Owned(self.into_vec()))
+    }
 
     fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
         Ok(Self(bytes.into_borrowed()))
@@ -924,7 +972,13 @@ fn cowbytes_prefix_range_tests() {
 }
 
 impl<'k> Key<'k> for Bytes {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = true;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
         Ok(Self(bytes.into_owned()))
@@ -984,7 +1038,13 @@ fn bytes_prefix_range_tests() {
 }
 
 impl<'k> Key<'k> for String {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = true;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
         Self::from_utf8(bytes.into_owned())
@@ -1090,7 +1150,13 @@ impl<'a> IntoPrefixRange<'a, String> for str {
 }
 
 impl<'k> Key<'k> for Cow<'k, str> {
+    type Owned = Cow<'static, str>;
+
     const CAN_OWN_BYTES: bool = true;
+
+    fn into_owned(self) -> <Self as Key<'k>>::Owned {
+        Cow::Owned(self.into_owned())
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         match bytes.into_borrowed() {
@@ -1143,7 +1209,11 @@ fn string_prefix_range_tests() {
 }
 
 impl<'k> Key<'k> for () {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {}
 
     fn from_ord_bytes<'b>(_: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
         Ok(())
@@ -1168,7 +1238,13 @@ impl<'k> KeyEncoding<'k, Self> for () {
 }
 
 impl<'k> Key<'k> for bool {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
         let bytes = bytes.as_ref();
@@ -1213,6 +1289,14 @@ macro_rules! impl_key_for_tuple {
             $($generic: Key<'k>),+
         {
             const CAN_OWN_BYTES: bool = false;
+
+            type Owned = ($(<$generic as Key<'k>>::Owned),+,);
+
+            fn into_owned(self) -> Self::Owned {
+                let ($($varname),+,) = self;
+                ($($varname.into_owned()),+,)
+            }
+
             fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
                 let mut decoder = CompositeKeyDecoder::default_for(bytes);
                 $(let $varname = decoder.decode::<$generic>()?;)+
@@ -1858,7 +1942,13 @@ impl From<std::io::Error> for CompositeKeyError {
 }
 
 impl<'k> Key<'k> for Signed {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         Self::decode_variable(bytes.as_ref())
@@ -1895,7 +1985,13 @@ impl<'k> KeyEncoding<'k, Self> for Signed {
 }
 
 impl<'k> Key<'k> for Unsigned {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         Self::decode_variable(bytes.as_ref())
@@ -1932,7 +2028,13 @@ impl<'k> KeyEncoding<'k, Self> for Unsigned {
 }
 
 impl<'k> Key<'k> for isize {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         Self::decode_variable(bytes.as_ref())
@@ -1965,7 +2067,13 @@ impl<'k> KeyEncoding<'k, Self> for isize {
 }
 
 impl<'k> Key<'k> for usize {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         Self::decode_variable(bytes.as_ref())
@@ -1999,7 +2107,13 @@ impl<'k> KeyEncoding<'k, Self> for usize {
 
 #[cfg(feature = "uuid")]
 impl<'k> Key<'k> for uuid::Uuid {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         Ok(Self::from_bytes(bytes.as_ref().try_into()?))
@@ -2045,7 +2159,13 @@ where
     T: Key<'k>,
     Self: KeyEncoding<'k, Self, Error = <T as KeyEncoding<'k, T>>::Error>,
 {
+    type Owned = Option<<T as Key<'k>>::Owned>;
+
     const CAN_OWN_BYTES: bool = T::CAN_OWN_BYTES;
+
+    fn into_owned(self) -> Self::Owned {
+        self.map(<T as Key<'k>>::into_owned)
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         if bytes.as_ref().is_empty() || bytes.as_ref()[0] == 0 {
@@ -2104,7 +2224,16 @@ where
     E: Key<'k, Error = <T as KeyEncoding<'k, T>>::Error>,
     Self: KeyEncoding<'k, Self, Error = <T as KeyEncoding<'k, T>>::Error>,
 {
+    type Owned = Result<<T as Key<'k>>::Owned, <E as Key<'k>>::Owned>;
+
     const CAN_OWN_BYTES: bool = T::CAN_OWN_BYTES || E::CAN_OWN_BYTES;
+
+    fn into_owned(self) -> Self::Owned {
+        match self {
+            Ok(value) => Ok(value.into_owned()),
+            Err(value) => Err(value.into_owned()),
+        }
+    }
 
     fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
         match bytes.as_ref().first() {
@@ -2225,9 +2354,15 @@ impl From<std::array::TryFromSliceError> for IncorrectByteLength {
 // ANCHOR: impl_key_for_enumkey
 impl<'k, T> Key<'k> for EnumKey<T>
 where
-    T: ToPrimitive + FromPrimitive + Clone + Eq + Ord + std::fmt::Debug + Send + Sync,
+    T: ToPrimitive + FromPrimitive + Clone + Eq + Ord + std::fmt::Debug + Send + Sync + 'static,
 {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
         let primitive = u64::decode_variable(bytes.as_ref())?;
@@ -2239,7 +2374,7 @@ where
 
 impl<'k, T> KeyEncoding<'k, Self> for EnumKey<T>
 where
-    T: ToPrimitive + FromPrimitive + Clone + Eq + Ord + std::fmt::Debug + Send + Sync,
+    T: ToPrimitive + FromPrimitive + Clone + Eq + Ord + std::fmt::Debug + Send + Sync + 'static,
 {
     type Error = std::io::Error;
 
@@ -2266,7 +2401,13 @@ where
 macro_rules! impl_key_for_primitive {
     ($type:ident, $keykind:expr) => {
         impl<'k> Key<'k> for $type {
+            type Owned = Self;
+
             const CAN_OWN_BYTES: bool = false;
+
+            fn into_owned(self) -> Self::Owned {
+                self
+            }
 
             fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
                 Ok($type::from_be_bytes(bytes.as_ref().try_into()?))

@@ -184,7 +184,13 @@ impl<'k, T> Key<'k> for VarInt<T>
 where
     T: VariableInteger,
 {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         T::decode_variable(bytes.as_ref()).map(Self)
@@ -220,7 +226,7 @@ where
 /// A type that is compatible with [`VarInt`].
 ///
 /// This trait is implemented by all of Rust's built-in integer types.
-pub trait VariableInteger: Variable + Send + Sync + Clone + sealed::Sealed {}
+pub trait VariableInteger: Variable + Send + Sync + Clone + sealed::Sealed + 'static {}
 
 mod sealed {
     pub trait Sealed {

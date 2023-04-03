@@ -76,7 +76,13 @@ impl std::ops::Add<Duration> for Timestamp {
 }
 
 impl<'k> Key<'k> for Timestamp {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         if bytes.as_ref().len() != 12 {

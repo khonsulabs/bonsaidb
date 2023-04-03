@@ -9,7 +9,13 @@ use crate::key::time::limited::{BonsaiEpoch, UnixEpoch};
 use crate::key::{ByteSource, CompositeKind, Key, KeyEncoding, KeyKind, KeyVisitor};
 
 impl<'k> Key<'k> for Duration {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         let merged = u128::decode_variable(bytes.as_ref()).map_err(|_| TimeError::InvalidValue)?;
@@ -61,7 +67,13 @@ fn duration_key_tests() {
 }
 
 impl<'k> Key<'k> for SystemTime {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         let since_epoch = Duration::from_ord_bytes(bytes)?;
@@ -183,7 +195,7 @@ pub mod limited {
     }
 
     /// A resolution of a time measurement.
-    pub trait TimeResolution: Debug + Send + Sync {
+    pub trait TimeResolution: Debug + Send + Sync + 'static {
         /// The in-memory and serialized representation for this resolution.
         type Representation: Variable
             + Serialize
@@ -301,7 +313,13 @@ pub mod limited {
     where
         Resolution: TimeResolution,
     {
+        type Owned = Self;
+
         const CAN_OWN_BYTES: bool = false;
+
+        fn into_owned(self) -> Self::Owned {
+            self
+        }
 
         fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
             let representation =
@@ -942,7 +960,7 @@ pub mod limited {
     }
 
     /// An epoch for [`LimitedResolutionTimestamp`].
-    pub trait TimeEpoch: Sized + Send + Sync {
+    pub trait TimeEpoch: Sized + Send + Sync + 'static {
         /// The name of this epoch, used in [`KeyEncoding::describe`] to
         /// disambiguate timestamps with different epochs.
         fn name() -> &'static str;
@@ -1161,7 +1179,13 @@ pub mod limited {
         Resolution: TimeResolution,
         Epoch: TimeEpoch,
     {
+        type Owned = Self;
+
         const CAN_OWN_BYTES: bool = false;
+
+        fn into_owned(self) -> Self::Owned {
+            self
+        }
 
         fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
             let duration = LimitedResolutionDuration::<Resolution>::from_ord_bytes(bytes)?;

@@ -492,7 +492,13 @@ enum FileKey<'a> {
 }
 
 impl<'k> Key<'k> for OwnedFileKey {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         let mut decoder = CompositeKeyDecoder::default_for(bytes);

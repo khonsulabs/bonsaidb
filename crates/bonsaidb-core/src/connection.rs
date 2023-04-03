@@ -3394,7 +3394,13 @@ impl DerefMut for SensitiveString {
 }
 
 impl<'k> Key<'k> for SensitiveString {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = String::CAN_OWN_BYTES;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         String::from_ord_bytes(bytes).map(Self)
@@ -3458,7 +3464,13 @@ impl DerefMut for SensitiveBytes {
 }
 
 impl<'k> Key<'k> for SensitiveBytes {
+    type Owned = Self;
+
     const CAN_OWN_BYTES: bool = Bytes::CAN_OWN_BYTES;
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         Bytes::from_ord_bytes(bytes).map(Self)

@@ -100,6 +100,14 @@ macro_rules! impl_key_for_tuple_v1 {
             $($generic: Key<'k>),+
         {
             const CAN_OWN_BYTES: bool = false;
+
+            type Owned = ($(<$generic as Key<'k>>::Owned),+,);
+
+            fn into_owned(self) -> Self::Owned {
+                let ($($varname),+,) = self.0;
+                ($($varname.into_owned()),+,)
+            }
+
             fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
                 let bytes = bytes.as_ref();
                 $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
@@ -198,7 +206,13 @@ where
     T: Key<'k>,
     Self: KeyEncoding<'k, Self, Error = <T as KeyEncoding<'k, T>>::Error>,
 {
+    type Owned = Option<<T as Key<'k>>::Owned>;
+
     const CAN_OWN_BYTES: bool = false;
+
+    fn into_owned(self) -> Self::Owned {
+        self.0.map(<T as Key<'k>>::into_owned)
+    }
 
     fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
         if bytes.as_ref().is_empty() {
