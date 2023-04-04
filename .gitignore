@@ -13,3 +13,4 @@ flamegraph.svg
 .env
 *.sqlite3*
 benchmarks/commerce-bench/
+crates/bonsaidb-macros/expanded.rs
