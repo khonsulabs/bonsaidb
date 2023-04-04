@@ -9,6 +9,7 @@
     future_incompatible,
     rust_2018_idioms,
 )]
+#![allow(clippy::type_complexity)] // TODO: Refactor away from unzip()s
 #![cfg_attr(doc, deny(rustdoc::all))]
 
 use attribute_derive::{Attribute, ConvertParsed};
@@ -472,7 +473,7 @@ impl ConvertParsed for NullHandling {
 pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let DeriveInput {
         attrs,
-        ident,
+        ident: derived_on,
         generics,
         data,
         ..
@@ -536,6 +537,13 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let core = core.unwrap_or_else(core_path);
     let (_, ty_generics, _) = generics.split_for_impl();
+    let mut owned_generics = generics.clone();
+    // For the `Owned` associated type, we need to replace any non-static
+    // lifetimes with static ones.
+    let static_ident = Ident::new("static", Span::call_site());
+    for lifetime in owned_generics.lifetimes_mut() {
+        lifetime.lifetime.ident = static_ident.clone();
+    }
     let mut generics = generics.clone();
     let lifetimes: Vec<_> = generics.lifetimes().cloned().collect();
     let where_clause = generics.make_where_clause();
@@ -551,7 +559,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // field -- just pass through to the
     // inner type so that this encoding is
     // completely transparent.
-    if let Some((name, ty, map)) = match &data {
+    if let Some((name, ty, map, into_owned)) = match &data {
         Data::Struct(DataStruct {
             fields: Fields::Named(FieldsNamed { named, .. }),
             ..
@@ -561,27 +569,39 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 quote!(#name),
                 named[0].ty.clone(),
                 quote!(|value| Self { #name: value }),
+                quote!({ #name: #core::key::Key::into_owned(self.#name) }),
             ))
         }
         Data::Struct(DataStruct {
             fields: Fields::Unnamed(FieldsUnnamed { unnamed, .. }),
             ..
-        }) if unnamed.len() == 1 => Some((quote!(0), unnamed[0].ty.clone(), quote!(Self))),
+        }) if unnamed.len() == 1 => Some((
+            quote!(0),
+            unnamed[0].ty.clone(),
+            quote!(Self),
+            quote!((#core::key::Key::into_owned(self.0))),
+        )),
         _ => None,
     } {
         return quote! {
             # use std::{borrow::Cow, io::{self, ErrorKind}};
             # use #core::key::{ByteSource, KeyVisitor, IncorrectByteLength, Key, KeyEncoding};
 
-            impl #impl_generics Key<$'key> for #ident #ty_generics #where_clause {
+            impl #impl_generics Key<$'key> for #derived_on #ty_generics #where_clause {
                 const CAN_OWN_BYTES: bool = <#ty>::CAN_OWN_BYTES;
+
+                type Owned = #derived_on #owned_generics;
+
+                fn into_owned(self) -> Self::Owned {
+                    #derived_on #into_owned
+                }
 
                 fn from_ord_bytes<$'b>(bytes: ByteSource<$'key, $'b>) -> Result<Self, Self::Error> {
                     <#ty>::from_ord_bytes(bytes).map(#map)
                 }
             }
 
-            impl #impl_generics KeyEncoding<$'key, Self> for #ident #ty_generics #where_clause {
+            impl #impl_generics KeyEncoding<$'key, Self> for #derived_on #ty_generics #where_clause {
                 type Error = <#ty as KeyEncoding<$'key>>::Error;
 
                 const LENGTH: Option<usize> = <#ty>::LENGTH;
@@ -601,7 +621,8 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         .into();
     }
 
-    let (encode_fields, decode_fields, describe, composite_kind, field_count): (
+    let (encode_fields, decode_fields, describe, into_owned, composite_kind, field_count): (
+        TokenStream,
         TokenStream,
         TokenStream,
         TokenStream,
@@ -609,12 +630,12 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         usize,
     ) = match data {
         Data::Struct(DataStruct { fields, .. }) => {
-            let (encode_fields, decode_fields, describe, field_count) = match fields {
+            let (encode_fields, decode_fields, describe, into_owned, field_count) = match fields {
                 Fields::Named(FieldsNamed { named, .. }) => {
                     let field_count = named.len();
-                    let (encode_fields, (decode_fields, describe)): (
+                    let (encode_fields, (decode_fields, (describe, into_owned))): (
                         TokenStream,
-                        (TokenStream, TokenStream),
+                        (TokenStream, (TokenStream, TokenStream)),
                     ) = named
                         .into_iter()
                         .map(|Field { ident, ty, .. }| {
@@ -623,7 +644,10 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                 quote!($encoder.encode(&self.#ident)?;),
                                 (
                                     quote!(#ident: $decoder.decode()?,),
-                                    quote!(<#ty>::describe(visitor);),
+                                    (
+                                        quote!(<#ty>::describe(visitor);),
+                                        quote!(#ident: #core::key::Key::into_owned(self.#ident),),
+                                    )
                                 ),
                             )
                         })
@@ -632,14 +656,15 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         encode_fields,
                         quote!( Self { #decode_fields }),
                         describe,
+                        quote!( Self { #into_owned }),
                         field_count,
                     )
                 }
                 Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => {
                     let field_count = unnamed.len();
-                    let (encode_fields, (decode_fields, describe)): (
+                    let (encode_fields, (decode_fields, (describe, into_owned))): (
                         TokenStream,
-                        (TokenStream, TokenStream),
+                        (TokenStream, (TokenStream, TokenStream)),
                     ) = unnamed
                         .into_iter()
                         .enumerate()
@@ -650,7 +675,10 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                 quote!($encoder.encode(&self.#idx)?;),
                                 (
                                     quote!($decoder.decode()?,),
-                                    quote!(<#ty>::describe(visitor);),
+                                    (
+                                        quote!(<#ty>::describe(visitor);),
+                                        quote!(#core::key::Key::into_owned(self.#idx),)
+                                    )
                                 ),
                             )
                         })
@@ -659,6 +687,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         encode_fields,
                         quote!(Self(#decode_fields)),
                         describe,
+                        quote!(#derived_on(#into_owned)),
                         field_count,
                     )
                 }
@@ -667,15 +696,21 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         # use std::{borrow::Cow, io::{self, ErrorKind}};
                         # use #core::key::{ByteSource, KeyVisitor, IncorrectByteLength, Key, KeyKind, KeyEncoding};
 
-                        impl #impl_generics Key<$'key> for #ident #ty_generics #where_clause {
+                        impl #impl_generics Key<$'key> for #derived_on #ty_generics #where_clause {
                             const CAN_OWN_BYTES: bool = false;
+
+                            type Owned = #derived_on #owned_generics;
+
+                            fn into_owned(self) -> Self::Owned {
+                                #derived_on
+                            }
 
                             fn from_ord_bytes<$'b>(bytes: ByteSource<$'key, $'b>) -> Result<Self, Self::Error> {
                                 Ok(Self)
                             }
                         }
 
-                        impl #impl_generics KeyEncoding<$'key, Self> for #ident #ty_generics #where_clause {
+                        impl #impl_generics KeyEncoding<$'key, Self> for #derived_on #ty_generics #where_clause {
                             type Error = std::convert::Infallible;
 
                             const LENGTH: Option<usize> = Some(0);
@@ -698,6 +733,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 encode_fields,
                 quote!(let $self_ = #decode_fields;),
                 describe,
+                into_owned,
                 quote!(#core::key::CompositeKind::Struct(std::borrow::Cow::Borrowed(#name))),
                 field_count,
             )
@@ -707,9 +743,9 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             let field_count = variants.len();
             let all_variants_are_empty = variants.iter().all(|variant| variant.fields.is_empty());
 
-            let (consts, (encode_variants, (decode_variants, describe))): (
+            let (consts, (encode_variants, (decode_variants, (describe, into_owned)))): (
                 TokenStream,
-                (TokenStream, (TokenStream, TokenStream)),
+                (TokenStream, (TokenStream, (TokenStream, TokenStream))),
             ) = variants
                 .into_iter()
                 .enumerate()
@@ -739,9 +775,12 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                             const_,
                             match fields {
                                 Fields::Named(FieldsNamed { named, .. }) => {
-                                    let (idents, (encode_fields, (decode_fields, describe))): (
+                                    let (
+                                        idents,
+                                        (encode_fields, (decode_fields, (describe, into_owned))),
+                                    ): (
                                         Punctuated<_, Token![,]>,
-                                        (TokenStream, (TokenStream, TokenStream)),
+                                        (TokenStream, (TokenStream, (TokenStream, TokenStream))),
                                     ) = named
                                         .into_iter()
                                         .map(|Field { ident, ty, .. }| {
@@ -752,7 +791,10 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                                     quote!($encoder.encode(#ident)?;),
                                                     (
                                                         quote!(#ident: $decoder.decode()?,),
-                                                        quote!(<#ty>::describe(visitor);),
+                                                        (
+                                                            quote!(<#ty>::describe(visitor);),
+                                                            quote!(#ident: #core::key::Key::into_owned(#ident),),
+                                                        )
                                                     ),
                                                 ),
                                             )
@@ -769,14 +811,17 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                             quote! {
                                                 #const_ident => Self::#ident{#decode_fields},
                                             },
-                                            describe,
+                                            (
+                                                describe,
+                                                quote!(Self::#ident{#idents} => #derived_on::#ident{#into_owned},),
+                                            )
                                         ),
                                     )
                                 }
                                 Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => {
-                                    let (idents, (encode_fields, (decode_fields, describe))): (
+                                    let (idents, (encode_fields, (decode_fields, (describe, into_owned)))): (
                                         Punctuated<_, Token![,]>,
-                                        (TokenStream, (TokenStream, TokenStream)),
+                                        (TokenStream, (TokenStream, (TokenStream, TokenStream))),
                                     ) = unnamed
                                         .into_iter()
                                         .enumerate()
@@ -789,7 +834,10 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                                     quote!($encoder.encode(#ident)?;),
                                                     (
                                                         quote!($decoder.decode()?,),
-                                                        quote!(<#ty>::describe(visitor);),
+                                                        (
+                                                            quote!(<#ty>::describe(visitor);),
+                                                            quote!(#core::key::Key::into_owned(#ident),),
+                                                        )
                                                     ),
                                                 ),
                                             )
@@ -806,7 +854,10 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                             quote! {
                                                 #const_ident => Self::#ident(#decode_fields),
                                             },
-                                            describe,
+                                            (
+                                                describe,
+                                                quote!(Self::#ident(#idents) => #derived_on::#ident(#into_owned),),
+                                            )
                                         ),
                                     )
                                 }
@@ -820,7 +871,10 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                         encode,
                                         (
                                             quote!(#const_ident => Self::#ident,),
-                                            quote!(visitor.visit_type(#core::key::KeyKind::Unit);),
+                                            (
+                                                quote!(visitor.visit_type(#core::key::KeyKind::Unit);),
+                                                quote!(Self::#ident => #derived_on::#ident,),
+                                            )
                                         ),
                                     )
                                 }
@@ -840,8 +894,16 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     # use std::{borrow::Cow, io::{self, ErrorKind}};
                     # use #core::key::{ByteSource, CompositeKeyDecoder, KeyVisitor, CompositeKeyEncoder, CompositeKeyError, Key, KeyEncoding};
 
-                    impl #impl_generics Key<$'key> for #ident #ty_generics #where_clause {
+                    impl #impl_generics Key<$'key> for #derived_on #ty_generics #where_clause {
                         const CAN_OWN_BYTES: bool = false;
+
+                        type Owned = #derived_on #owned_generics;
+
+                        fn into_owned(self) -> Self::Owned {
+                            match self {
+                                #into_owned
+                            }
+                        }
 
                         fn from_ord_bytes<$'b>(mut $bytes: ByteSource<$'key, $'b>) -> Result<Self, Self::Error> {
                             #consts
@@ -854,7 +916,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         }
                     }
 
-                    impl #impl_generics KeyEncoding<$'key, Self> for #ident #ty_generics #where_clause {
+                    impl #impl_generics KeyEncoding<$'key, Self> for #derived_on #ty_generics #where_clause {
                         type Error = CompositeKeyError;
 
                         const LENGTH: Option<usize> = <#repr as KeyEncoding<$'key>>::LENGTH;
@@ -896,6 +958,11 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     };
                 },
                 describe,
+                quote! {
+                    match self {
+                        #into_owned
+                    }
+                },
                 quote!(#core::key::CompositeKind::Tuple),
                 field_count,
             )
@@ -907,8 +974,14 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         # use std::{borrow::Cow, io::{self, ErrorKind}};
         # use #core::key::{ByteSource, CompositeKeyDecoder, KeyVisitor, CompositeKeyEncoder, CompositeKeyError, Key, KeyEncoding};
 
-        impl #impl_generics Key<$'key> for #ident #ty_generics #where_clause {
+        impl #impl_generics Key<$'key> for #derived_on #ty_generics #where_clause {
             const CAN_OWN_BYTES: bool = #can_own_bytes;
+
+            type Owned = #derived_on #owned_generics;
+
+            fn into_owned(self) -> Self::Owned {
+                #into_owned
+            }
 
             fn from_ord_bytes<$'b>(mut $bytes: ByteSource<$'key, $'b>) -> Result<Self, Self::Error> {
 
@@ -922,7 +995,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        impl #impl_generics KeyEncoding<$'key, Self> for #ident #ty_generics #where_clause {
+        impl #impl_generics KeyEncoding<$'key, Self> for #derived_on #ty_generics #where_clause {
             type Error = CompositeKeyError;
 
             // TODO fixed width if possible
