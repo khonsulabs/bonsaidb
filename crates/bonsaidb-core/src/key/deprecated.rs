@@ -27,7 +27,7 @@ use crate::key::{
 /// assert!(remaining_bytes.is_empty());
 /// ```
 #[deprecated = "use `CompositeKeyEncoder` instead. This function does not properly sort variable length encoded fields. See #240."]
-pub fn encode_composite_field<'k, K: Key<'k>, T: KeyEncoding<'k, K>, Bytes: Write>(
+pub fn encode_composite_field<'k, K: Key<'k>, T: KeyEncoding<K>, Bytes: Write>(
     value: &'k T,
     bytes: &mut Bytes,
 ) -> Result<(), CompositeKeyError> {
@@ -97,7 +97,7 @@ macro_rules! impl_key_for_tuple_v1 {
         #[allow(deprecated)]
         impl<'k, $($generic),+> Key<'k> for TupleEncodingV1<($($generic),+,)>
         where
-            $($generic: Key<'k>),+
+            $($generic: for<'a> Key<'a>),+
         {
             const CAN_OWN_BYTES: bool = false;
 
@@ -123,9 +123,9 @@ macro_rules! impl_key_for_tuple_v1 {
         }
 
         #[allow(deprecated)]
-        impl<'k, $($generic),+> KeyEncoding<'k, Self> for TupleEncodingV1<($($generic),+,)>
+        impl<$($generic),+> KeyEncoding<Self> for TupleEncodingV1<($($generic),+,)>
         where
-            $($generic: Key<'k>),+
+            $($generic: for<'k> Key<'k>),+
         {
             type Error = CompositeKeyError;
 
@@ -142,7 +142,7 @@ macro_rules! impl_key_for_tuple_v1 {
                 $($generic::describe(visitor);)+
             }
 
-            fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+            fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
                 let mut bytes = Vec::new();
 
                 $(encode_composite_field(&self.0.$index, &mut bytes)?;)+
@@ -204,7 +204,7 @@ pub struct OptionKeyV1<T>(pub Option<T>);
 impl<'k, T> Key<'k> for OptionKeyV1<T>
 where
     T: Key<'k>,
-    Self: KeyEncoding<'k, Self, Error = <T as KeyEncoding<'k, T>>::Error>,
+    Self: KeyEncoding<Self, Error = <T as KeyEncoding<T>>::Error>,
 {
     type Owned = Option<<T as Key<'k>>::Owned>;
 
@@ -232,9 +232,9 @@ where
 }
 
 #[allow(deprecated)]
-impl<'a, K, T> KeyEncoding<'a, OptionKeyV1<K>> for OptionKeyV1<T>
+impl<K, T> KeyEncoding<OptionKeyV1<K>> for OptionKeyV1<T>
 where
-    T: KeyEncoding<'a, K>,
+    T: KeyEncoding<K>,
     K: for<'k> Key<'k>,
 {
     type Error = T::Error;
@@ -252,7 +252,7 @@ where
     /// # Panics
     ///
     /// Panics if `T::into_big_endian_bytes` returns an empty `IVec`
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         if let Some(contents) = &self.0 {
             let contents = contents.as_ord_bytes()?;
             assert!(!contents.is_empty());

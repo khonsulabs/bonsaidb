@@ -231,10 +231,7 @@ impl DocumentId {
     pub const MAX_LENGTH: usize = 65_535;
 
     /// Returns a new instance with `value` as the identifier..
-    pub fn new<
-        PrimaryKey: for<'k> Key<'k>,
-        PrimaryKeyRef: for<'k> KeyEncoding<'k, PrimaryKey> + ?Sized,
-    >(
+    pub fn new<PrimaryKey: for<'k> Key<'k>, PrimaryKeyRef: KeyEncoding<PrimaryKey> + ?Sized>(
         value: &PrimaryKeyRef,
     ) -> Result<Self, crate::Error> {
         let bytes = value
@@ -317,7 +314,7 @@ impl<'k> Key<'k> for DocumentId {
     }
 }
 
-impl<'k, PrimaryKey> KeyEncoding<'k, PrimaryKey> for DocumentId
+impl<PrimaryKey> KeyEncoding<PrimaryKey> for DocumentId
 where
     PrimaryKey: for<'pk> Key<'pk>,
 {
@@ -332,7 +329,7 @@ where
         visitor.visit_type(KeyKind::Bytes);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
 }

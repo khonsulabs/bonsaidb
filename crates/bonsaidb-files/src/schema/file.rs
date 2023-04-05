@@ -511,7 +511,7 @@ impl<'k> Key<'k> for OwnedFileKey {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for OwnedFileKey {
+impl KeyEncoding<Self> for OwnedFileKey {
     type Error = CompositeKeyError;
 
     const LENGTH: Option<usize> = None;
@@ -523,12 +523,12 @@ impl<'k> KeyEncoding<'k, Self> for OwnedFileKey {
         FileKey::describe(visitor);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         self.0.as_ord_bytes()
     }
 }
 
-impl<'k, 'fk> KeyEncoding<'k, OwnedFileKey> for FileKey<'fk> {
+impl<'k> KeyEncoding<OwnedFileKey> for FileKey<'k> {
     type Error = CompositeKeyError;
 
     const LENGTH: Option<usize> = None;
@@ -545,7 +545,7 @@ impl<'k, 'fk> KeyEncoding<'k, OwnedFileKey> for FileKey<'fk> {
         visitor.visit_type(KeyKind::String);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         match self {
             FileKey::Full { path, name } => {
                 let mut encoder = CompositeKeyEncoder::default();

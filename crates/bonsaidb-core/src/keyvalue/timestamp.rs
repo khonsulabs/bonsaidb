@@ -96,7 +96,7 @@ impl<'k> Key<'k> for Timestamp {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for Timestamp {
+impl KeyEncoding<Self> for Timestamp {
     type Error = IncorrectByteLength;
 
     const LENGTH: Option<usize> = Some(12);
@@ -113,7 +113,7 @@ impl<'k> KeyEncoding<'k, Self> for Timestamp {
         visitor.visit_type(KeyKind::U32);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         let seconds_bytes: &[u8] = &self.seconds.to_be_bytes();
         let nanos_bytes = &self.nanos.to_be_bytes();
         Ok(Cow::Owned([seconds_bytes, nanos_bytes].concat()))

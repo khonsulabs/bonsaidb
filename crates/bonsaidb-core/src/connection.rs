@@ -1,4 +1,4 @@
-use std::borrow::Borrow;
+use std::borrow::{Borrow, Cow};
 use std::convert::Infallible;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
@@ -242,7 +242,7 @@ where
     ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
         Cl: schema::SerializedCollection,
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + ?Sized,
+        PrimaryKey: KeyEncoding<Cl::PrimaryKey> + ?Sized,
     {
         let contents = Cl::serialize(item)?;
         self.connection.insert::<Cl, _, _>(Some(id), contents)
@@ -268,7 +268,7 @@ where
         contents: B,
     ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + ?Sized,
+        PrimaryKey: KeyEncoding<Cl::PrimaryKey> + ?Sized,
     {
         self.connection.insert::<Cl, _, B>(Some(id), contents)
     }
@@ -331,7 +331,7 @@ where
     /// ```
     pub fn get<PrimaryKey>(&self, id: &PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + ?Sized,
+        PrimaryKey: KeyEncoding<Cl::PrimaryKey> + ?Sized,
     {
         self.connection.get::<Cl, _>(id)
     }
@@ -358,7 +358,7 @@ where
     where
         DocumentIds: IntoIterator<Item = &'id PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = &'id PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + 'id + ?Sized,
+        PrimaryKey: KeyEncoding<Cl::PrimaryKey> + 'id + ?Sized,
     {
         self.connection.get_multiple::<Cl, _, _, _>(ids)
     }
@@ -386,7 +386,7 @@ where
     pub fn list<PrimaryKey, R>(&'a self, ids: R) -> List<'a, Cn, Cl, PrimaryKey>
     where
         R: Into<Range<&'a PrimaryKey>>,
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + 'a + ?Sized,
+        PrimaryKey: KeyEncoding<Cl::PrimaryKey> + PartialEq + 'a + ?Sized,
         Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         List::new(MaybeOwned::Borrowed(self), RangeRef::borrowed(ids.into()))
@@ -417,10 +417,8 @@ where
         prefix: &'a PrimaryKey,
     ) -> List<'a, Cn, Cl, PrimaryKey>
     where
-        PrimaryKey: IntoPrefixRange<'a, Cl::PrimaryKey>
-            + for<'k> KeyEncoding<'k, Cl::PrimaryKey>
-            + PartialEq
-            + ?Sized,
+        PrimaryKey:
+            IntoPrefixRange<'a, Cl::PrimaryKey> + KeyEncoding<Cl::PrimaryKey> + PartialEq + ?Sized,
         Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         List::new(MaybeOwned::Borrowed(self), prefix.to_prefix_range())
@@ -483,7 +481,7 @@ impl<'a, Cn, Cl, PrimaryKey> List<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
     Cn: Connection,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + 'a + ?Sized,
+    PrimaryKey: KeyEncoding<Cl::PrimaryKey> + PartialEq + 'a + ?Sized,
     Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
     pub(crate) const fn new(
@@ -673,7 +671,7 @@ where
     V::Key: Borrow<Key> + PartialEq<Key>,
     V: schema::SerializedView,
     Cn: Connection,
-    Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+    Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
 {
     const fn new(connection: &'a Cn) -> Self {
         Self {
@@ -703,7 +701,7 @@ where
     #[allow(clippy::missing_const_for_fn)] // false positive, destructors
     pub fn with_key<K>(self, key: &'a K) -> View<'a, Cn, V, K>
     where
-        K: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        K: KeyEncoding<V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<K> + PartialEq<K>,
     {
         View {
@@ -800,7 +798,7 @@ where
     /// ```
     pub fn with_key_prefix<K>(self, prefix: &'a K) -> View<'a, Cn, V, K>
     where
-        K: for<'k> KeyEncoding<'k, V::Key> + IntoPrefixRange<'a, V::Key> + PartialEq + ?Sized,
+        K: KeyEncoding<V::Key> + IntoPrefixRange<'a, V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<K> + PartialEq<K>,
     {
         View {
@@ -1261,7 +1259,7 @@ where
     ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
         Cl: schema::SerializedCollection,
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + ?Sized,
+        PrimaryKey: KeyEncoding<Cl::PrimaryKey> + ?Sized,
     {
         let contents = Cl::serialize(item)?;
         self.connection.insert::<Cl, _, _>(Some(id), contents).await
@@ -1292,7 +1290,7 @@ where
         contents: B,
     ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + ?Sized,
+        PrimaryKey: KeyEncoding<Cl::PrimaryKey> + ?Sized,
     {
         self.connection.insert::<Cl, _, B>(Some(id), contents).await
     }
@@ -1365,7 +1363,7 @@ where
     /// ```
     pub async fn get<PrimaryKey>(&self, id: &PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + ?Sized,
+        PrimaryKey: KeyEncoding<Cl::PrimaryKey> + ?Sized,
     {
         self.connection.get::<Cl, _>(id).await
     }
@@ -1398,7 +1396,7 @@ where
     where
         DocumentIds: IntoIterator<Item = &'id PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = &'id PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + 'id + ?Sized,
+        PrimaryKey: KeyEncoding<Cl::PrimaryKey> + 'id + ?Sized,
     {
         self.connection.get_multiple::<Cl, _, _, _>(ids).await
     }
@@ -1428,7 +1426,7 @@ where
     pub fn list<PrimaryKey, R>(&'a self, ids: R) -> AsyncList<'a, Cn, Cl, PrimaryKey>
     where
         R: Into<RangeRef<'a, Cl::PrimaryKey, PrimaryKey>>,
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+        PrimaryKey: KeyEncoding<Cl::PrimaryKey> + PartialEq + ?Sized,
         Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         AsyncList::new(MaybeOwned::Borrowed(self), ids.into())
@@ -1457,10 +1455,8 @@ where
         prefix: &'a PrimaryKey,
     ) -> AsyncList<'a, Cn, Cl, PrimaryKey>
     where
-        PrimaryKey: IntoPrefixRange<'a, Cl::PrimaryKey>
-            + for<'k> KeyEncoding<'k, Cl::PrimaryKey>
-            + PartialEq
-            + ?Sized,
+        PrimaryKey:
+            IntoPrefixRange<'a, Cl::PrimaryKey> + KeyEncoding<Cl::PrimaryKey> + PartialEq + ?Sized,
         Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         AsyncList::new(MaybeOwned::Borrowed(self), prefix.to_prefix_range())
@@ -1508,7 +1504,7 @@ where
 pub(crate) struct AsyncListBuilder<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+    PrimaryKey: KeyEncoding<Cl::PrimaryKey> + PartialEq + ?Sized,
     Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
     collection: MaybeOwned<'a, AsyncCollection<'a, Cn, Cl>>,
@@ -1608,7 +1604,7 @@ where
 pub(crate) enum ListState<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+    PrimaryKey: KeyEncoding<Cl::PrimaryKey> + PartialEq + ?Sized,
     Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
     Pending(Option<AsyncListBuilder<'a, Cn, Cl, PrimaryKey>>),
@@ -1621,7 +1617,7 @@ where
 pub struct AsyncList<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+    PrimaryKey: KeyEncoding<Cl::PrimaryKey> + PartialEq + ?Sized,
     Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
     state: ListState<'a, Cn, Cl, PrimaryKey>,
@@ -1631,7 +1627,7 @@ impl<'a, Cn, Cl, PrimaryKey> AsyncList<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
     Cn: AsyncConnection,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+    PrimaryKey: KeyEncoding<Cl::PrimaryKey> + PartialEq + ?Sized,
     Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
     pub(crate) const fn new(
@@ -1747,7 +1743,7 @@ impl<'a, Cn, Cl, PrimaryKey> Future for AsyncList<'a, Cn, Cl, PrimaryKey>
 where
     Cn: AsyncConnection,
     Cl: schema::Collection + Unpin,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized + Unpin,
+    PrimaryKey: KeyEncoding<Cl::PrimaryKey> + PartialEq + ?Sized + Unpin,
     Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey> + Unpin,
 {
     type Output = Result<Vec<OwnedDocument>, Error>;
@@ -1854,7 +1850,7 @@ impl<'a, Cn, V, Key> AsyncView<'a, Cn, V, Key>
 where
     V: schema::SerializedView,
     Cn: AsyncConnection,
-    Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+    Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
     V::Key: Borrow<Key> + PartialEq<Key>,
 {
     const fn new(connection: &'a Cn) -> Self {
@@ -1891,7 +1887,7 @@ where
     #[allow(clippy::missing_const_for_fn)] // false positive, destructors
     pub fn with_key<K>(self, key: &'a K) -> AsyncView<'a, Cn, V, K>
     where
-        K: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        K: KeyEncoding<V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<K> + PartialEq<K>,
     {
         AsyncView {
@@ -1968,7 +1964,7 @@ where
         range: R,
     ) -> AsyncView<'a, Cn, V, K>
     where
-        K: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        K: KeyEncoding<V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<K> + PartialEq<K>,
     {
         AsyncView {
@@ -2008,7 +2004,7 @@ where
     /// ```
     pub fn with_key_prefix<K>(self, prefix: &'a K) -> AsyncView<'a, Cn, V, K>
     where
-        K: for<'k> KeyEncoding<'k, V::Key> + IntoPrefixRange<'a, V::Key> + PartialEq + ?Sized,
+        K: KeyEncoding<V::Key> + IntoPrefixRange<'a, V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<K> + PartialEq<K>,
     {
         AsyncView {
@@ -2291,7 +2287,7 @@ where
 
 impl<'a, KOwned, KBorrowed> QueryKey<'a, KOwned, KBorrowed>
 where
-    KBorrowed: for<'k> KeyEncoding<'k, KOwned> + PartialEq + ?Sized,
+    KBorrowed: KeyEncoding<KOwned> + PartialEq + ?Sized,
     KOwned: for<'k> Key<'k> + Borrow<KBorrowed> + PartialEq<KBorrowed>,
 {
     /// Converts this key to a serialized format using the [`Key`] trait.
@@ -2503,7 +2499,7 @@ where
     /// Serializes the range's contained values to big-endian bytes.
     pub fn as_ord_bytes(&'a self) -> Result<Range<Bytes>, TBorrowed::Error>
     where
-        TBorrowed: KeyEncoding<'a, TOwned>,
+        TBorrowed: KeyEncoding<TOwned>,
         TOwned: for<'k> Key<'k> + Borrow<TBorrowed>,
     {
         Ok(Range {
@@ -2517,7 +2513,7 @@ impl Range<Bytes> {
     /// Deserializes the range's contained values from big-endian bytes.
     pub fn deserialize<T: for<'k> Key<'k>>(
         &self,
-    ) -> Result<Range<T>, <T as KeyEncoding<'_, T>>::Error> {
+    ) -> Result<Range<T>, <T as KeyEncoding<T>>::Error> {
         Ok(Range {
             start: self.start.deserialize()?,
             end: self.start.deserialize()?,
@@ -2563,7 +2559,7 @@ where
     /// Serializes the contained value to big-endian bytes.
     pub fn as_ord_bytes(&'a self) -> Result<Bound<Bytes>, TBorrowed::Error>
     where
-        TBorrowed: KeyEncoding<'a, TOwned>,
+        TBorrowed: KeyEncoding<TOwned>,
         TOwned: for<'k> Key<'k> + Borrow<TBorrowed>,
     {
         match self {
@@ -2582,7 +2578,7 @@ impl Bound<Bytes> {
     /// Deserializes the bound's contained value from big-endian bytes.
     pub fn deserialize<T: for<'k> Key<'k>>(
         &self,
-    ) -> Result<Bound<T>, <T as KeyEncoding<'_, T>>::Error> {
+    ) -> Result<Bound<T>, <T as KeyEncoding<T>>::Error> {
         match self {
             Self::Unbounded => Ok(Bound::Unbounded),
             Self::Included(value) => Ok(Bound::Included(T::from_ord_bytes(ByteSource::Borrowed(
@@ -3407,7 +3403,7 @@ impl<'k> Key<'k> for SensitiveString {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for SensitiveString {
+impl KeyEncoding<Self> for SensitiveString {
     type Error = FromUtf8Error;
 
     const LENGTH: Option<usize> = None;
@@ -3419,7 +3415,7 @@ impl<'k> KeyEncoding<'k, Self> for SensitiveString {
         visitor.visit_type(KeyKind::String);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         self.0.as_ord_bytes()
     }
 }
@@ -3477,7 +3473,7 @@ impl<'k> Key<'k> for SensitiveBytes {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for SensitiveBytes {
+impl KeyEncoding<Self> for SensitiveBytes {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
@@ -3489,7 +3485,7 @@ impl<'k> KeyEncoding<'k, Self> for SensitiveBytes {
         visitor.visit_type(KeyKind::Bytes);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         self.0.as_ord_bytes()
     }
 }

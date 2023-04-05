@@ -213,7 +213,7 @@ impl<'a> BorrowedDocument<'a> {
     ) -> Result<Self, crate::Error>
     where
         C: SerializedCollection,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + ?Sized,
+        PrimaryKey: KeyEncoding<C::PrimaryKey> + ?Sized,
     {
         let contents = <C as SerializedCollection>::serialize(contents)?;
         Ok(Self::new(DocumentId::new(id)?, contents))

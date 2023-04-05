@@ -89,7 +89,7 @@ where
         'a,
         DocumentIds: IntoIterator<Item = &'a PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = &'a PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, u64> + 'a,
+        PrimaryKey: KeyEncoding<u64> + 'a,
         Database: Connection,
     >(
         block_ids: DocumentIds,
@@ -112,7 +112,7 @@ where
         'a,
         DocumentIds: IntoIterator<Item = &'a PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = &'a PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, u64> + 'a,
+        PrimaryKey: KeyEncoding<u64> + 'a,
         Database: AsyncConnection,
     >(
         block_ids: DocumentIds,

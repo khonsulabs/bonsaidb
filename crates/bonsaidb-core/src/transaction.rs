@@ -257,7 +257,7 @@ impl Operation {
         contents: &C::Contents,
     ) -> Result<Self, Error>
     where
-        Key: for<'k> KeyEncoding<'k, C::PrimaryKey> + ?Sized,
+        Key: KeyEncoding<C::PrimaryKey> + ?Sized,
     {
         let contents = C::serialize(contents)?;
         Ok(Self::overwrite(

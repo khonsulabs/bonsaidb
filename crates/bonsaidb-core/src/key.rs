@@ -26,10 +26,7 @@ use crate::AnyError;
 
 /// A trait that enables a type to convert itself into a `memcmp`-compatible
 /// sequence of bytes.
-pub trait KeyEncoding<'k, K = Self>: Send + Sync
-where
-    K: Key<'k>,
-{
+pub trait KeyEncoding<K = Self>: Send + Sync {
     /// The error type that can be produced by either serialization or
     /// deserialization.
     type Error: AnyError;
@@ -52,7 +49,7 @@ where
     /// Convert `self` into a `Cow<[u8]>` containing bytes that are able to be
     /// compared via `memcmp` in a way that is comptaible with its own Ord
     /// implementation.
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error>;
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error>;
 }
 
 /// A trait that enables a type to convert itself into a `memcmp`-compatible
@@ -183,7 +180,7 @@ where
 ///
 /// This null-byte edge case only applies to variable length [`Key`]s
 /// ([`KeyEncoding::LENGTH`] is `None`).
-pub trait Key<'k>: KeyEncoding<'k, Self> + Clone + Send + Sync {
+pub trait Key<'k>: KeyEncoding<Self> + Clone + Send + Sync {
     /// If true, this type can benefit from an owned `Vec<u8>`. This flag is
     /// used as a hint of whether to attempt to do memcpy operations in some
     /// decoding operations to avoid extra allocations.
@@ -213,9 +210,9 @@ pub trait Key<'k>: KeyEncoding<'k, Self> + Clone + Send + Sync {
     }
 }
 
-impl<'a, 'k, K, KE> KeyEncoding<'k, K> for &'a KE
+impl<'a, 'k, K, KE> KeyEncoding<K> for &'a KE
 where
-    KE: KeyEncoding<'k, K> + ?Sized + PartialEq,
+    KE: KeyEncoding<K> + ?Sized + PartialEq,
     K: Key<'k> + PartialEq<KE>,
 {
     type Error = KE::Error;
@@ -229,7 +226,7 @@ where
         KE::describe(visitor);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         (*self).as_ord_bytes()
     }
 }
@@ -411,7 +408,7 @@ pub enum KeyDescription {
 impl KeyDescription {
     /// Returns a description of the given [`KeyEncoding`] implementor.
     #[must_use]
-    pub fn for_encoding<KE: for<'k> KeyEncoding<'k, K>, K: for<'k> Key<'k>>() -> Self {
+    pub fn for_encoding<KE: KeyEncoding<K>, K: for<'k> Key<'k>>() -> Self {
         let mut describer = KeyDescriber::default();
         KE::describe(&mut describer);
         describer
@@ -618,7 +615,7 @@ impl<'k> Key<'k> for Cow<'k, [u8]> {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for Cow<'k, [u8]> {
+impl<'k> KeyEncoding<Self> for Cow<'k, [u8]> {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
@@ -630,14 +627,14 @@ impl<'k> KeyEncoding<'k, Self> for Cow<'k, [u8]> {
         visitor.visit_type(KeyKind::Bytes);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(self.clone())
     }
 }
 
 macro_rules! impl_u8_slice_key_encoding {
     ($type:ty) => {
-        impl<'a, 'k> KeyEncoding<'k, $type> for &'a [u8] {
+        impl<'a, 'k> KeyEncoding<$type> for &'a [u8] {
             type Error = Infallible;
 
             const LENGTH: Option<usize> = None;
@@ -649,7 +646,7 @@ macro_rules! impl_u8_slice_key_encoding {
                 visitor.visit_type(KeyKind::Bytes)
             }
 
-            fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+            fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
                 Ok(Cow::Borrowed(self))
             }
         }
@@ -676,7 +673,7 @@ impl<'a, 'k> IntoPrefixRange<'a, Self> for Cow<'k, [u8]> {
 
 impl<'a, 'k, TOwned, TBorrowed> Key<'k> for MaybeOwned<'a, TOwned, TBorrowed>
 where
-    TBorrowed: KeyEncoding<'k, TOwned, Error = TOwned::Error> + PartialEq + ?Sized,
+    TBorrowed: KeyEncoding<TOwned, Error = TOwned::Error> + PartialEq + ?Sized,
     TOwned: Key<'k> + PartialEq<TBorrowed>,
     <TOwned as Key<'k>>::Owned: From<&'a TBorrowed>,
 {
@@ -696,9 +693,9 @@ where
     }
 }
 
-impl<'a, 'k, TOwned, TBorrowed> KeyEncoding<'k, Self> for MaybeOwned<'a, TOwned, TBorrowed>
+impl<'a, 'k, TOwned, TBorrowed> KeyEncoding<Self> for MaybeOwned<'a, TOwned, TBorrowed>
 where
-    TBorrowed: KeyEncoding<'k, TOwned, Error = TOwned::Error> + PartialEq + ?Sized,
+    TBorrowed: KeyEncoding<TOwned, Error = TOwned::Error> + PartialEq + ?Sized,
     TOwned: Key<'k> + PartialEq<TBorrowed>,
     <TOwned as Key<'k>>::Owned: From<&'a TBorrowed>,
 {
@@ -713,7 +710,7 @@ where
         TBorrowed::describe(visitor);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         match self {
             MaybeOwned::Owned(value) => value.as_ord_bytes(),
             MaybeOwned::Borrowed(value) => value.as_ord_bytes(),
@@ -752,7 +749,7 @@ impl<'k> Key<'k> for Vec<u8> {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for Vec<u8> {
+impl KeyEncoding<Self> for Vec<u8> {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
@@ -764,7 +761,7 @@ impl<'k> KeyEncoding<'k, Self> for Vec<u8> {
         visitor.visit_type(KeyKind::Bytes);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
 }
@@ -807,7 +804,7 @@ impl<'k, const N: usize> Key<'k> for [u8; N] {
     }
 }
 
-impl<'k, const N: usize> KeyEncoding<'k, Self> for [u8; N] {
+impl<const N: usize> KeyEncoding<Self> for [u8; N] {
     type Error = IncorrectByteLength;
 
     const LENGTH: Option<usize> = Some(N);
@@ -819,7 +816,7 @@ impl<'k, const N: usize> KeyEncoding<'k, Self> for [u8; N] {
         visitor.visit_type(KeyKind::Bytes);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
 }
@@ -853,7 +850,7 @@ impl<'k> Key<'k> for ArcBytes<'k> {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for ArcBytes<'k> {
+impl<'k> KeyEncoding<Self> for ArcBytes<'k> {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
@@ -865,7 +862,7 @@ impl<'k> KeyEncoding<'k, Self> for ArcBytes<'k> {
         visitor.visit_type(KeyKind::Bytes);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
 }
@@ -919,7 +916,7 @@ impl<'k> Key<'k> for CowBytes<'k> {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for CowBytes<'k> {
+impl<'k> KeyEncoding<Self> for CowBytes<'k> {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
@@ -931,7 +928,7 @@ impl<'k> KeyEncoding<'k, Self> for CowBytes<'k> {
         visitor.visit_type(KeyKind::Bytes);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(self.0.clone())
     }
 }
@@ -985,7 +982,7 @@ impl<'k> Key<'k> for Bytes {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for Bytes {
+impl KeyEncoding<Self> for Bytes {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
@@ -997,7 +994,7 @@ impl<'k> KeyEncoding<'k, Self> for Bytes {
         visitor.visit_type(KeyKind::Bytes);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
 }
@@ -1051,7 +1048,7 @@ impl<'k> Key<'k> for String {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for String {
+impl KeyEncoding<Self> for String {
     type Error = FromUtf8Error;
 
     const LENGTH: Option<usize> = None;
@@ -1063,12 +1060,12 @@ impl<'k> KeyEncoding<'k, Self> for String {
         visitor.visit_type(KeyKind::String);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self.as_bytes()))
     }
 }
 
-impl<'k> KeyEncoding<'k, String> for str {
+impl KeyEncoding<String> for str {
     type Error = FromUtf8Error;
 
     const LENGTH: Option<usize> = None;
@@ -1080,7 +1077,7 @@ impl<'k> KeyEncoding<'k, String> for str {
         visitor.visit_type(KeyKind::String);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self.as_bytes()))
     }
 }
@@ -1168,7 +1165,7 @@ impl<'k> Key<'k> for Cow<'k, str> {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for Cow<'k, str> {
+impl<'k> KeyEncoding<Self> for Cow<'k, str> {
     type Error = std::str::Utf8Error;
 
     const LENGTH: Option<usize> = None;
@@ -1180,7 +1177,7 @@ impl<'k> KeyEncoding<'k, Self> for Cow<'k, str> {
         visitor.visit_type(KeyKind::String);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self.as_bytes()))
     }
 }
@@ -1220,7 +1217,7 @@ impl<'k> Key<'k> for () {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for () {
+impl KeyEncoding<Self> for () {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = Some(0);
@@ -1232,7 +1229,7 @@ impl<'k> KeyEncoding<'k, Self> for () {
         visitor.visit_type(KeyKind::Unit);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(Cow::default())
     }
 }
@@ -1256,7 +1253,7 @@ impl<'k> Key<'k> for bool {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for bool {
+impl KeyEncoding<Self> for bool {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = Some(1);
@@ -1268,7 +1265,7 @@ impl<'k> KeyEncoding<'k, Self> for bool {
         visitor.visit_type(KeyKind::Bool);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         if *self {
             Ok(Cow::Borrowed(&[1_u8]))
         } else {
@@ -1286,7 +1283,7 @@ macro_rules! impl_key_for_tuple {
     ($(($index:tt, $varname:ident, $generic:ident)),+) => {
         impl<'k, $($generic),+> Key<'k> for ($($generic),+,)
         where
-            $($generic: Key<'k>),+
+            $($generic: for<'a> Key<'a>),+
         {
             const CAN_OWN_BYTES: bool = false;
 
@@ -1306,9 +1303,9 @@ macro_rules! impl_key_for_tuple {
             }
         }
 
-        impl<'k, $($generic),+> KeyEncoding<'k, Self> for ($($generic),+,)
+        impl<$($generic),+> KeyEncoding<Self> for ($($generic),+,)
         where
-            $($generic: Key<'k>),+
+            $($generic: for<'k> Key<'k>),+
         {
             type Error = CompositeKeyError;
 
@@ -1325,7 +1322,7 @@ macro_rules! impl_key_for_tuple {
                 $($generic::describe(visitor);)+
             }
 
-            fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+            fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
                 let mut encoder = CompositeKeyEncoder::default();
 
                 $(encoder.encode(&self.$index)?;)+
@@ -1408,7 +1405,7 @@ where
     /// assert_eq!(decoded_u32, value2);
     /// decoder.finish().expect("trailing bytes");
     /// ```
-    pub fn encode<'k, K: Key<'k>, T: KeyEncoding<'k, K> + ?Sized>(
+    pub fn encode<'k, K: Key<'k>, T: KeyEncoding<K> + ?Sized>(
         &mut self,
         value: &'k T,
     ) -> Result<(), CompositeKeyError> {
@@ -1967,7 +1964,7 @@ impl<'k> Key<'k> for Signed {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for Signed {
+impl KeyEncoding<Self> for Signed {
     type Error = std::io::Error;
 
     const LENGTH: Option<usize> = None;
@@ -1979,7 +1976,7 @@ impl<'k> KeyEncoding<'k, Self> for Signed {
         visitor.visit_type(KeyKind::Signed);
     }
 
-    fn as_ord_bytes(&self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         self.to_variable_vec().map(Cow::Owned)
     }
 }
@@ -2010,7 +2007,7 @@ impl<'k> Key<'k> for Unsigned {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for Unsigned {
+impl KeyEncoding<Self> for Unsigned {
     type Error = std::io::Error;
 
     const LENGTH: Option<usize> = None;
@@ -2022,7 +2019,7 @@ impl<'k> KeyEncoding<'k, Self> for Unsigned {
         visitor.visit_type(KeyKind::Unsigned);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         self.to_variable_vec().map(Cow::Owned)
     }
 }
@@ -2049,7 +2046,7 @@ impl<'k> Key<'k> for isize {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for isize {
+impl KeyEncoding<Self> for isize {
     type Error = std::io::Error;
 
     const LENGTH: Option<usize> = None;
@@ -2061,7 +2058,7 @@ impl<'k> KeyEncoding<'k, Self> for isize {
         visitor.visit_type(KeyKind::Signed);
     }
 
-    fn as_ord_bytes(&self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         self.to_variable_vec().map(Cow::Owned)
     }
 }
@@ -2088,7 +2085,7 @@ impl<'k> Key<'k> for usize {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for usize {
+impl KeyEncoding<Self> for usize {
     type Error = std::io::Error;
 
     const LENGTH: Option<Self> = None;
@@ -2100,7 +2097,7 @@ impl<'k> KeyEncoding<'k, Self> for usize {
         visitor.visit_type(KeyKind::Unsigned);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         self.to_variable_vec().map(Cow::Owned)
     }
 }
@@ -2121,7 +2118,7 @@ impl<'k> Key<'k> for uuid::Uuid {
 }
 
 #[cfg(feature = "uuid")]
-impl<'k> KeyEncoding<'k, Self> for uuid::Uuid {
+impl KeyEncoding<Self> for uuid::Uuid {
     type Error = std::array::TryFromSliceError;
 
     const LENGTH: Option<usize> = Some(16);
@@ -2134,7 +2131,7 @@ impl<'k> KeyEncoding<'k, Self> for uuid::Uuid {
         visitor.visit_type(KeyKind::Bytes);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self.as_bytes()))
     }
 }
@@ -2156,8 +2153,8 @@ where
 
 impl<'k, T> Key<'k> for Option<T>
 where
-    T: Key<'k>,
-    Self: KeyEncoding<'k, Self, Error = <T as KeyEncoding<'k, T>>::Error>,
+    T: for<'a> Key<'a>,
+    Self: KeyEncoding<Self, Error = <T as KeyEncoding<T>>::Error>,
 {
     type Owned = Option<<T as Key<'k>>::Owned>;
 
@@ -2184,10 +2181,10 @@ where
     }
 }
 
-impl<'k, T, K> KeyEncoding<'k, Option<K>> for Option<T>
+impl<T, K> KeyEncoding<Option<K>> for Option<T>
 where
-    T: KeyEncoding<'k, K>,
-    K: Key<'k>,
+    T: KeyEncoding<K>,
+    K: for<'k> Key<'k>,
 {
     type Error = T::Error;
 
@@ -2204,7 +2201,7 @@ where
         T::describe(visitor);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         if let Some(contents) = self {
             let mut contents = contents.as_ord_bytes()?.to_vec();
             contents.insert(0, 1);
@@ -2221,8 +2218,8 @@ const RESULT_ERR: u8 = 1;
 impl<'k, T, E> Key<'k> for Result<T, E>
 where
     T: Key<'k>,
-    E: Key<'k, Error = <T as KeyEncoding<'k, T>>::Error>,
-    Self: KeyEncoding<'k, Self, Error = <T as KeyEncoding<'k, T>>::Error>,
+    E: Key<'k, Error = <T as KeyEncoding<T>>::Error>,
+    Self: KeyEncoding<Self, Error = <T as KeyEncoding<T>>::Error>,
 {
     type Owned = Result<<T as Key<'k>>::Owned, <E as Key<'k>>::Owned>;
 
@@ -2258,14 +2255,14 @@ where
     }
 }
 
-impl<'k, T, E, TBorrowed, EBorrowed> KeyEncoding<'k, Result<T, E>> for Result<TBorrowed, EBorrowed>
+impl<'k, T, E, TBorrowed, EBorrowed> KeyEncoding<Result<T, E>> for Result<TBorrowed, EBorrowed>
 where
-    TBorrowed: KeyEncoding<'k, T>,
+    TBorrowed: KeyEncoding<T>,
     T: Key<'k, Error = TBorrowed::Error>,
-    EBorrowed: KeyEncoding<'k, E, Error = TBorrowed::Error>,
+    EBorrowed: KeyEncoding<E, Error = TBorrowed::Error>,
     E: Key<'k, Error = TBorrowed::Error>,
 {
-    type Error = <TBorrowed as KeyEncoding<'k, T>>::Error;
+    type Error = <TBorrowed as KeyEncoding<T>>::Error;
 
     const LENGTH: Option<usize> = None;
 
@@ -2278,7 +2275,7 @@ where
         EBorrowed::describe(visitor);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         let (header, contents) = match self {
             Ok(value) => (RESULT_OK, value.as_ord_bytes()?),
             Err(value) => (RESULT_ERR, value.as_ord_bytes()?),
@@ -2372,7 +2369,7 @@ where
     }
 }
 
-impl<'k, T> KeyEncoding<'k, Self> for EnumKey<T>
+impl<T> KeyEncoding<Self> for EnumKey<T>
 where
     T: ToPrimitive + FromPrimitive + Clone + Eq + Ord + std::fmt::Debug + Send + Sync + 'static,
 {
@@ -2387,7 +2384,7 @@ where
         visitor.visit_type(KeyKind::Unsigned);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         let integer = self
             .0
             .to_u64()
@@ -2421,7 +2418,7 @@ macro_rules! impl_key_for_primitive {
                 self.checked_add(1).ok_or(NextValueError::WouldWrap)
             }
         }
-        impl<'k> KeyEncoding<'k, Self> for $type {
+        impl<'k> KeyEncoding<Self> for $type {
             type Error = IncorrectByteLength;
 
             const LENGTH: Option<usize> = Some(std::mem::size_of::<$type>());
@@ -2433,7 +2430,7 @@ macro_rules! impl_key_for_primitive {
                 visitor.visit_type($keykind);
             }
 
-            fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+            fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
                 Ok(Cow::from(self.to_be_bytes().to_vec()))
             }
         }
