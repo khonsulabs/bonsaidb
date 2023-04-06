@@ -5,6 +5,7 @@ use ordered_varint::Variable;
 
 use crate::key::{
     ByteSource, CompositeKeyError, CompositeKind, Key, KeyEncoding, KeyVisitor, NextValueError,
+    OwnableKey,
 };
 
 /// Encodes a value using the `Key` trait in such a way that multiple values can
@@ -101,13 +102,6 @@ macro_rules! impl_key_for_tuple_v1 {
         {
             const CAN_OWN_BYTES: bool = false;
 
-            type Owned = ($(<$generic as Key<'k>>::Owned),+,);
-
-            fn into_owned(self) -> Self::Owned {
-                let ($($varname),+,) = self.0;
-                ($($varname.into_owned()),+,)
-            }
-
             fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
                 let bytes = bytes.as_ref();
                 $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
@@ -119,6 +113,19 @@ macro_rules! impl_key_for_tuple_v1 {
                         ErrorKind::InvalidData,
                     )))
                 }
+            }
+        }
+
+        #[allow(deprecated)]
+        impl<'k, $($generic),+> OwnableKey for TupleEncodingV1<($($generic),+,)>
+        where
+            $($generic: for<'a> Key<'a>),+
+        {
+            type Owned = TupleEncodingV1<($(<$generic as OwnableKey>::Owned),+,)>;
+
+            fn into_owned(self) -> Self::Owned {
+                let ($($varname),+,) = self.0;
+                TupleEncodingV1(($($varname.into_owned()),+,))
             }
         }
 
@@ -206,13 +213,7 @@ where
     T: Key<'k>,
     Self: KeyEncoding<Self, Error = <T as KeyEncoding<T>>::Error>,
 {
-    type Owned = Option<<T as Key<'k>>::Owned>;
-
     const CAN_OWN_BYTES: bool = false;
-
-    fn into_owned(self) -> Self::Owned {
-        self.0.map(<T as Key<'k>>::into_owned)
-    }
 
     fn from_ord_bytes<'b>(bytes: ByteSource<'k, 'b>) -> Result<Self, Self::Error> {
         if bytes.as_ref().is_empty() {
@@ -228,6 +229,18 @@ where
 
     fn next_value(&self) -> Result<Self, NextValueError> {
         self.0.as_ref().map(T::next_value).transpose().map(Self)
+    }
+}
+
+#[allow(deprecated)]
+impl<T> OwnableKey for OptionKeyV1<T>
+where
+    T: OwnableKey,
+{
+    type Owned = OptionKeyV1<<T as OwnableKey>::Owned>;
+
+    fn into_owned(self) -> Self::Owned {
+        OptionKeyV1(self.0.map(T::into_owned))
     }
 }
 

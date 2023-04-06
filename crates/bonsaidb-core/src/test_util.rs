@@ -80,7 +80,7 @@ pub struct BasicCount;
 impl ViewSchema for BasicCount {
     type View = Self;
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self::View> {
         document.header.emit_key_and_value((), 1)
     }
 
@@ -104,7 +104,7 @@ impl ViewSchema for BasicByParentId {
         1
     }
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self::View> {
         let contents = Basic::document_contents(document)?;
         document.header.emit_key_and_value(contents.parent_id, 1)
     }
@@ -133,7 +133,7 @@ impl ViewSchema for BasicByParentIdEager {
         false
     }
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self::View> {
         let contents = Basic::document_contents(document)?;
         document.header.emit_key_and_value(contents.parent_id, 1)
     }
@@ -154,7 +154,7 @@ pub struct BasicByCategory;
 impl ViewSchema for BasicByCategory {
     type View = Self;
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self::View> {
         let contents = Basic::document_contents(document)?;
         if let Some(category) = &contents.category {
             document
@@ -181,7 +181,7 @@ pub struct BasicByTag;
 impl ViewSchema for BasicByTag {
     type View = Self;
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self::View> {
         let contents = Basic::document_contents(document)?;
         contents
             .tags
@@ -206,7 +206,7 @@ pub struct BasicByBrokenParentId;
 impl ViewSchema for BasicByBrokenParentId {
     type View = Self;
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self::View> {
         document.header.emit()
     }
 }
@@ -248,7 +248,7 @@ pub struct EncryptedBasicCount;
 impl ViewSchema for EncryptedBasicCount {
     type View = Self;
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self::View> {
         document.header.emit_key_and_value((), 1)
     }
 
@@ -268,7 +268,7 @@ pub struct EncryptedBasicByParentId;
 impl ViewSchema for EncryptedBasicByParentId {
     type View = Self;
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self::View> {
         let contents = EncryptedBasic::document_contents(document)?;
         document.header.emit_key_and_value(contents.parent_id, 1)
     }
@@ -289,7 +289,7 @@ pub struct EncryptedBasicByCategory;
 impl ViewSchema for EncryptedBasicByCategory {
     type View = Self;
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self::View> {
         let contents = EncryptedBasic::document_contents(document)?;
         if let Some(category) = &contents.category {
             document
@@ -338,7 +338,7 @@ impl ViewSchema for UniqueValue {
         true
     }
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self::View> {
         let entry = Unique::document_contents(document)?;
         document.header.emit_key(entry.value)
     }

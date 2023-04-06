@@ -17,7 +17,7 @@ use crate::document::{
     OwnedDocument, OwnedDocuments, Revision,
 };
 use crate::key::{IntoPrefixRange, Key, KeyEncoding};
-use crate::schema::{CollectionName, Schematic};
+use crate::schema::{CollectionName, Schematic, SerializedView};
 use crate::transaction::{Operation, OperationResult, Transaction};
 use crate::Error;
 
@@ -1282,7 +1282,7 @@ pub struct InsertError<T> {
 #[async_trait]
 pub trait NamedCollection: Collection + Unpin {
     /// The name view defined for the collection.
-    type ByNameView: crate::schema::SerializedView<Key = String>;
+    type ByNameView: for<'k> SerializedView<Key<'k> = String>;
 
     /// Gets a [`CollectionDocument`] with `id` from `connection`.
     fn load<'name, N: Nameable<'name, Self::PrimaryKey> + Send + Sync, C: Connection>(

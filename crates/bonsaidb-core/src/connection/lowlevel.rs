@@ -4,14 +4,14 @@ use std::collections::BTreeMap;
 use arc_bytes::serde::Bytes;
 use async_trait::async_trait;
 
-use super::GroupedReductions;
 use crate::connection::{
-    AccessPolicy, HasSession, QueryKey, Range, RangeRef, SerializedQueryKey, Sort, ViewMappings,
+    AccessPolicy, HasSession, OwnedGroupedReductions, OwnedViewMappings, QueryKey, Range, RangeRef,
+    SerializedQueryKey, Sort,
 };
 use crate::document::{
     CollectionDocument, CollectionHeader, Document, DocumentId, HasHeader, Header, OwnedDocument,
 };
-use crate::key::{self, ByteSource, Key, KeyEncoding};
+use crate::key::{self, ByteSource, Key, KeyEncoding, OwnableKey};
 use crate::schema::view::map::{MappedDocuments, MappedSerializedValue};
 use crate::schema::view::{self};
 use crate::schema::{
@@ -266,16 +266,16 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     /// [`SerializedView::entries()`](schema::SerializedView::entries),
     /// [`SerializedView::entries_async()`](schema::SerializedView::entries_async),
     /// or [`Connection::view()`](super::Connection::view).
-    fn query<V: schema::SerializedView, Key>(
+    fn query<'a, V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<'_, V::Key, Key>>,
+        key: Option<QueryKey<'a, V::Key<'a>, Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
-    ) -> Result<ViewMappings<V>, Error>
+    ) -> Result<OwnedViewMappings<'a, V>, Error>
     where
-        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<Key> + PartialEq<Key>,
+        Key: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         let mappings = self.query_by_name(
@@ -288,10 +288,15 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         mappings
             .into_iter()
             .map(|mapping| {
+                let key: <V::Key<'a> as OwnableKey>::Owned =
+                    <V::Key<'a> as key::Key<'a>>::from_ord_bytes(ByteSource::Borrowed(
+                        &mapping.key,
+                    ))
+                    .map_err(view::Error::key_serialization)
+                    .map_err(Error::from)?
+                    .into_owned();
                 Ok(Map {
-                    key: <V::Key as key::Key>::from_ord_bytes(ByteSource::Borrowed(&mapping.key))
-                        .map_err(view::Error::key_serialization)
-                        .map_err(Error::from)?,
+                    key,
                     value: V::deserialize(&mapping.value)?,
                     source: mapping.source,
                 })
@@ -310,16 +315,16 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     /// [`SerializedView::entries()`](schema::SerializedView::entries),
     /// [`SerializedView::entries_async()`](schema::SerializedView::entries_async),
     /// or [`Connection::view()`](super::Connection::view).
-    fn query_with_docs<V: schema::SerializedView, Key>(
+    fn query_with_docs<'a, V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<'_, V::Key, Key>>,
+        key: Option<QueryKey<'a, V::Key<'a>, Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<OwnedDocument, V>, Error>
     where
-        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<Key> + PartialEq<Key>,
+        Key: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<Key> + PartialEq<Key>,
     {
         // Query permission is checked by the query call
         let results = self.query::<V, Key>(key, order, limit, access_policy)?;
@@ -348,16 +353,16 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     /// [`SerializedView::entries()`](schema::SerializedView::entries),
     /// [`SerializedView::entries_async()`](schema::SerializedView::entries_async),
     /// or [`Connection::view()`](super::Connection::view).
-    fn query_with_collection_docs<V, Key>(
+    fn query_with_collection_docs<'a, V, Key>(
         &self,
-        key: Option<QueryKey<'_, V::Key, Key>>,
+        key: Option<QueryKey<'a, V::Key<'a>, Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<CollectionDocument<V::Collection>, V>, Error>
     where
-        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<Key> + PartialEq<Key>,
+        Key: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<Key> + PartialEq<Key>,
         V: schema::SerializedView,
         V::Collection: SerializedCollection,
         <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
@@ -382,14 +387,14 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     /// [`SerializedView::entries()`](schema::SerializedView::entries),
     /// [`SerializedView::entries_async()`](schema::SerializedView::entries_async),
     /// or [`Connection::view()`](super::Connection::view).
-    fn reduce<V: schema::SerializedView, Key>(
+    fn reduce<'a, V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<'_, V::Key, Key>>,
+        key: Option<QueryKey<'a, V::Key<'a>, Key>>,
         access_policy: AccessPolicy,
     ) -> Result<V::Value, Error>
     where
-        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<Key> + PartialEq<Key>,
+        Key: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         self.reduce_by_name(
@@ -411,14 +416,14 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     /// [`SerializedView::entries()`](schema::SerializedView::entries),
     /// [`SerializedView::entries_async()`](schema::SerializedView::entries_async),
     /// or [`Connection::view()`](super::Connection::view).
-    fn reduce_grouped<V: schema::SerializedView, Key>(
+    fn reduce_grouped<'a, V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<'_, V::Key, Key>>,
+        key: Option<QueryKey<'a, V::Key<'a>, Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<GroupedReductions<V>, Error>
+    ) -> Result<OwnedGroupedReductions<V>, Error>
     where
-        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<Key> + PartialEq<Key>,
+        Key: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         self.reduce_grouped_by_name(
@@ -430,7 +435,8 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         .map(|map| {
             Ok(MappedValue::new(
                 V::Key::from_ord_bytes(ByteSource::Borrowed(&map.key))
-                    .map_err(view::Error::key_serialization)?,
+                    .map_err(view::Error::key_serialization)?
+                    .into_owned(),
                 V::deserialize(&map.value)?,
             ))
         })
@@ -447,14 +453,14 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     /// [`SerializedView::entries()`](schema::SerializedView::entries),
     /// [`SerializedView::entries_async()`](schema::SerializedView::entries_async),
     /// or [`Connection::view()`](super::Connection::view).
-    fn delete_docs<V: schema::SerializedView, Key>(
+    fn delete_docs<'a, V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<'_, V::Key, Key>>,
+        key: Option<QueryKey<'a, V::Key<'a>, Key>>,
         access_policy: AccessPolicy,
     ) -> Result<u64, Error>
     where
-        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<Key> + PartialEq<Key>,
+        Key: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         self.delete_docs_by_name(
@@ -891,16 +897,16 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     /// the view using [`View::entries(self).query()`](super::AsyncView::query)
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
-    async fn query<V: schema::SerializedView, Key>(
+    async fn query<'a, V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<'_, V::Key, Key>>,
+        key: Option<QueryKey<'a, V::Key<'a>, Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
-    ) -> Result<ViewMappings<V>, Error>
+    ) -> Result<OwnedViewMappings<V>, Error>
     where
-        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<Key> + PartialEq<Key>,
+        Key: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         let mappings = self
@@ -916,9 +922,12 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
             .into_iter()
             .map(|mapping| {
                 Ok(Map {
-                    key: <V::Key as key::Key>::from_ord_bytes(ByteSource::Borrowed(&mapping.key))
-                        .map_err(view::Error::key_serialization)
-                        .map_err(Error::from)?,
+                    key: <V::Key<'_> as key::Key<'_>>::from_ord_bytes(ByteSource::Borrowed(
+                        &mapping.key,
+                    ))
+                    .map_err(view::Error::key_serialization)
+                    .map_err(Error::from)?
+                    .into_owned(),
                     value: V::deserialize(&mapping.value)?,
                     source: mapping.source,
                 })
@@ -933,16 +942,16 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     /// The parameters for the query can be customized on the builder returned
     /// from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
-    async fn query_with_docs<V: schema::SerializedView, Key>(
+    async fn query_with_docs<'a, V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<'_, V::Key, Key>>,
+        key: Option<QueryKey<'a, V::Key<'a>, Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<OwnedDocument, V>, Error>
     where
-        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<Key> + PartialEq<Key>,
+        Key: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<Key> + PartialEq<Key>,
     {
         // Query permission is checked by the query call
         let results = self
@@ -972,16 +981,16 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
-    async fn query_with_collection_docs<V, Key>(
+    async fn query_with_collection_docs<'a, V, Key>(
         &self,
-        key: Option<QueryKey<'_, V::Key, Key>>,
+        key: Option<QueryKey<'_, V::Key<'a>, Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<CollectionDocument<V::Collection>, V>, Error>
     where
-        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<Key> + PartialEq<Key>,
+        Key: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<Key> + PartialEq<Key>,
         V: schema::SerializedView,
         V::Collection: SerializedCollection,
         <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
@@ -1007,14 +1016,14 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
-    async fn reduce<V: schema::SerializedView, Key>(
+    async fn reduce<'a, V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<'_, V::Key, Key>>,
+        key: Option<QueryKey<'a, V::Key<'a>, Key>>,
         access_policy: AccessPolicy,
     ) -> Result<V::Value, Error>
     where
-        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<Key> + PartialEq<Key>,
+        Key: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         self.reduce_by_name(
@@ -1035,14 +1044,14 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
-    async fn reduce_grouped<V: schema::SerializedView, Key>(
+    async fn reduce_grouped<'a, V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<'_, V::Key, Key>>,
+        key: Option<QueryKey<'a, V::Key<'a>, Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<GroupedReductions<V>, Error>
+    ) -> Result<OwnedGroupedReductions<V>, Error>
     where
-        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<Key> + PartialEq<Key>,
+        Key: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         self.reduce_grouped_by_name(
@@ -1055,7 +1064,8 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
         .map(|map| {
             Ok(MappedValue::new(
                 V::Key::from_ord_bytes(ByteSource::Borrowed(&map.key))
-                    .map_err(view::Error::key_serialization)?,
+                    .map_err(view::Error::key_serialization)?
+                    .into_owned(),
                 V::deserialize(&map.value)?,
             ))
         })
@@ -1070,14 +1080,14 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
-    async fn delete_docs<V: schema::SerializedView, Key>(
+    async fn delete_docs<'a, V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<'_, V::Key, Key>>,
+        key: Option<QueryKey<'a, V::Key<'a>, Key>>,
         access_policy: AccessPolicy,
     ) -> Result<u64, Error>
     where
-        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<Key> + PartialEq<Key>,
+        Key: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         self.delete_docs_by_name(

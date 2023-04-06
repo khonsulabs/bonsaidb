@@ -6,16 +6,10 @@ use ordered_varint::Variable;
 use serde::{Deserialize, Serialize};
 
 use crate::key::time::limited::{BonsaiEpoch, UnixEpoch};
-use crate::key::{ByteSource, CompositeKind, Key, KeyEncoding, KeyKind, KeyVisitor};
+use crate::key::{AlwaysOwnable, ByteSource, CompositeKind, Key, KeyEncoding, KeyKind, KeyVisitor};
 
 impl<'k> Key<'k> for Duration {
-    type Owned = Self;
-
     const CAN_OWN_BYTES: bool = false;
-
-    fn into_owned(self) -> Self::Owned {
-        self
-    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         let merged = u128::decode_variable(bytes.as_ref()).map_err(|_| TimeError::InvalidValue)?;
@@ -24,6 +18,8 @@ impl<'k> Key<'k> for Duration {
         Ok(Self::new(seconds, nanos))
     }
 }
+
+impl AlwaysOwnable for Duration {}
 
 impl KeyEncoding<Self> for Duration {
     type Error = TimeError;
@@ -67,13 +63,7 @@ fn duration_key_tests() {
 }
 
 impl<'k> Key<'k> for SystemTime {
-    type Owned = Self;
-
     const CAN_OWN_BYTES: bool = false;
-
-    fn into_owned(self) -> Self::Owned {
-        self
-    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         let since_epoch = Duration::from_ord_bytes(bytes)?;
@@ -82,6 +72,8 @@ impl<'k> Key<'k> for SystemTime {
             .ok_or(TimeError::DeltaNotRepresentable)
     }
 }
+
+impl AlwaysOwnable for SystemTime {}
 
 impl KeyEncoding<Self> for SystemTime {
     type Error = TimeError;
@@ -167,7 +159,7 @@ pub mod limited {
     use serde::{Deserialize, Serialize};
 
     use crate::key::time::TimeError;
-    use crate::key::{ByteSource, CompositeKind, Key, KeyEncoding, KeyVisitor};
+    use crate::key::{ByteSource, CompositeKind, Key, KeyEncoding, KeyVisitor, AlwaysOwnable};
 
     /// A [`Duration`] of time stored with a limited `Resolution`. This type may be
     /// preferred to [`std::time::Duration`] because `Duration` takes a full 12
@@ -313,13 +305,7 @@ pub mod limited {
     where
         Resolution: TimeResolution,
     {
-        type Owned = Self;
-
         const CAN_OWN_BYTES: bool = false;
-
-        fn into_owned(self) -> Self::Owned {
-            self
-        }
 
         fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
             let representation =
@@ -332,6 +318,8 @@ pub mod limited {
             })
         }
     }
+
+    impl<Resolution> AlwaysOwnable for LimitedResolutionDuration<Resolution> where Resolution: TimeResolution {}
 
     impl<Resolution> KeyEncoding<Self> for LimitedResolutionDuration<Resolution>
     where
@@ -1179,18 +1167,19 @@ pub mod limited {
         Resolution: TimeResolution,
         Epoch: TimeEpoch,
     {
-        type Owned = Self;
-
         const CAN_OWN_BYTES: bool = false;
-
-        fn into_owned(self) -> Self::Owned {
-            self
-        }
 
         fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
             let duration = LimitedResolutionDuration::<Resolution>::from_ord_bytes(bytes)?;
             Ok(Self::from(duration))
         }
+    }
+
+    impl<Resolution, Epoch> AlwaysOwnable for LimitedResolutionTimestamp<Resolution, Epoch>
+    where
+        Resolution: TimeResolution,
+        Epoch: TimeEpoch,
+    {
     }
 
     impl<Resolution, Epoch> KeyEncoding<Self> for LimitedResolutionTimestamp<Resolution, Epoch>

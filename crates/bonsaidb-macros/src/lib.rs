@@ -348,7 +348,7 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     quote! {
         impl #impl_generics #core::schema::View for #ident #ty_generics #where_clause {
             type Collection = #collection;
-            type Key = #key;
+            type Key<'doc> = #key;
             type Value = #value;
 
             fn name(&self) -> #core::schema::Name {

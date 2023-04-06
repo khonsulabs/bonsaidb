@@ -214,14 +214,13 @@ impl<V, S> Serialized for ViewInstance<V, S>
 where
     V: SerializedView,
     S: ViewSchema<View = V>,
-    <V as View>::Key: 'static,
 {
     fn collection(&self) -> CollectionName {
         <<V as View>::Collection as Collection>::collection_name()
     }
 
     fn key_description(&self) -> KeyDescription {
-        KeyDescription::for_key::<<V as View>::Key>()
+        KeyDescription::for_key::<<V as View>::Key<'static>>()
     }
 
     fn unique(&self) -> bool {
@@ -251,15 +250,15 @@ where
     fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, view::Error> {
         let mappings = mappings
             .iter()
-            .map(
-                |(key, value)| match <V::Key as Key>::from_ord_bytes(ByteSource::Borrowed(key)) {
+            .map(|(key, value)| {
+                match <V::Key<'_> as Key<'_>>::from_ord_bytes(ByteSource::Borrowed(key)) {
                     Ok(key) => {
                         let value = V::deserialize(value)?;
                         Ok(MappedValue::new(key, value))
                     }
                     Err(err) => Err(view::Error::key_serialization(err)),
-                },
-            )
+                }
+            })
             .collect::<Result<Vec<_>, view::Error>>()?;
 
         let reduced_value = self.schema.reduce(&mappings, rereduce)?;

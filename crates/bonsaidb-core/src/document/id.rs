@@ -10,7 +10,7 @@ use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 use tinyvec::{Array, TinyVec};
 
-use crate::key::{ByteSource, Key, KeyEncoding, KeyKind, KeyVisitor};
+use crate::key::{ByteSource, Key, KeyEncoding, KeyKind, KeyVisitor, AlwaysOwnable};
 
 /// The serialized representation of a document's unique ID.
 #[derive(Default, Ord, Hash, Eq, PartialEq, PartialOrd, Clone)]
@@ -301,18 +301,14 @@ impl<'de> Visitor<'de> for DocumentIdVisitor {
 }
 
 impl<'k> Key<'k> for DocumentId {
-    type Owned = Self;
-
     const CAN_OWN_BYTES: bool = false;
-
-    fn into_owned(self) -> Self::Owned {
-        self
-    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         Self::try_from(bytes.as_ref())
     }
 }
+
+impl AlwaysOwnable for DocumentId {}
 
 impl<PrimaryKey> KeyEncoding<PrimaryKey> for DocumentId
 where

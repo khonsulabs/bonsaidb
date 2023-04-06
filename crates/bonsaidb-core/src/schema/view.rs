@@ -42,7 +42,8 @@ impl From<pot::Error> for Error {
 }
 
 /// A type alias for the result of `ViewSchema::map()`.
-pub type ViewMapResult<V> = Result<Mappings<<V as View>::Key, <V as View>::Value>, crate::Error>;
+pub type ViewMapResult<'doc, V> =
+    Result<Mappings<<V as View>::Key<'doc>, <V as View>::Value>, crate::Error>;
 
 /// A type alias for the result of `ViewSchema::reduce()`.
 pub type ReduceResult<V> = Result<<V as View>::Value, crate::Error>;
@@ -66,7 +67,7 @@ pub trait View: Sized + Send + Sync + Debug + 'static {
     /// The collection this view belongs to
     type Collection: Collection;
     /// The key for this view.
-    type Key: for<'k> Key<'k> + PartialEq + 'static;
+    type Key<'k>: Key<'k> + PartialEq + 'static;
     /// An associated type that can be stored with each entry in the view.
     type Value: Send + Sync;
 
@@ -117,7 +118,7 @@ pub trait ViewSchema: Send + Sync + Debug + 'static {
     /// View. If None is returned, the View will not include the document. See [the user guide's chapter on
     /// views for more information on how map
     /// works](https://dev.bonsaidb.io/main/guide/about/concepts/view.html#map).
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View>;
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self::View>;
 
     /// Returns a value that is produced by reducing a list of `mappings` into a
     /// single value. If `rereduce` is true, the values contained in the
@@ -129,7 +130,7 @@ pub trait ViewSchema: Send + Sync + Debug + 'static {
     #[allow(unused_variables)]
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self::View>],
         rereduce: bool,
     ) -> Result<<Self::View as View>::Value, crate::Error> {
         Err(crate::Error::ReduceUnimplemented)
@@ -162,14 +163,14 @@ pub trait SerializedView: View {
     /// Returns a builder for a view query or view reduce.
     fn entries<Database: Connection>(
         database: &Database,
-    ) -> connection::View<'_, Database, Self, Self::Key> {
+    ) -> connection::View<'_, Database, Self, Self::Key<'_>> {
         database.view::<Self>()
     }
 
     /// Returns a builder for a view query or view reduce.
     fn entries_async<Database: AsyncConnection>(
         database: &Database,
-    ) -> connection::AsyncView<'_, Database, Self, Self::Key> {
+    ) -> connection::AsyncView<'_, Database, Self, Self::Key<'_>> {
         database.view::<Self>()
     }
 }
@@ -229,7 +230,7 @@ where
     fn map(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> ViewMapResult<Self::View>;
+    ) -> ViewMapResult<'static, Self::View>;
 
     /// The reduce function for this view. If `Err(Error::ReduceUnimplemented)`
     /// is returned, queries that ask for a reduce operation will return an
@@ -239,7 +240,7 @@ where
     #[allow(unused_variables)]
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self::View>],
         rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Err(crate::Error::ReduceUnimplemented)
@@ -258,13 +259,13 @@ where
         T::version(self)
     }
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self::View> {
         T::map(self, CollectionDocument::try_from(document)?)
     }
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self::View>],
         rereduce: bool,
     ) -> Result<<Self::View as View>::Value, crate::Error> {
         T::reduce(self, mappings, rereduce)
@@ -375,7 +376,7 @@ macro_rules! define_mapped_view {
 
         impl $crate::schema::View for $view_name {
             type Collection = $collection;
-            type Key = $key;
+            type Key<'doc> = $key;
             type Value = $value;
 
             fn name(&self) -> $crate::schema::Name {
@@ -397,7 +398,7 @@ macro_rules! define_mapped_view {
             fn map(
                 &self,
                 document: $crate::document::CollectionDocument<$collection>,
-            ) -> $crate::schema::ViewMapResult<Self::View> {
+            ) -> $crate::schema::ViewMapResult<'static, Self::View> {
                 $mapping(document)
             }
         }

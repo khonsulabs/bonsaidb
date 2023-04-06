@@ -17,7 +17,9 @@ use crate::admin::{Role, User};
 use crate::document::{
     CollectionDocument, CollectionHeader, Document, HasHeader, Header, OwnedDocument,
 };
-use crate::key::{ByteSource, IntoPrefixRange, Key, KeyEncoding, KeyKind, KeyVisitor};
+use crate::key::{
+    AlwaysOwnable, ByteSource, IntoPrefixRange, Key, KeyEncoding, KeyKind, KeyVisitor, OwnableKey,
+};
 use crate::permissions::Permissions;
 use crate::schema::view::map::MappedDocuments;
 use crate::schema::{
@@ -50,7 +52,7 @@ pub trait Connection: LowLevelConnection + Sized + Send + Sync {
     }
 
     /// Accesses a [`schema::View`] from this connection.
-    fn view<V: schema::SerializedView>(&'_ self) -> View<'_, Self, V, V::Key> {
+    fn view<V: schema::SerializedView>(&'_ self) -> View<'_, Self, V, V::Key<'_>> {
         View::new(self)
     }
 
@@ -646,13 +648,13 @@ where
 #[must_use]
 pub struct View<'a, Cn, V: schema::SerializedView, Key>
 where
-    V::Key: Borrow<Key> + PartialEq<Key>,
+    V::Key<'a>: Borrow<Key> + PartialEq<Key>,
     Key: PartialEq + ?Sized,
 {
     connection: &'a Cn,
 
     /// Key filtering criteria.
-    pub key: Option<QueryKey<'a, V::Key, Key>>,
+    pub key: Option<QueryKey<'a, V::Key<'a>, Key>>,
 
     /// The view's data access policy. The default value is [`AccessPolicy::UpdateBefore`].
     pub access_policy: AccessPolicy,
@@ -668,10 +670,10 @@ where
 
 impl<'a, Cn, V, Key> View<'a, Cn, V, Key>
 where
-    V::Key: Borrow<Key> + PartialEq<Key>,
+    V::Key<'a>: Borrow<Key> + PartialEq<Key>,
     V: schema::SerializedView,
     Cn: Connection,
-    Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
+    Key: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
 {
     const fn new(connection: &'a Cn) -> Self {
         Self {
@@ -701,8 +703,8 @@ where
     #[allow(clippy::missing_const_for_fn)] // false positive, destructors
     pub fn with_key<K>(self, key: &'a K) -> View<'a, Cn, V, K>
     where
-        K: KeyEncoding<V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<K> + PartialEq<K>,
+        K: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<K> + PartialEq<K>,
     {
         View {
             connection: self.connection,
@@ -732,7 +734,7 @@ where
         keys: IntoIter,
     ) -> View<'a, Cn, V, K>
     where
-        V::Key: Borrow<K> + PartialEq<K>,
+        V::Key<'a>: Borrow<K> + PartialEq<K>,
         K: PartialEq + ?Sized,
     {
         View {
@@ -763,9 +765,9 @@ where
     /// ```
     pub fn with_key_range<K, R>(self, range: R) -> View<'a, Cn, V, K>
     where
-        R: Into<RangeRef<'a, V::Key, K>>,
+        R: Into<RangeRef<'a, V::Key<'a>, K>>,
         K: PartialEq,
-        V::Key: Borrow<K> + PartialEq<K>,
+        V::Key<'a>: Borrow<K> + PartialEq<K>,
     {
         View {
             connection: self.connection,
@@ -798,8 +800,8 @@ where
     /// ```
     pub fn with_key_prefix<K>(self, prefix: &'a K) -> View<'a, Cn, V, K>
     where
-        K: KeyEncoding<V::Key> + IntoPrefixRange<'a, V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<K> + PartialEq<K>,
+        K: KeyEncoding<V::Key<'a>> + IntoPrefixRange<'a, V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<K> + PartialEq<K>,
     {
         View {
             connection: self.connection,
@@ -909,7 +911,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn query(self) -> Result<ViewMappings<V>, Error> {
+    pub fn query(self) -> Result<OwnedViewMappings<'a, V>, Error> {
         self.connection
             .query::<V, Key>(self.key, self.sort, self.limit, self.access_policy)
     }
@@ -1007,7 +1009,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn reduce_grouped(self) -> Result<GroupedReductions<V>, Error> {
+    pub fn reduce_grouped(self) -> Result<OwnedGroupedReductions<'a, V>, Error> {
         self.connection
             .reduce_grouped::<V, Key>(self.key, self.access_policy)
     }
@@ -1034,11 +1036,16 @@ where
 /// - The key emitted during the map function.
 /// - The value emitted during the map function.
 /// - The source document header that the mappings originated from.
-pub type ViewMappings<V> = Vec<Map<<V as schema::View>::Key, <V as schema::View>::Value>>;
+pub type ViewMappings<'a, V> = Vec<Map<<V as schema::View>::Key<'a>, <V as schema::View>::Value>>;
+pub type OwnedViewMappings<'a, V> =
+    Vec<Map<<<V as schema::View>::Key<'a> as OwnableKey>::Owned, <V as schema::View>::Value>>;
 /// This type is the result of `reduce_grouped()`. It is a list of all matching
 /// keys and the reduced value of all mapped entries for that key.
-pub type GroupedReductions<V> =
-    Vec<MappedValue<<V as schema::View>::Key, <V as schema::View>::Value>>;
+pub type GroupedReductions<'a, V> =
+    Vec<MappedValue<<V as schema::View>::Key<'a>, <V as schema::View>::Value>>;
+pub type OwnedGroupedReductions<'a, V> = Vec<
+    MappedValue<<<V as schema::View>::Key<'a> as OwnableKey>::Owned, <V as schema::View>::Value>,
+>;
 
 /// A connection to a database's [`Schema`](schema::Schema), giving access to
 /// [`Collection`s](crate::schema::Collection) and
@@ -1059,7 +1066,7 @@ pub trait AsyncConnection: AsyncLowLevelConnection + Sized + Send + Sync {
     }
 
     /// Accesses a [`schema::View`] from this connection.
-    fn view<V: schema::SerializedView>(&'_ self) -> AsyncView<'_, Self, V, V::Key> {
+    fn view<V: schema::SerializedView>(&'_ self) -> AsyncView<'_, Self, V, V::Key<'_>> {
         AsyncView::new(self)
     }
 
@@ -1826,13 +1833,13 @@ where
 #[must_use]
 pub struct AsyncView<'a, Cn, V: schema::SerializedView, Key>
 where
-    V::Key: Borrow<Key> + PartialEq<Key>,
+    V::Key<'a>: Borrow<Key> + PartialEq<Key>,
     Key: PartialEq + ?Sized,
 {
     connection: &'a Cn,
 
     /// Key filtering criteria.
-    pub key: Option<QueryKey<'a, V::Key, Key>>,
+    pub key: Option<QueryKey<'a, V::Key<'a>, Key>>,
 
     /// The view's data access policy. The default value is [`AccessPolicy::UpdateBefore`].
     pub access_policy: AccessPolicy,
@@ -1850,8 +1857,8 @@ impl<'a, Cn, V, Key> AsyncView<'a, Cn, V, Key>
 where
     V: schema::SerializedView,
     Cn: AsyncConnection,
-    Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
-    V::Key: Borrow<Key> + PartialEq<Key>,
+    Key: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+    V::Key<'a>: Borrow<Key> + PartialEq<Key>,
 {
     const fn new(connection: &'a Cn) -> Self {
         Self {
@@ -1887,8 +1894,8 @@ where
     #[allow(clippy::missing_const_for_fn)] // false positive, destructors
     pub fn with_key<K>(self, key: &'a K) -> AsyncView<'a, Cn, V, K>
     where
-        K: KeyEncoding<V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<K> + PartialEq<K>,
+        K: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<K> + PartialEq<K>,
     {
         AsyncView {
             connection: self.connection,
@@ -1925,7 +1932,7 @@ where
     ) -> AsyncView<'a, Cn, V, K>
     where
         K: PartialEq + ?Sized,
-        V::Key: Borrow<K> + PartialEq<K>,
+        V::Key<'a>: Borrow<K> + PartialEq<K>,
     {
         AsyncView {
             connection: self.connection,
@@ -1959,13 +1966,13 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn with_key_range<K, R: Into<RangeRef<'a, V::Key, K>>>(
+    pub fn with_key_range<K, R: Into<RangeRef<'a, V::Key<'a>, K>>>(
         self,
         range: R,
     ) -> AsyncView<'a, Cn, V, K>
     where
-        K: KeyEncoding<V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<K> + PartialEq<K>,
+        K: KeyEncoding<V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<K> + PartialEq<K>,
     {
         AsyncView {
             connection: self.connection,
@@ -2004,8 +2011,8 @@ where
     /// ```
     pub fn with_key_prefix<K>(self, prefix: &'a K) -> AsyncView<'a, Cn, V, K>
     where
-        K: KeyEncoding<V::Key> + IntoPrefixRange<'a, V::Key> + PartialEq + ?Sized,
-        V::Key: Borrow<K> + PartialEq<K>,
+        K: KeyEncoding<V::Key<'a>> + IntoPrefixRange<'a, V::Key<'a>> + PartialEq + ?Sized,
+        V::Key<'a>: Borrow<K> + PartialEq<K>,
     {
         AsyncView {
             connection: self.connection,
@@ -2130,7 +2137,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn query(self) -> Result<Vec<Map<V::Key, V::Value>>, Error> {
+    pub async fn query(self) -> Result<OwnedViewMappings<'a, V>, Error> {
         self.connection
             .query::<V, Key>(self.key, self.sort, self.limit, self.access_policy)
             .await
@@ -2234,7 +2241,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn reduce_grouped(self) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error> {
+    pub async fn reduce_grouped(self) -> Result<OwnedGroupedReductions<'a, V>, Error> {
         self.connection
             .reduce_grouped::<V, _>(self.key, self.access_policy)
             .await
@@ -2288,7 +2295,7 @@ where
 impl<'a, KOwned, KBorrowed> QueryKey<'a, KOwned, KBorrowed>
 where
     KBorrowed: KeyEncoding<KOwned> + PartialEq + ?Sized,
-    KOwned: for<'k> Key<'k> + Borrow<KBorrowed> + PartialEq<KBorrowed>,
+    KOwned: Key<'a> + Borrow<KBorrowed> + PartialEq<KBorrowed>,
 {
     /// Converts this key to a serialized format using the [`Key`] trait.
     pub fn serialized(&self) -> Result<SerializedQueryKey, Error> {
@@ -2497,10 +2504,10 @@ where
     TBorrowed: PartialEq + ?Sized,
 {
     /// Serializes the range's contained values to big-endian bytes.
-    pub fn as_ord_bytes(&'a self) -> Result<Range<Bytes>, TBorrowed::Error>
+    pub fn as_ord_bytes(&self) -> Result<Range<Bytes>, TBorrowed::Error>
     where
         TBorrowed: KeyEncoding<TOwned>,
-        TOwned: for<'k> Key<'k> + Borrow<TBorrowed>,
+        TOwned: Key<'a> + Borrow<TBorrowed>,
     {
         Ok(Range {
             start: self.start.as_ord_bytes()?,
@@ -2557,10 +2564,10 @@ where
     TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
 {
     /// Serializes the contained value to big-endian bytes.
-    pub fn as_ord_bytes(&'a self) -> Result<Bound<Bytes>, TBorrowed::Error>
+    pub fn as_ord_bytes(&self) -> Result<Bound<Bytes>, TBorrowed::Error>
     where
         TBorrowed: KeyEncoding<TOwned>,
-        TOwned: for<'k> Key<'k> + Borrow<TBorrowed>,
+        TOwned: Key<'a> + Borrow<TBorrowed>,
     {
         match self {
             Self::Unbounded => Ok(Bound::Unbounded),
@@ -3390,18 +3397,14 @@ impl DerefMut for SensitiveString {
 }
 
 impl<'k> Key<'k> for SensitiveString {
-    type Owned = Self;
-
     const CAN_OWN_BYTES: bool = String::CAN_OWN_BYTES;
-
-    fn into_owned(self) -> Self::Owned {
-        self
-    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         String::from_ord_bytes(bytes).map(Self)
     }
 }
+
+impl AlwaysOwnable for SensitiveString {}
 
 impl KeyEncoding<Self> for SensitiveString {
     type Error = FromUtf8Error;
@@ -3460,18 +3463,14 @@ impl DerefMut for SensitiveBytes {
 }
 
 impl<'k> Key<'k> for SensitiveBytes {
-    type Owned = Self;
-
     const CAN_OWN_BYTES: bool = Bytes::CAN_OWN_BYTES;
-
-    fn into_owned(self) -> Self::Owned {
-        self
-    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         Bytes::from_ord_bytes(bytes).map(Self)
     }
 }
+
+impl AlwaysOwnable for SensitiveBytes {}
 
 impl KeyEncoding<Self> for SensitiveBytes {
     type Error = Infallible;

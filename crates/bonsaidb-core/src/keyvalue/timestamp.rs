@@ -4,7 +4,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::key::{
-    ByteSource, CompositeKind, IncorrectByteLength, Key, KeyEncoding, KeyKind, KeyVisitor,
+    AlwaysOwnable, ByteSource, CompositeKind, IncorrectByteLength, Key, KeyEncoding, KeyKind,
+    KeyVisitor,
 };
 
 /// A timestamp relative to [`UNIX_EPOCH`].
@@ -76,13 +77,7 @@ impl std::ops::Add<Duration> for Timestamp {
 }
 
 impl<'k> Key<'k> for Timestamp {
-    type Owned = Self;
-
     const CAN_OWN_BYTES: bool = false;
-
-    fn into_owned(self) -> Self::Owned {
-        self
-    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         if bytes.as_ref().len() != 12 {
@@ -95,6 +90,8 @@ impl<'k> Key<'k> for Timestamp {
         })
     }
 }
+
+impl AlwaysOwnable for Timestamp {}
 
 impl KeyEncoding<Self> for Timestamp {
     type Error = IncorrectByteLength;

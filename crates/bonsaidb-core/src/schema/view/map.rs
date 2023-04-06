@@ -5,11 +5,12 @@ use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::document::{DocumentId, Header, OwnedDocument};
+use crate::key::{KeyEncoding, OwnableKey};
 use crate::schema::view::{self, ByteSource, Key, SerializedView, View};
 
 /// A document's entry in a View's mappings.
 #[derive(Eq, PartialEq, Debug)]
-pub struct Map<K: for<'k> Key<'k> = (), V = ()> {
+pub struct Map<K = (), V = ()> {
     /// The header of the document that emitted this entry.
     pub source: Header,
 
@@ -20,7 +21,10 @@ pub struct Map<K: for<'k> Key<'k> = (), V = ()> {
     pub value: V,
 }
 
-impl<K: for<'k> Key<'k>, V> Map<K, V> {
+impl<K, V> Map<K, V>
+where
+    K: KeyEncoding,
+{
     /// Serializes this map.
     pub(crate) fn serialized<View: SerializedView<Value = V>>(
         &self,
@@ -38,7 +42,7 @@ impl<K: for<'k> Key<'k>, V> Map<K, V> {
     }
 }
 
-impl<K: for<'k> Key<'k>, V> Map<K, V> {
+impl<K, V> Map<K, V> {
     /// Creates a new Map entry for the document with id `source`.
     pub const fn new(source: Header, key: K, value: V) -> Self {
         Self { source, key, value }
@@ -48,20 +52,20 @@ impl<K: for<'k> Key<'k>, V> Map<K, V> {
 /// A collection of [`Map`]s.
 #[derive(Debug, Eq, PartialEq)]
 #[must_use]
-pub enum Mappings<K: for<'k> Key<'k> = (), V = ()> {
+pub enum Mappings<K = (), V = ()> {
     /// Zero or one mappings.
     Simple(Option<Map<K, V>>),
     /// More than one mapping.
     List(Vec<Map<K, V>>),
 }
 
-impl<K: for<'k> Key<'k>, V> Default for Mappings<K, V> {
+impl<K, V> Default for Mappings<K, V> {
     fn default() -> Self {
         Self::none()
     }
 }
 
-impl<K: for<'k> Key<'k>, V> Mappings<K, V> {
+impl<K, V> Mappings<K, V> {
     /// Returns an empty collection of mappings.
     pub const fn none() -> Self {
         Self::Simple(None)
@@ -88,7 +92,7 @@ impl<K: for<'k> Key<'k>, V> Mappings<K, V> {
     }
 }
 
-impl<K: for<'k> Key<'k>, V> Extend<Map<K, V>> for Mappings<K, V> {
+impl<K, V> Extend<Map<K, V>> for Mappings<K, V> {
     fn extend<T: IntoIterator<Item = Map<K, V>>>(&mut self, iter: T) {
         let iter = iter.into_iter();
         for map in iter {
@@ -97,7 +101,7 @@ impl<K: for<'k> Key<'k>, V> Extend<Map<K, V>> for Mappings<K, V> {
     }
 }
 
-impl<K: for<'k> Key<'k>, V> FromIterator<Map<K, V>> for Mappings<K, V> {
+impl<K, V> FromIterator<Map<K, V>> for Mappings<K, V> {
     fn from_iter<T: IntoIterator<Item = Map<K, V>>>(iter: T) -> Self {
         let mut mappings = Self::none();
         mappings.extend(iter);
@@ -105,7 +109,7 @@ impl<K: for<'k> Key<'k>, V> FromIterator<Map<K, V>> for Mappings<K, V> {
     }
 }
 
-impl<K: for<'k> Key<'k>, V> FromIterator<Self> for Mappings<K, V> {
+impl<K, V> FromIterator<Self> for Mappings<K, V> {
     fn from_iter<T: IntoIterator<Item = Self>>(iter: T) -> Self {
         let mut iter = iter.into_iter();
         if let Some(mut collected) = iter.next() {
@@ -119,7 +123,7 @@ impl<K: for<'k> Key<'k>, V> FromIterator<Self> for Mappings<K, V> {
     }
 }
 
-impl<K: for<'k> Key<'k>, V> IntoIterator for Mappings<K, V> {
+impl<K, V> IntoIterator for Mappings<K, V> {
     type IntoIter = MappingsIter<K, V>;
     type Item = Map<K, V>;
 
@@ -132,14 +136,14 @@ impl<K: for<'k> Key<'k>, V> IntoIterator for Mappings<K, V> {
 }
 
 /// An iterator over [`Mappings`].
-pub enum MappingsIter<K: for<'k> Key<'k> = (), V = ()> {
+pub enum MappingsIter<K = (), V = ()> {
     /// An iterator over a [`Mappings::Simple`] value.
     Inline(Option<Map<K, V>>),
     /// An iterator over a [`Mappings::List`] value.
     Vec(std::vec::IntoIter<Map<K, V>>),
 }
 
-impl<K: for<'k> Key<'k>, V> Iterator for MappingsIter<K, V> {
+impl<K, V> Iterator for MappingsIter<K, V> {
     type Item = Map<K, V>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -151,14 +155,28 @@ impl<K: for<'k> Key<'k>, V> Iterator for MappingsIter<K, V> {
 }
 
 /// A collection of mappings and the associated documents.
-#[derive(Debug)]
 pub struct MappedDocuments<D, V: View> {
     /// The collection of mappings.
-    pub mappings: Vec<Map<V::Key, V::Value>>,
+    pub mappings: Vec<Map<<V::Key<'static> as OwnableKey>::Owned, V::Value>>,
     /// All associated documents by ID.
     ///
     /// Documents can appear in a mapping query multiple times. As a result, they are stored separately to avoid duplication.
     pub documents: BTreeMap<DocumentId, D>,
+}
+
+impl<D, V> Debug for MappedDocuments<D, V>
+where
+    D: Debug,
+    V: View,
+    <<V as View>::Key<'static> as OwnableKey>::Owned: Debug,
+    <V as View>::Value: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MappedDocuments")
+            .field("mappings", &self.mappings)
+            .field("documents", &self.documents)
+            .finish()
+    }
 }
 
 impl<D, V: View> MappedDocuments<D, V> {
@@ -177,7 +195,10 @@ impl<D, V: View> MappedDocuments<D, V> {
     /// Returns the mapped document at`index`, or `None` if `index >=
     /// self.len()`.
     #[must_use]
-    pub fn get(&self, index: usize) -> Option<MappedDocument<'_, D, V::Key, V::Value>> {
+    pub fn get(
+        &self,
+        index: usize,
+    ) -> Option<MappedDocument<'_, D, <V::Key<'static> as OwnableKey>::Owned, V::Value>> {
         if index < self.len() {
             let mapping = &self.mappings[index];
             let document = self
@@ -203,7 +224,7 @@ pub struct MappedDocumentsIter<'a, D, V: View> {
 
 impl<'a, D, V: View> IntoIterator for &'a MappedDocuments<D, V> {
     type IntoIter = MappedDocumentsIter<'a, D, V>;
-    type Item = MappedDocument<'a, D, V::Key, V::Value>;
+    type Item = MappedDocument<'a, D, <V::Key<'static> as OwnableKey>::Owned, V::Value>;
 
     fn into_iter(self) -> Self::IntoIter {
         MappedDocumentsIter {
@@ -214,7 +235,7 @@ impl<'a, D, V: View> IntoIterator for &'a MappedDocuments<D, V> {
 }
 
 impl<'a, D, V: View> Iterator for MappedDocumentsIter<'a, D, V> {
-    type Item = MappedDocument<'a, D, V::Key, V::Value>;
+    type Item = MappedDocument<'a, D, <V::Key<'static> as OwnableKey>::Owned, V::Value>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let doc = self.docs.get(self.index);
@@ -250,11 +271,12 @@ impl Serialized {
     /// Deserializes this map.
     pub fn deserialized<View: SerializedView>(
         &self,
-    ) -> Result<Map<View::Key, View::Value>, view::Error> {
+    ) -> Result<Map<<View::Key<'static> as OwnableKey>::Owned, View::Value>, view::Error> {
         Ok(Map::new(
             self.source.clone(),
-            <View::Key as Key>::from_ord_bytes(ByteSource::Borrowed(&self.key))
-                .map_err(view::Error::key_serialization)?,
+            <View::Key<'_> as Key<'_>>::from_ord_bytes(ByteSource::Borrowed(&self.key))
+                .map_err(view::Error::key_serialization)?
+                .into_owned(),
             View::deserialize(&self.value)?,
         ))
     }
@@ -289,7 +311,7 @@ impl MappedSerializedDocuments {
 
 /// A key value pair
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct MappedValue<K: for<'k> Key<'k>, V> {
+pub struct MappedValue<K, V> {
     /// The key responsible for generating the value
     pub key: K,
 
@@ -297,7 +319,7 @@ pub struct MappedValue<K: for<'k> Key<'k>, V> {
     pub value: V,
 }
 
-impl<K: for<'k> Key<'k>, V> MappedValue<K, V> {
+impl<K, V> MappedValue<K, V> {
     /// Returns a new instance with the key/value pair.
     pub const fn new(key: K, value: V) -> Self {
         Self { key, value }
@@ -305,7 +327,7 @@ impl<K: for<'k> Key<'k>, V> MappedValue<K, V> {
 }
 
 /// A mapped value in a [`View`].
-pub type ViewMappedValue<V> = MappedValue<<V as View>::Key, <V as View>::Value>;
+pub type ViewMappedValue<'a, V> = MappedValue<<V as View>::Key<'a>, <V as View>::Value>;
 
 /// A serialized [`MappedValue`].
 #[derive(Clone, Serialize, Deserialize, Debug)]

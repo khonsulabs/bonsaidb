@@ -6,7 +6,7 @@ use ordered_varint::Variable;
 use serde::{Deserialize, Serialize};
 
 use super::ByteSource;
-use crate::key::{Key, KeyEncoding, KeyKind};
+use crate::key::{AlwaysOwnable, Key, KeyEncoding, KeyKind};
 
 /// A wrapper type for Rust's built-in integer types that encodes with variable
 /// length and implements the [`Key`] trait.
@@ -182,20 +182,16 @@ where
 
 impl<'k, T> Key<'k> for VarInt<T>
 where
-    T: VariableInteger,
+    T: VariableInteger + AlwaysOwnable,
 {
-    type Owned = Self;
-
     const CAN_OWN_BYTES: bool = false;
-
-    fn into_owned(self) -> Self::Owned {
-        self
-    }
 
     fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
         T::decode_variable(bytes.as_ref()).map(Self)
     }
 }
+
+impl<T> AlwaysOwnable for VarInt<T> where T: VariableInteger + AlwaysOwnable {}
 
 impl<T> KeyEncoding for VarInt<T>
 where
