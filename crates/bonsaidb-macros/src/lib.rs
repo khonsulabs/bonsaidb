@@ -524,8 +524,8 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 }
             }
 
-            impl #impl_generics KeyEncoding<$'key, Self> for #ident #ty_generics #where_clause {
-                type Error = <#ty as KeyEncoding<$'key>>::Error;
+            impl #impl_generics KeyEncoding<Self> for #ident #ty_generics #where_clause {
+                type Error = <#ty as KeyEncoding>::Error;
 
                 const LENGTH: Option<usize> = <#ty>::LENGTH;
 
@@ -536,7 +536,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     <#ty>::describe(visitor)
                 }
 
-                fn as_ord_bytes(&$'key self) -> Result<Cow<$'key, [u8]>, Self::Error> {
+                fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
                     self.#name.as_ord_bytes()
                 }
             }
@@ -618,7 +618,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                             }
                         }
 
-                        impl #impl_generics KeyEncoding<$'key, Self> for #ident #ty_generics #where_clause {
+                        impl #impl_generics KeyEncoding<Self> for #ident #ty_generics #where_clause {
                             type Error = std::convert::Infallible;
 
                             const LENGTH: Option<usize> = Some(0);
@@ -630,7 +630,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                 visitor.visit_type(KeyKind::Unit);
                             }
 
-                            fn as_ord_bytes(&$'key self) -> Result<Cow<$'key, [u8]>, Self::Error> {
+                            fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
                                 Ok(Cow::Borrowed(&[]))
                             }
                         }
@@ -797,10 +797,10 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         }
                     }
 
-                    impl #impl_generics KeyEncoding<$'key, Self> for #ident #ty_generics #where_clause {
+                    impl #impl_generics KeyEncoding<Self> for #ident #ty_generics #where_clause {
                         type Error = CompositeKeyError;
 
-                        const LENGTH: Option<usize> = <#repr as KeyEncoding<$'key>>::LENGTH;
+                        const LENGTH: Option<usize> = <#repr as KeyEncoding>::LENGTH;
 
                         fn describe<Visitor>(visitor: &mut Visitor)
                         where
@@ -809,7 +809,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                             <#repr>::describe(visitor);
                         }
 
-                        fn as_ord_bytes(&$'key self) -> Result<Cow<$'key, [u8]>, Self::Error> {
+                        fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
                             #consts
                             match self {
                                 #encode_variants
@@ -865,7 +865,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        impl #impl_generics KeyEncoding<$'key, Self> for #ident #ty_generics #where_clause {
+        impl #impl_generics KeyEncoding<Self> for #ident #ty_generics #where_clause {
             type Error = CompositeKeyError;
 
             // TODO fixed width if possible
@@ -879,7 +879,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 #describe
             }
 
-            fn as_ord_bytes(&$'key self) -> Result<Cow<$'key, [u8]>, Self::Error> {
+            fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
                 let mut $encoder = CompositeKeyEncoder::#encoder_constructor();
 
                 #encode_fields

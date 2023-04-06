@@ -89,7 +89,7 @@ where
         'a,
         DocumentIds: IntoIterator<Item = &'a PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = &'a PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, u64> + 'a,
+        PrimaryKey: KeyEncoding<u64> + 'a,
         Database: Connection,
     >(
         block_ids: DocumentIds,
@@ -112,7 +112,7 @@ where
         'a,
         DocumentIds: IntoIterator<Item = &'a PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = &'a PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, u64> + 'a,
+        PrimaryKey: KeyEncoding<u64> + 'a,
         Database: AsyncConnection,
     >(
         block_ids: DocumentIds,
@@ -287,13 +287,14 @@ impl<Config> ViewSchema for ByFile<Config>
 where
     Config: FileConfig,
 {
+    type MappedKey<'doc> = u32;
     type View = Self;
 
     fn version(&self) -> u64 {
         2
     }
 
-    fn map(&self, doc: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, doc: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let timestamp_offset = doc.contents.len() - size_of::<i64>();
         let file_id_offset = timestamp_offset - size_of::<u32>();
 
@@ -318,7 +319,7 @@ where
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self>],
         _rereduce: bool,
     ) -> Result<<Self::View as View>::Value, bonsaidb_core::Error> {
         Ok(BlockAppendInfo {

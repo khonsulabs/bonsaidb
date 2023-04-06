@@ -8,7 +8,7 @@ use transmog_pot::Pot;
 use crate::connection::{self, AsyncConnection, Connection};
 use crate::document::{BorrowedDocument, CollectionDocument};
 use crate::key::{ByteSource, Key, KeyDescription};
-use crate::schema::view::map::{Mappings, ViewMappedValue};
+use crate::schema::view::map::{MappedValue, Mappings, ViewMappedValue};
 use crate::schema::{Collection, CollectionName, Name, SerializedCollection, ViewName};
 use crate::AnyError;
 
@@ -42,7 +42,10 @@ impl From<pot::Error> for Error {
 }
 
 /// A type alias for the result of `ViewSchema::map()`.
-pub type ViewMapResult<V> = Result<Mappings<<V as View>::Key, <V as View>::Value>, crate::Error>;
+pub type ViewMapResult<'doc, V> = Result<
+    Mappings<<V as ViewSchema>::MappedKey<'doc>, <<V as ViewSchema>::View as View>::Value>,
+    crate::Error,
+>;
 
 /// A type alias for the result of `ViewSchema::reduce()`.
 pub type ReduceResult<V> = Result<<V as View>::Value, crate::Error>;
@@ -88,6 +91,16 @@ pub trait View: Sized + Send + Sync + Debug + 'static {
 pub trait ViewSchema: Send + Sync + Debug + 'static {
     /// The view this schema is defined for.
     type View: SerializedView;
+    /// The key type used during the map/reduce operation.
+    ///
+    /// This can typically be specified as `<Self::View as View>::Key`. However,
+    /// if the view can take advantage of utilizing borrowed data from the
+    /// document in the `map()` and/or `reduce()` function calls, this type can
+    /// utilize the generic associated lifetime `'doc`. For example, `Cow<'doc,
+    /// str>` can be used when the related [`View::Key`] type is `String`, and
+    /// the `map()` function would be able to return a string slice that
+    /// borrowed from the document.
+    type MappedKey<'doc>: Key<'doc>;
 
     /// If true, no two documents may emit the same key. Unique views are
     /// updated when the document is saved, allowing for this check to be done
@@ -117,7 +130,7 @@ pub trait ViewSchema: Send + Sync + Debug + 'static {
     /// View. If None is returned, the View will not include the document. See [the user guide's chapter on
     /// views for more information on how map
     /// works](https://dev.bonsaidb.io/main/guide/about/concepts/view.html#map).
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View>;
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self>;
 
     /// Returns a value that is produced by reducing a list of `mappings` into a
     /// single value. If `rereduce` is true, the values contained in the
@@ -129,7 +142,7 @@ pub trait ViewSchema: Send + Sync + Debug + 'static {
     #[allow(unused_variables)]
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[MappedValue<Self::MappedKey<'_>, <Self::View as View>::Value>],
         rereduce: bool,
     ) -> Result<<Self::View as View>::Value, crate::Error> {
         Err(crate::Error::ReduceUnimplemented)
@@ -193,7 +206,7 @@ where
 /// A [`View`] for a [`Collection`] that stores Serde-compatible documents. The
 /// only difference between implmementing this and [`View`] is that the `map`
 /// function receives a [`CollectionDocument`] instead of a [`BorrowedDocument`].
-pub trait CollectionViewSchema: Send + Sync + Debug + 'static
+pub trait CollectionViewSchema: Send + Sync + Debug + Sized + 'static
 where
     <Self::View as View>::Collection: SerializedCollection,
 {
@@ -229,7 +242,7 @@ where
     fn map(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> ViewMapResult<Self::View>;
+    ) -> ViewMapResult<'static, Self>;
 
     /// The reduce function for this view. If `Err(Error::ReduceUnimplemented)`
     /// is returned, queries that ask for a reduce operation will return an
@@ -239,7 +252,7 @@ where
     #[allow(unused_variables)]
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self>],
         rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Err(crate::Error::ReduceUnimplemented)
@@ -252,19 +265,20 @@ where
     T::View: SerializedView,
     <T::View as View>::Collection: SerializedCollection,
 {
+    type MappedKey<'doc> = <T::View as View>::Key;
     type View = T::View;
 
     fn version(&self) -> u64 {
         T::version(self)
     }
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<'_, Self> {
         T::map(self, CollectionDocument::try_from(document)?)
     }
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self>],
         rereduce: bool,
     ) -> Result<<Self::View as View>::Value, crate::Error> {
         T::reduce(self, mappings, rereduce)
@@ -397,7 +411,7 @@ macro_rules! define_mapped_view {
             fn map(
                 &self,
                 document: $crate::document::CollectionDocument<$collection>,
-            ) -> $crate::schema::ViewMapResult<Self::View> {
+            ) -> $crate::schema::ViewMapResult<'static, Self> {
                 $mapping(document)
             }
         }

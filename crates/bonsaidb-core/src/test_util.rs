@@ -1,5 +1,6 @@
 #![allow(clippy::missing_panics_doc)]
 
+use std::borrow::Cow;
 use std::fmt::{Debug, Display};
 use std::io::ErrorKind;
 use std::ops::Deref;
@@ -22,9 +23,9 @@ use crate::document::{
 use crate::keyvalue::{AsyncKeyValue, KeyValue};
 use crate::limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS};
 use crate::schema::view::map::{Mappings, ViewMappedValue};
-use crate::schema::view::{ReduceResult, ViewSchema};
+use crate::schema::view::{DefaultViewSerialization, ReduceResult, SerializedView, ViewSchema};
 use crate::schema::{
-    Collection, CollectionName, MappedValue, NamedCollection, Qualified, Schema, SchemaName,
+    Collection, CollectionName, MappedValue, Name, NamedCollection, Qualified, Schema, SchemaName,
     Schematic, SerializedCollection, View, ViewMapResult,
 };
 use crate::transaction::{Operation, Transaction};
@@ -38,7 +39,7 @@ use crate::{
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Default, Clone, Collection)]
 // This collection purposely uses names with characters that need
 // escaping, since it's used in backup/restore.
-#[collection(name = "_basic", authority = "khonsulabs_", views = [BasicCount, BasicByParentId, BasicByParentIdEager, BasicByTag, BasicByCategory], core = crate)]
+#[collection(name = "_basic", authority = "khonsulabs_", views = [BasicCount, BasicByParentId, BasicByParentIdEager, BasicByTag, BasicByCategory, BasicByCategoryCow], core = crate)]
 #[must_use]
 pub struct Basic {
     pub value: String,
@@ -78,15 +79,16 @@ impl Basic {
 pub struct BasicCount;
 
 impl ViewSchema for BasicCount {
+    type MappedKey<'doc> = <Self::View as View>::Key;
     type View = Self;
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         document.header.emit_key_and_value((), 1)
     }
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -98,20 +100,21 @@ impl ViewSchema for BasicCount {
 pub struct BasicByParentId;
 
 impl ViewSchema for BasicByParentId {
+    type MappedKey<'doc> = <Self::View as View>::Key;
     type View = Self;
 
     fn version(&self) -> u64 {
         1
     }
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let contents = Basic::document_contents(document)?;
         document.header.emit_key_and_value(contents.parent_id, 1)
     }
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -123,6 +126,7 @@ impl ViewSchema for BasicByParentId {
 pub struct BasicByParentIdEager;
 
 impl ViewSchema for BasicByParentIdEager {
+    type MappedKey<'doc> = <Self::View as View>::Key;
     type View = Self;
 
     fn version(&self) -> u64 {
@@ -133,14 +137,14 @@ impl ViewSchema for BasicByParentIdEager {
         false
     }
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let contents = Basic::document_contents(document)?;
         document.header.emit_key_and_value(contents.parent_id, 1)
     }
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -152,9 +156,10 @@ impl ViewSchema for BasicByParentIdEager {
 pub struct BasicByCategory;
 
 impl ViewSchema for BasicByCategory {
+    type MappedKey<'doc> = <Self::View as View>::Key;
     type View = Self;
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let contents = Basic::document_contents(document)?;
         if let Some(category) = &contents.category {
             document
@@ -167,21 +172,71 @@ impl ViewSchema for BasicByCategory {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct BasicByCategoryCow;
+
+impl View for BasicByCategoryCow {
+    type Collection = Basic;
+    type Key = String;
+    type Value = usize;
+
+    fn name(&self) -> Name {
+        Name::new("by-category-cow")
+    }
+}
+
+impl ViewSchema for BasicByCategoryCow {
+    type MappedKey<'doc> = Cow<'doc, str>;
+    type View = Self;
+
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
+        #[derive(Deserialize, Debug)]
+        struct BorrowedBasic<'a> {
+            category: Option<&'a str>,
+        }
+        let contents: BorrowedBasic<'_> = pot::from_slice(&document.contents)?;
+        if let Some(category) = &contents.category {
+            document
+                .header
+                .emit_key_and_value(Cow::Borrowed(category), 1)
+        } else {
+            Ok(Mappings::none())
+        }
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[ViewMappedValue<'_, Self>],
+        _rereduce: bool,
+    ) -> ReduceResult<Self::View> {
+        Ok(mappings
+            .iter()
+            .map(|map| {
+                assert!(matches!(map.key, Cow::Borrowed(_)));
+                map.value
+            })
+            .sum())
+    }
+}
+
+impl DefaultViewSerialization for BasicByCategoryCow {}
+
 #[derive(Debug, Clone, View)]
 #[view(collection = Basic, key = String, value = usize, name = "by-tag", core = crate)]
 pub struct BasicByTag;
 
 impl ViewSchema for BasicByTag {
+    type MappedKey<'doc> = <Self::View as View>::Key;
     type View = Self;
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let contents = Basic::document_contents(document)?;
         contents
             .tags
@@ -192,7 +247,7 @@ impl ViewSchema for BasicByTag {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -204,9 +259,10 @@ impl ViewSchema for BasicByTag {
 pub struct BasicByBrokenParentId;
 
 impl ViewSchema for BasicByBrokenParentId {
+    type MappedKey<'doc> = <Self::View as View>::Key;
     type View = Self;
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         document.header.emit()
     }
 }
@@ -246,15 +302,16 @@ impl EncryptedBasic {
 pub struct EncryptedBasicCount;
 
 impl ViewSchema for EncryptedBasicCount {
+    type MappedKey<'doc> = <Self::View as View>::Key;
     type View = Self;
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         document.header.emit_key_and_value((), 1)
     }
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -266,16 +323,17 @@ impl ViewSchema for EncryptedBasicCount {
 pub struct EncryptedBasicByParentId;
 
 impl ViewSchema for EncryptedBasicByParentId {
+    type MappedKey<'doc> = <Self::View as View>::Key;
     type View = Self;
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let contents = EncryptedBasic::document_contents(document)?;
         document.header.emit_key_and_value(contents.parent_id, 1)
     }
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -287,9 +345,10 @@ impl ViewSchema for EncryptedBasicByParentId {
 pub struct EncryptedBasicByCategory;
 
 impl ViewSchema for EncryptedBasicByCategory {
+    type MappedKey<'doc> = <Self::View as View>::Key;
     type View = Self;
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let contents = EncryptedBasic::document_contents(document)?;
         if let Some(category) = &contents.category {
             document
@@ -302,7 +361,7 @@ impl ViewSchema for EncryptedBasicByCategory {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -332,13 +391,14 @@ impl Unique {
 pub struct UniqueValue;
 
 impl ViewSchema for UniqueValue {
+    type MappedKey<'doc> = <Self::View as View>::Key;
     type View = Self;
 
     fn unique(&self) -> bool {
         true
     }
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let entry = Unique::document_contents(document)?;
         document.header.emit_key(entry.value)
     }
@@ -456,6 +516,7 @@ pub enum HarnessTest {
     ViewMultiEmit,
     ViewUnimplementedReduce,
     ViewAccessPolicies,
+    ViewCow,
     Encryption,
     UniqueViews,
     NamedCollection,
@@ -906,6 +967,14 @@ macro_rules! define_blocking_connection_test_suite {
                 let db = harness.connect()?;
 
                 $crate::test_util::blocking_unique_view_tests(&db)?;
+                harness.shutdown()
+            }
+
+            #[test]
+            fn cow_views() -> anyhow::Result<()> {
+                let harness = $harness::new($crate::test_util::HarnessTest::ViewCow)?;
+                let db = harness.connect()?;
+                $crate::test_util::blocking_cow_views(&db)?;
                 harness.shutdown()
             }
 
@@ -2481,6 +2550,21 @@ pub fn blocking_unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     } else {
         unreachable!("unique key violation not triggered");
     }
+
+    Ok(())
+}
+
+pub fn blocking_cow_views<C: Connection>(db: &C) -> anyhow::Result<()> {
+    db.collection::<Basic>()
+        .push(&Basic::new("test").with_category("category"))?;
+
+    let mapping = BasicByCategoryCow::entries(db)
+        .query()?
+        .into_iter()
+        .next()
+        .expect("mapping not found");
+    assert_eq!(mapping.key, "category");
+    assert_eq!(BasicByCategoryCow::entries(db).reduce()?, 1);
 
     Ok(())
 }

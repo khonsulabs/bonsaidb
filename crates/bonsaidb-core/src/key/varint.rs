@@ -191,7 +191,7 @@ where
     }
 }
 
-impl<'k, T> KeyEncoding<'k> for VarInt<T>
+impl<T> KeyEncoding for VarInt<T>
 where
     T: VariableInteger,
 {
@@ -210,7 +210,7 @@ where
         T::describe_contents(visitor);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         let mut output = Vec::with_capacity(16);
         self.0.encode_variable(&mut output)?;
         Ok(Cow::Owned(output))

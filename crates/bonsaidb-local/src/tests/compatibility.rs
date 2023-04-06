@@ -44,7 +44,7 @@ impl CollectionViewSchema for UniqueView {
     fn map(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> bonsaidb_core::schema::ViewMapResult<Self::View> {
+    ) -> bonsaidb_core::schema::ViewMapResult<'static, Self> {
         document.header.emit_key(document.contents.name)
     }
 }
@@ -66,7 +66,7 @@ impl CollectionViewSchema for Scores {
     fn map(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> bonsaidb_core::schema::ViewMapResult<Self::View> {
+    ) -> bonsaidb_core::schema::ViewMapResult<'static, Self> {
         document
             .header
             .emit_key_and_value(document.contents.key, document.contents.value)
@@ -74,7 +74,7 @@ impl CollectionViewSchema for Scores {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self::View>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())

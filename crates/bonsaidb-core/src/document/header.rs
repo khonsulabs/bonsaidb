@@ -49,7 +49,7 @@ pub trait Emit {
     }
 
     /// Creates a `Map` result with a `key` and `value`.
-    fn emit_key_and_value<K: for<'k> Key<'k>, Value>(
+    fn emit_key_and_value<K, Value>(
         &self,
         key: K,
         value: Value,
@@ -57,7 +57,7 @@ pub trait Emit {
 }
 
 impl Emit for Header {
-    fn emit_key_and_value<K: for<'k> Key<'k>, Value>(
+    fn emit_key_and_value<K, Value>(
         &self,
         key: K,
         value: Value,
@@ -87,7 +87,7 @@ impl<PrimaryKey> Emit for CollectionHeader<PrimaryKey>
 where
     PrimaryKey: for<'k> Key<'k>,
 {
-    fn emit_key_and_value<K: for<'k> Key<'k>, Value>(
+    fn emit_key_and_value<K, Value>(
         &self,
         key: K,
         value: Value,

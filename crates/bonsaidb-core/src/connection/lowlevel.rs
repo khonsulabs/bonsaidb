@@ -49,7 +49,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     where
         C: schema::Collection,
         B: Into<Bytes> + Send,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + Send + ?Sized,
+        PrimaryKey: KeyEncoding<C::PrimaryKey> + Send + ?Sized,
     {
         let contents = contents.into();
         let results = self.apply_transaction(Transaction::insert(
@@ -110,7 +110,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
     where
         C: schema::Collection,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+        PrimaryKey: KeyEncoding<C::PrimaryKey>,
     {
         let results = self.apply_transaction(Transaction::overwrite(
             C::collection_name(),
@@ -135,7 +135,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     fn get<C, PrimaryKey>(&self, id: &PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
         C: schema::Collection,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + ?Sized,
+        PrimaryKey: KeyEncoding<C::PrimaryKey> + ?Sized,
     {
         self.get_from_collection(DocumentId::new(id)?, &C::collection_name())
     }
@@ -155,7 +155,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         C: schema::Collection,
         DocumentIds: IntoIterator<Item = &'id PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = &'id PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + 'id + ?Sized,
+        PrimaryKey: KeyEncoding<C::PrimaryKey> + 'id + ?Sized,
     {
         let ids = ids
             .into_iter()
@@ -182,7 +182,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     where
         C: schema::Collection,
         R: Into<RangeRef<'id, C::PrimaryKey, PrimaryKey>> + Send,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + PartialEq + 'id + ?Sized,
+        PrimaryKey: KeyEncoding<C::PrimaryKey> + PartialEq + 'id + ?Sized,
         C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         let ids = ids.into().map_result(|id| DocumentId::new(id))?;
@@ -208,7 +208,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     where
         C: schema::Collection,
         R: Into<RangeRef<'id, C::PrimaryKey, PrimaryKey>> + Send,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + PartialEq + 'id + ?Sized,
+        PrimaryKey: KeyEncoding<C::PrimaryKey> + PartialEq + 'id + ?Sized,
         C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         let ids = ids.into().map_result(|id| DocumentId::new(id))?;
@@ -227,7 +227,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     where
         C: schema::Collection,
         R: Into<RangeRef<'id, C::PrimaryKey, PrimaryKey>> + Send,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + PartialEq + 'id + ?Sized,
+        PrimaryKey: KeyEncoding<C::PrimaryKey> + PartialEq + 'id + ?Sized,
         C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         self.count_from_collection(
@@ -274,7 +274,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         access_policy: AccessPolicy,
     ) -> Result<ViewMappings<V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
@@ -318,7 +318,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<OwnedDocument, V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<Key> + PartialEq<Key>,
     {
         // Query permission is checked by the query call
@@ -356,7 +356,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<CollectionDocument<V::Collection>, V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<Key> + PartialEq<Key>,
         V: schema::SerializedView,
         V::Collection: SerializedCollection,
@@ -388,7 +388,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         access_policy: AccessPolicy,
     ) -> Result<V::Value, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
@@ -417,7 +417,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         access_policy: AccessPolicy,
     ) -> Result<GroupedReductions<V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
@@ -453,7 +453,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         access_policy: AccessPolicy,
     ) -> Result<u64, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
@@ -661,7 +661,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
         contents: B,
     ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + ?Sized,
+        PrimaryKey: KeyEncoding<C::PrimaryKey> + ?Sized,
     {
         let contents = contents.into();
         let results = self
@@ -726,7 +726,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
     where
         C: schema::Collection,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+        PrimaryKey: KeyEncoding<C::PrimaryKey>,
     {
         let results = self
             .apply_transaction(Transaction::overwrite(
@@ -754,7 +754,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     async fn get<C, PrimaryKey>(&self, id: &PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
         C: schema::Collection,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + ?Sized,
+        PrimaryKey: KeyEncoding<C::PrimaryKey> + ?Sized,
     {
         self.get_from_collection(DocumentId::new(id)?, &C::collection_name())
             .await
@@ -776,7 +776,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
         C: schema::Collection,
         DocumentIds: IntoIterator<Item = &'id PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = &'id PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + 'id + ?Sized,
+        PrimaryKey: KeyEncoding<C::PrimaryKey> + 'id + ?Sized,
     {
         let ids = ids
             .into_iter()
@@ -805,7 +805,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     where
         C: schema::Collection,
         R: Into<RangeRef<'id, C::PrimaryKey, PrimaryKey>> + Send,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + PartialEq + 'id + ?Sized,
+        PrimaryKey: KeyEncoding<C::PrimaryKey> + PartialEq + 'id + ?Sized,
         C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         let ids = ids.into().map_result(|id| DocumentId::new(id))?;
@@ -832,7 +832,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     where
         C: schema::Collection,
         R: Into<RangeRef<'id, C::PrimaryKey, PrimaryKey>> + Send,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + PartialEq + 'id + ?Sized,
+        PrimaryKey: KeyEncoding<C::PrimaryKey> + PartialEq + 'id + ?Sized,
         C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         let ids = ids.into().map_result(|id| DocumentId::new(id))?;
@@ -853,7 +853,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     where
         C: schema::Collection,
         R: Into<RangeRef<'id, C::PrimaryKey, PrimaryKey>> + Send,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + PartialEq + 'id + ?Sized,
+        PrimaryKey: KeyEncoding<C::PrimaryKey> + PartialEq + 'id + ?Sized,
         C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         self.count_from_collection(
@@ -899,7 +899,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
         access_policy: AccessPolicy,
     ) -> Result<ViewMappings<V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
@@ -941,7 +941,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<OwnedDocument, V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<Key> + PartialEq<Key>,
     {
         // Query permission is checked by the query call
@@ -980,7 +980,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<CollectionDocument<V::Collection>, V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<Key> + PartialEq<Key>,
         V: schema::SerializedView,
         V::Collection: SerializedCollection,
@@ -1013,7 +1013,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
         access_policy: AccessPolicy,
     ) -> Result<V::Value, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
@@ -1041,7 +1041,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
         access_policy: AccessPolicy,
     ) -> Result<GroupedReductions<V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
@@ -1076,7 +1076,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
         access_policy: AccessPolicy,
     ) -> Result<u64, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        Key: KeyEncoding<V::Key> + PartialEq + ?Sized,
         V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;

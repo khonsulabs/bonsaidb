@@ -5,11 +5,11 @@ use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::document::{DocumentId, Header, OwnedDocument};
-use crate::schema::view::{self, ByteSource, Key, SerializedView, View};
+use crate::schema::view::{self, ByteSource, Key, SerializedView, View, ViewSchema};
 
 /// A document's entry in a View's mappings.
 #[derive(Eq, PartialEq, Debug)]
-pub struct Map<K: for<'k> Key<'k> = (), V = ()> {
+pub struct Map<K = (), V = ()> {
     /// The header of the document that emitted this entry.
     pub source: Header,
 
@@ -20,11 +20,13 @@ pub struct Map<K: for<'k> Key<'k> = (), V = ()> {
     pub value: V,
 }
 
-impl<K: for<'k> Key<'k>, V> Map<K, V> {
+impl<K, V> Map<K, V> {
     /// Serializes this map.
-    pub(crate) fn serialized<View: SerializedView<Value = V>>(
-        &self,
-    ) -> Result<Serialized, view::Error> {
+    pub(crate) fn serialized<'a, View>(&self) -> Result<Serialized, view::Error>
+    where
+        K: Key<'a>,
+        View: SerializedView<Value = V>,
+    {
         Ok(Serialized {
             source: self.source.clone(),
             key: Bytes::from(
@@ -38,7 +40,7 @@ impl<K: for<'k> Key<'k>, V> Map<K, V> {
     }
 }
 
-impl<K: for<'k> Key<'k>, V> Map<K, V> {
+impl<K, V> Map<K, V> {
     /// Creates a new Map entry for the document with id `source`.
     pub const fn new(source: Header, key: K, value: V) -> Self {
         Self { source, key, value }
@@ -48,20 +50,20 @@ impl<K: for<'k> Key<'k>, V> Map<K, V> {
 /// A collection of [`Map`]s.
 #[derive(Debug, Eq, PartialEq)]
 #[must_use]
-pub enum Mappings<K: for<'k> Key<'k> = (), V = ()> {
+pub enum Mappings<K = (), V = ()> {
     /// Zero or one mappings.
     Simple(Option<Map<K, V>>),
     /// More than one mapping.
     List(Vec<Map<K, V>>),
 }
 
-impl<K: for<'k> Key<'k>, V> Default for Mappings<K, V> {
+impl<K, V> Default for Mappings<K, V> {
     fn default() -> Self {
         Self::none()
     }
 }
 
-impl<K: for<'k> Key<'k>, V> Mappings<K, V> {
+impl<K, V> Mappings<K, V> {
     /// Returns an empty collection of mappings.
     pub const fn none() -> Self {
         Self::Simple(None)
@@ -86,9 +88,28 @@ impl<K: for<'k> Key<'k>, V> Mappings<K, V> {
         self.extend(mappings);
         self
     }
+
+    /// Returns an iterator for these mappings.
+    pub fn iter(&self) -> MappingsIter<'_, K, V> {
+        self.into_iter()
+    }
+
+    /// Returns the number of mappings contained.
+    pub fn len(&self) -> usize {
+        match self {
+            Mappings::Simple(None) => 0,
+            Mappings::Simple(Some(_)) => 1,
+            Mappings::List(v) => v.len(),
+        }
+    }
+
+    /// Returns true if there are no mappings in this collection.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
-impl<K: for<'k> Key<'k>, V> Extend<Map<K, V>> for Mappings<K, V> {
+impl<K, V> Extend<Map<K, V>> for Mappings<K, V> {
     fn extend<T: IntoIterator<Item = Map<K, V>>>(&mut self, iter: T) {
         let iter = iter.into_iter();
         for map in iter {
@@ -97,7 +118,7 @@ impl<K: for<'k> Key<'k>, V> Extend<Map<K, V>> for Mappings<K, V> {
     }
 }
 
-impl<K: for<'k> Key<'k>, V> FromIterator<Map<K, V>> for Mappings<K, V> {
+impl<K, V> FromIterator<Map<K, V>> for Mappings<K, V> {
     fn from_iter<T: IntoIterator<Item = Map<K, V>>>(iter: T) -> Self {
         let mut mappings = Self::none();
         mappings.extend(iter);
@@ -105,7 +126,7 @@ impl<K: for<'k> Key<'k>, V> FromIterator<Map<K, V>> for Mappings<K, V> {
     }
 }
 
-impl<K: for<'k> Key<'k>, V> FromIterator<Self> for Mappings<K, V> {
+impl<K, V> FromIterator<Self> for Mappings<K, V> {
     fn from_iter<T: IntoIterator<Item = Self>>(iter: T) -> Self {
         let mut iter = iter.into_iter();
         if let Some(mut collected) = iter.next() {
@@ -119,33 +140,64 @@ impl<K: for<'k> Key<'k>, V> FromIterator<Self> for Mappings<K, V> {
     }
 }
 
-impl<K: for<'k> Key<'k>, V> IntoIterator for Mappings<K, V> {
-    type IntoIter = MappingsIter<K, V>;
+impl<K, V> IntoIterator for Mappings<K, V> {
+    type IntoIter = MappingsIntoIter<K, V>;
     type Item = Map<K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
         match self {
-            Mappings::Simple(option) => MappingsIter::Inline(option),
-            Mappings::List(list) => MappingsIter::Vec(list.into_iter()),
+            Mappings::Simple(option) => MappingsIntoIter::Inline(option),
+            Mappings::List(list) => MappingsIntoIter::Vec(list.into_iter()),
         }
     }
 }
 
-/// An iterator over [`Mappings`].
-pub enum MappingsIter<K: for<'k> Key<'k> = (), V = ()> {
+impl<'a, K, V> IntoIterator for &'a Mappings<K, V> {
+    type IntoIter = MappingsIter<'a, K, V>;
+    type Item = &'a Map<K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        match self {
+            Mappings::Simple(option) => MappingsIter::Inline(option.iter()),
+            Mappings::List(list) => MappingsIter::Vec(list.iter()),
+        }
+    }
+}
+
+/// An iterator over [`Mappings`] that returns owned [`Map`] entries.
+pub enum MappingsIntoIter<K = (), V = ()> {
     /// An iterator over a [`Mappings::Simple`] value.
     Inline(Option<Map<K, V>>),
     /// An iterator over a [`Mappings::List`] value.
     Vec(std::vec::IntoIter<Map<K, V>>),
 }
 
-impl<K: for<'k> Key<'k>, V> Iterator for MappingsIter<K, V> {
+impl<K, V> Iterator for MappingsIntoIter<K, V> {
     type Item = Map<K, V>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            MappingsIter::Inline(opt) => opt.take(),
-            MappingsIter::Vec(iter) => iter.next(),
+            MappingsIntoIter::Inline(opt) => opt.take(),
+            MappingsIntoIter::Vec(iter) => iter.next(),
+        }
+    }
+}
+
+/// An iterator over [`Mappings`] that returns [`Map`] entry references.
+pub enum MappingsIter<'a, K = (), V = ()> {
+    /// An iterator over a [`Mappings::Simple`] value.
+    Inline(std::option::Iter<'a, Map<K, V>>),
+    /// An iterator over a [`Mappings::List`] value.
+    Vec(std::slice::Iter<'a, Map<K, V>>),
+}
+
+impl<'a, K, V> Iterator for MappingsIter<'a, K, V> {
+    type Item = &'a Map<K, V>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            MappingsIter::Inline(i) => i.next(),
+            MappingsIter::Vec(i) => i.next(),
         }
     }
 }
@@ -289,7 +341,7 @@ impl MappedSerializedDocuments {
 
 /// A key value pair
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct MappedValue<K: for<'k> Key<'k>, V> {
+pub struct MappedValue<K, V> {
     /// The key responsible for generating the value
     pub key: K,
 
@@ -297,7 +349,7 @@ pub struct MappedValue<K: for<'k> Key<'k>, V> {
     pub value: V,
 }
 
-impl<K: for<'k> Key<'k>, V> MappedValue<K, V> {
+impl<K, V> MappedValue<K, V> {
     /// Returns a new instance with the key/value pair.
     pub const fn new(key: K, value: V) -> Self {
         Self { key, value }
@@ -305,7 +357,8 @@ impl<K: for<'k> Key<'k>, V> MappedValue<K, V> {
 }
 
 /// A mapped value in a [`View`].
-pub type ViewMappedValue<V> = MappedValue<<V as View>::Key, <V as View>::Value>;
+pub type ViewMappedValue<'doc, V> =
+    MappedValue<<V as ViewSchema>::MappedKey<'doc>, <<V as ViewSchema>::View as View>::Value>;
 
 /// A serialized [`MappedValue`].
 #[derive(Clone, Serialize, Deserialize, Debug)]
