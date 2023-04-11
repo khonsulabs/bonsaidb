@@ -400,7 +400,7 @@ where
         true
     }
 
-    fn map(&self, doc: CollectionDocument<File<Config>>) -> ViewMapResult<Self::View> {
+    fn map(&self, doc: CollectionDocument<File<Config>>) -> ViewMapResult<'static, Self> {
         doc.header.emit_key_and_value(
             OwnedFileKey(FileKey::Full {
                 path: Cow::Owned(doc.contents.path.unwrap_or_else(|| String::from("/"))),
@@ -505,7 +505,7 @@ impl<'k> Key<'k> for OwnedFileKey {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for OwnedFileKey {
+impl KeyEncoding<Self> for OwnedFileKey {
     type Error = CompositeKeyError;
 
     const LENGTH: Option<usize> = None;
@@ -517,12 +517,12 @@ impl<'k> KeyEncoding<'k, Self> for OwnedFileKey {
         FileKey::describe(visitor);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<std::borrow::Cow<'_, [u8]>, Self::Error> {
         self.0.as_ord_bytes()
     }
 }
 
-impl<'k, 'fk> KeyEncoding<'k, OwnedFileKey> for FileKey<'fk> {
+impl<'fk> KeyEncoding<OwnedFileKey> for FileKey<'fk> {
     type Error = CompositeKeyError;
 
     const LENGTH: Option<usize> = None;
@@ -539,7 +539,7 @@ impl<'k, 'fk> KeyEncoding<'k, OwnedFileKey> for FileKey<'fk> {
         visitor.visit_type(KeyKind::String);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<std::borrow::Cow<'_, [u8]>, Self::Error> {
         match self {
             FileKey::Full { path, name } => {
                 let mut encoder = CompositeKeyEncoder::default();

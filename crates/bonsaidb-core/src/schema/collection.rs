@@ -326,7 +326,7 @@ pub trait SerializedCollection: Collection {
     ) -> Result<Option<CollectionDocument<Self>>, Error>
     where
         C: Connection,
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
+        PrimaryKey: KeyEncoding<Self::PrimaryKey>,
         Self: Sized,
     {
         let possible_doc = connection.get::<Self, _>(id)?;
@@ -356,7 +356,7 @@ pub trait SerializedCollection: Collection {
     ) -> Result<Option<CollectionDocument<Self>>, Error>
     where
         C: AsyncConnection,
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
+        PrimaryKey: KeyEncoding<Self::PrimaryKey>,
         Self: Sized,
     {
         let possible_doc = connection.get::<Self, _>(id).await?;
@@ -387,7 +387,7 @@ pub trait SerializedCollection: Collection {
         C: Connection,
         DocumentIds: IntoIterator<Item = &'id PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = &'id PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey> + 'id,
+        PrimaryKey: KeyEncoding<Self::PrimaryKey> + 'id,
         Self: Sized,
     {
         connection
@@ -422,7 +422,7 @@ pub trait SerializedCollection: Collection {
         C: AsyncConnection,
         DocumentIds: IntoIterator<Item = &'id PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = &'id PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey> + 'id,
+        PrimaryKey: KeyEncoding<Self::PrimaryKey> + 'id,
         Self: Sized,
     {
         connection
@@ -455,7 +455,7 @@ pub trait SerializedCollection: Collection {
     where
         R: Into<RangeRef<'id, Self::PrimaryKey, PrimaryKey>>,
         C: Connection,
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey> + PartialEq + 'id,
+        PrimaryKey: KeyEncoding<Self::PrimaryKey> + PartialEq + 'id,
         Self::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
         Self: Sized,
     {
@@ -493,7 +493,7 @@ pub trait SerializedCollection: Collection {
     where
         R: Into<RangeRef<'id, Self::PrimaryKey, PrimaryKey>>,
         C: AsyncConnection,
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey> + PartialEq + 'id + ?Sized,
+        PrimaryKey: KeyEncoding<Self::PrimaryKey> + PartialEq + 'id + ?Sized,
         Self::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
         Self: Sized,
     {
@@ -531,7 +531,7 @@ pub trait SerializedCollection: Collection {
         C: Connection,
         Self: Sized,
         PrimaryKey: IntoPrefixRange<'a, Self::PrimaryKey>
-            + for<'k> KeyEncoding<'k, Self::PrimaryKey>
+            + KeyEncoding<Self::PrimaryKey>
             + PartialEq
             + ?Sized,
         Self::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
@@ -570,7 +570,7 @@ pub trait SerializedCollection: Collection {
         C: AsyncConnection,
         Self: Sized,
         PrimaryKey: IntoPrefixRange<'a, Self::PrimaryKey>
-            + for<'k> KeyEncoding<'k, Self::PrimaryKey>
+            + KeyEncoding<Self::PrimaryKey>
             + PartialEq
             + ?Sized,
         Self::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
@@ -947,7 +947,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
+        PrimaryKey: KeyEncoding<Self::PrimaryKey>,
         Cn: Connection,
         Self: Sized + 'static,
     {
@@ -982,7 +982,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
+        PrimaryKey: KeyEncoding<Self::PrimaryKey>,
         Cn: AsyncConnection,
         Self: Sized + 'static,
         Self::Contents: 'async_trait,
@@ -1016,7 +1016,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
+        PrimaryKey: KeyEncoding<Self::PrimaryKey>,
         Cn: Connection,
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
@@ -1047,7 +1047,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
+        PrimaryKey: KeyEncoding<Self::PrimaryKey>,
         Cn: AsyncConnection,
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
@@ -1076,7 +1076,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
+        PrimaryKey: KeyEncoding<Self::PrimaryKey>,
         Cn: Connection,
         Self: Sized + 'static,
     {
@@ -1114,7 +1114,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
+        PrimaryKey: KeyEncoding<Self::PrimaryKey>,
         Cn: AsyncConnection,
         Self: Sized + 'static,
         Self::Contents: 'async_trait,
@@ -1151,7 +1151,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
+        PrimaryKey: KeyEncoding<Self::PrimaryKey>,
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
         Self::overwrite(id, self, connection)
@@ -1183,7 +1183,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
+        PrimaryKey: KeyEncoding<Self::PrimaryKey>,
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
         Self::overwrite_async(id, self, connection).await
@@ -1997,14 +1997,14 @@ where
 pub struct List<'a, Cn, Cl, PrimaryKey>(connection::List<'a, Cn, Cl, PrimaryKey>)
 where
     Cl: Collection,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+    PrimaryKey: KeyEncoding<Cl::PrimaryKey> + PartialEq + ?Sized,
     Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>;
 
 impl<'a, Cn, Cl, PrimaryKey> List<'a, Cn, Cl, PrimaryKey>
 where
     Cl: SerializedCollection,
     Cn: Connection,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized + 'a,
+    PrimaryKey: KeyEncoding<Cl::PrimaryKey> + PartialEq + ?Sized + 'a,
     Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
     /// Lists documents by id in ascending order.
@@ -2086,14 +2086,14 @@ where
 pub struct AsyncList<'a, Cn, Cl, PrimaryKey>(connection::AsyncList<'a, Cn, Cl, PrimaryKey>)
 where
     Cl: Collection,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+    PrimaryKey: KeyEncoding<Cl::PrimaryKey> + PartialEq + ?Sized,
     Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>;
 
 impl<'a, Cn, Cl, PrimaryKey> AsyncList<'a, Cn, Cl, PrimaryKey>
 where
     Cl: Collection,
     Cn: AsyncConnection,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+    PrimaryKey: KeyEncoding<Cl::PrimaryKey> + PartialEq + ?Sized,
     Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
     /// Lists documents by id in ascending order.
@@ -2168,7 +2168,7 @@ impl<'a, Cn, Cl, PrimaryKey> Future for AsyncList<'a, Cn, Cl, PrimaryKey>
 where
     Cl: SerializedCollection + Unpin,
     Cn: AsyncConnection,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + Unpin + ?Sized + 'a,
+    PrimaryKey: KeyEncoding<Cl::PrimaryKey> + PartialEq + Unpin + ?Sized + 'a,
     Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey> + Unpin,
 {
     type Output = Result<Vec<CollectionDocument<Cl>>, Error>;

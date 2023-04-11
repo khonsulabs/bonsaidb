@@ -25,9 +25,10 @@ pub struct BlogPost {
 pub struct BlogPostsByCategory;
 
 impl ViewSchema for BlogPostsByCategory {
+    type MappedKey<'doc> = Option<String>;
     type View = Self;
 
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let post = BlogPost::document_contents(document)?;
         document.header.emit_key_and_value(post.category, 1)
     }

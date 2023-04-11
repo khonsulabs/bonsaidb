@@ -19,7 +19,7 @@ impl<'k> Key<'k> for Duration {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for Duration {
+impl KeyEncoding<Self> for Duration {
     type Error = TimeError;
 
     const LENGTH: Option<usize> = None;
@@ -35,7 +35,7 @@ impl<'k> KeyEncoding<'k, Self> for Duration {
         visitor.visit_type(KeyKind::Unsigned);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         let merged = u128::from(self.as_secs()) << 30 | u128::from(self.subsec_nanos());
         // It's safe to unwrap here, because under the hood ordered-varint can
         // only raise an error if the top bits are set. Since we only ever add
@@ -71,7 +71,7 @@ impl<'k> Key<'k> for SystemTime {
     }
 }
 
-impl<'k> KeyEncoding<'k, Self> for SystemTime {
+impl KeyEncoding<Self> for SystemTime {
     type Error = TimeError;
 
     const LENGTH: Option<usize> = None;
@@ -87,7 +87,7 @@ impl<'k> KeyEncoding<'k, Self> for SystemTime {
         visitor.visit_type(KeyKind::Unsigned);
     }
 
-    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         let since_epoch = self.duration_since(UNIX_EPOCH).unwrap();
         match since_epoch.as_ord_bytes()? {
             Cow::Owned(bytes) => Ok(Cow::Owned(bytes)),
@@ -315,7 +315,7 @@ pub mod limited {
         }
     }
 
-    impl<'k, Resolution> KeyEncoding<'k, Self> for LimitedResolutionDuration<Resolution>
+    impl<Resolution> KeyEncoding<Self> for LimitedResolutionDuration<Resolution>
     where
         Resolution: TimeResolution,
     {
@@ -333,10 +333,10 @@ pub mod limited {
                 )),
                 1,
             );
-            <Resolution::Representation as KeyEncoding<'_>>::describe(visitor);
+            <Resolution::Representation as KeyEncoding>::describe(visitor);
         }
 
-        fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+        fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
             self.representation
                 .to_variable_vec()
                 .map(Cow::Owned)
@@ -1169,7 +1169,7 @@ pub mod limited {
         }
     }
 
-    impl<'k, Resolution, Epoch> KeyEncoding<'k, Self> for LimitedResolutionTimestamp<Resolution, Epoch>
+    impl<Resolution, Epoch> KeyEncoding<Self> for LimitedResolutionTimestamp<Resolution, Epoch>
     where
         Resolution: TimeResolution,
         Epoch: TimeEpoch,
@@ -1189,10 +1189,10 @@ pub mod limited {
                 1,
             );
             visitor.visit_composite_attribute("epoch", Epoch::epoch_offset().as_nanos());
-            <Resolution::Representation as KeyEncoding<'_>>::describe(visitor);
+            <Resolution::Representation as KeyEncoding>::describe(visitor);
         }
 
-        fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+        fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
             self.0.as_ord_bytes()
         }
     }

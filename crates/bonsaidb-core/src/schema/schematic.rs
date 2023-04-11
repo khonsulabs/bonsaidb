@@ -214,7 +214,6 @@ impl<V, S> Serialized for ViewInstance<V, S>
 where
     V: SerializedView,
     S: ViewSchema<View = V>,
-    <V as View>::Key: 'static,
 {
     fn collection(&self) -> CollectionName {
         <<V as View>::Collection as Collection>::collection_name()
@@ -241,25 +240,27 @@ where
     }
 
     fn map(&self, document: &BorrowedDocument<'_>) -> Result<Vec<map::Serialized>, view::Error> {
-        let map = self.schema.map(document)?;
+        let mappings = self.schema.map(document)?;
 
-        map.into_iter()
-            .map(|map| map.serialized::<V>())
-            .collect::<Result<Vec<_>, view::Error>>()
+        mappings
+            .iter()
+            .map(map::Map::serialized::<V>)
+            .collect::<Result<_, _>>()
+            .map_err(view::Error::key_serialization)
     }
 
     fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, view::Error> {
         let mappings = mappings
             .iter()
-            .map(
-                |(key, value)| match <V::Key as Key>::from_ord_bytes(ByteSource::Borrowed(key)) {
+            .map(|(key, value)| {
+                match <S::MappedKey<'_> as Key>::from_ord_bytes(ByteSource::Borrowed(key)) {
                     Ok(key) => {
                         let value = V::deserialize(value)?;
                         Ok(MappedValue::new(key, value))
                     }
                     Err(err) => Err(view::Error::key_serialization(err)),
-                },
-            )
+                }
+            })
             .collect::<Result<Vec<_>, view::Error>>()?;
 
         let reduced_value = self.schema.reduce(&mappings, rereduce)?;
@@ -305,7 +306,7 @@ fn schema_tests() -> anyhow::Result<()> {
         schema.collections_by_type_id[&TypeId::of::<Basic>()],
         Basic::collection_name()
     );
-    assert_eq!(schema.views.len(), 5);
+    assert_eq!(schema.views.len(), 6);
     assert_eq!(
         schema.views[&TypeId::of::<BasicCount>()].view_name(),
         View::view_name(&BasicCount)
