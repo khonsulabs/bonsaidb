@@ -6,7 +6,7 @@ mod summary;
 pub mod view;
 use std::fmt::Debug;
 
-pub use bonsaidb_macros::{Collection, Schema, View};
+pub use bonsaidb_macros::{Collection, Schema, View, ViewSchema};
 
 pub use self::collection::{
     AsyncEntry, AsyncList, Collection, DefaultSerialization, InsertError, List, Nameable,
@@ -20,7 +20,7 @@ pub use self::schematic::Schematic;
 pub use self::summary::{CollectionSummary, SchemaSummary, ViewSummary};
 pub use self::view::map::{Map, MappedValue, ViewMappedValue};
 pub use self::view::{
-    CollectionViewSchema, DefaultViewSerialization, ReduceResult, SerializedView, View,
+    CollectionMapReduce, DefaultViewSerialization, MapReduce, ReduceResult, SerializedView, View,
     ViewMapResult, ViewSchema,
 };
 use crate::Error;

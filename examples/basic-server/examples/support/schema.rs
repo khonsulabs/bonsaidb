@@ -1,6 +1,7 @@
 use bonsaidb::core::document::{CollectionDocument, Emit};
-use bonsaidb::core::schema::view::CollectionViewSchema;
-use bonsaidb::core::schema::{Collection, ReduceResult, View, ViewMapResult, ViewMappedValue};
+use bonsaidb::core::schema::{
+    Collection, CollectionMapReduce, ReduceResult, View, ViewMapResult, ViewMappedValue, ViewSchema,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Collection)]
@@ -15,17 +16,15 @@ impl Shape {
     }
 }
 
-#[derive(Debug, Clone, View)]
+#[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = Shape, key = u32, value = usize, name = "by-number-of-sides")]
 pub struct ShapesByNumberOfSides;
 
-impl CollectionViewSchema for ShapesByNumberOfSides {
-    type View = Self;
-
-    fn map(
+impl CollectionMapReduce for ShapesByNumberOfSides {
+    fn map<'doc>(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> ViewMapResult<Self::View> {
+    ) -> ViewMapResult<'doc, Self::View> {
         document
             .header
             .emit_key_and_value(document.contents.sides, 1)

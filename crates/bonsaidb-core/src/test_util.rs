@@ -23,10 +23,10 @@ use crate::document::{
 use crate::keyvalue::{AsyncKeyValue, KeyValue};
 use crate::limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS};
 use crate::schema::view::map::{Mappings, ViewMappedValue};
-use crate::schema::view::{DefaultViewSerialization, ReduceResult, SerializedView, ViewSchema};
+use crate::schema::view::{MapReduce, ReduceResult, SerializedView};
 use crate::schema::{
-    Collection, CollectionName, MappedValue, Name, NamedCollection, Qualified, Schema, SchemaName,
-    Schematic, SerializedCollection, View, ViewMapResult,
+    Collection, CollectionName, MappedValue, NamedCollection, Qualified, Schema, SchemaName,
+    Schematic, SerializedCollection, View, ViewMapResult, ViewSchema,
 };
 use crate::transaction::{Operation, Transaction};
 use crate::Error;
@@ -74,14 +74,12 @@ impl Basic {
     }
 }
 
-#[derive(Debug, Clone, View)]
+#[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = Basic, key = (), value = usize, name = "count", core = crate)]
+#[view_schema(core = crate)]
 pub struct BasicCount;
 
-impl ViewSchema for BasicCount {
-    type MappedKey<'doc> = <Self::View as View>::Key;
-    type View = Self;
-
+impl MapReduce for BasicCount {
     fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         document.header.emit_key_and_value((), 1)
     }
@@ -106,7 +104,9 @@ impl ViewSchema for BasicByParentId {
     fn version(&self) -> u64 {
         1
     }
+}
 
+impl MapReduce for BasicByParentId {
     fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let contents = Basic::document_contents(document)?;
         document.header.emit_key_and_value(contents.parent_id, 1)
@@ -121,22 +121,12 @@ impl ViewSchema for BasicByParentId {
     }
 }
 
-#[derive(Debug, Clone, View)]
+#[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = Basic, key = Option<u64>, value = usize, name = "by-parent-id-eager", core = crate)]
+#[view_schema(core = crate, version = 1, lazy = false)]
 pub struct BasicByParentIdEager;
 
-impl ViewSchema for BasicByParentIdEager {
-    type MappedKey<'doc> = <Self::View as View>::Key;
-    type View = Self;
-
-    fn version(&self) -> u64 {
-        1
-    }
-
-    fn lazy(&self) -> bool {
-        false
-    }
-
+impl MapReduce for BasicByParentIdEager {
     fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let contents = Basic::document_contents(document)?;
         document.header.emit_key_and_value(contents.parent_id, 1)
@@ -151,14 +141,12 @@ impl ViewSchema for BasicByParentIdEager {
     }
 }
 
-#[derive(Debug, Clone, View)]
+#[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = Basic, key = String, value = usize, name = "by-category", core = crate)]
+#[view_schema(core = crate)]
 pub struct BasicByCategory;
 
-impl ViewSchema for BasicByCategory {
-    type MappedKey<'doc> = <Self::View as View>::Key;
-    type View = Self;
-
+impl MapReduce for BasicByCategory {
     fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let contents = Basic::document_contents(document)?;
         if let Some(category) = &contents.category {
@@ -179,23 +167,12 @@ impl ViewSchema for BasicByCategory {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View, ViewSchema)]
+#[view(collection = Basic, key = String, value = usize, name = "by-category-cow", core = crate)]
+#[view_schema(core = crate, mapped_key = Cow<'doc, str>)]
 pub struct BasicByCategoryCow;
 
-impl View for BasicByCategoryCow {
-    type Collection = Basic;
-    type Key = String;
-    type Value = usize;
-
-    fn name(&self) -> Name {
-        Name::new("by-category-cow")
-    }
-}
-
-impl ViewSchema for BasicByCategoryCow {
-    type MappedKey<'doc> = Cow<'doc, str>;
-    type View = Self;
-
+impl MapReduce for BasicByCategoryCow {
     fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         #[derive(Deserialize, Debug)]
         struct BorrowedBasic<'a> {
@@ -226,16 +203,12 @@ impl ViewSchema for BasicByCategoryCow {
     }
 }
 
-impl DefaultViewSerialization for BasicByCategoryCow {}
-
-#[derive(Debug, Clone, View)]
+#[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = Basic, key = String, value = usize, name = "by-tag", core = crate)]
+#[view_schema(core = crate)]
 pub struct BasicByTag;
 
-impl ViewSchema for BasicByTag {
-    type MappedKey<'doc> = <Self::View as View>::Key;
-    type View = Self;
-
+impl MapReduce for BasicByTag {
     fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let contents = Basic::document_contents(document)?;
         contents
@@ -254,14 +227,12 @@ impl ViewSchema for BasicByTag {
     }
 }
 
-#[derive(Debug, Clone, View)]
+#[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = Basic, key = (), value = (), name = "by-parent-id", core = crate)]
+#[view_schema(core = crate)]
 pub struct BasicByBrokenParentId;
 
-impl ViewSchema for BasicByBrokenParentId {
-    type MappedKey<'doc> = <Self::View as View>::Key;
-    type View = Self;
-
+impl MapReduce for BasicByBrokenParentId {
     fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         document.header.emit()
     }
@@ -297,14 +268,12 @@ impl EncryptedBasic {
     }
 }
 
-#[derive(Debug, Clone, View)]
+#[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = EncryptedBasic, key = (), value = usize, name = "count", core = crate)]
+#[view_schema(core = crate)]
 pub struct EncryptedBasicCount;
 
-impl ViewSchema for EncryptedBasicCount {
-    type MappedKey<'doc> = <Self::View as View>::Key;
-    type View = Self;
-
+impl MapReduce for EncryptedBasicCount {
     fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         document.header.emit_key_and_value((), 1)
     }
@@ -318,14 +287,12 @@ impl ViewSchema for EncryptedBasicCount {
     }
 }
 
-#[derive(Debug, Clone, View)]
+#[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = EncryptedBasic, key = Option<u64>, value = usize, name = "by-parent-id", core = crate)]
+#[view_schema(core = crate)]
 pub struct EncryptedBasicByParentId;
 
-impl ViewSchema for EncryptedBasicByParentId {
-    type MappedKey<'doc> = <Self::View as View>::Key;
-    type View = Self;
-
+impl MapReduce for EncryptedBasicByParentId {
     fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let contents = EncryptedBasic::document_contents(document)?;
         document.header.emit_key_and_value(contents.parent_id, 1)
@@ -340,14 +307,12 @@ impl ViewSchema for EncryptedBasicByParentId {
     }
 }
 
-#[derive(Debug, Clone, View)]
+#[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = EncryptedBasic, key = String, value = usize, name = "by-category", core = crate)]
+#[view_schema(core = crate)]
 pub struct EncryptedBasicByCategory;
 
-impl ViewSchema for EncryptedBasicByCategory {
-    type MappedKey<'doc> = <Self::View as View>::Key;
-    type View = Self;
-
+impl MapReduce for EncryptedBasicByCategory {
     fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let contents = EncryptedBasic::document_contents(document)?;
         if let Some(category) = &contents.category {
@@ -386,18 +351,12 @@ impl Unique {
     }
 }
 
-#[derive(Debug, Clone, View)]
+#[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = Unique, key = String, value = (), name = "unique-value", core = crate)]
+#[view_schema(core = crate, unique = true)]
 pub struct UniqueValue;
 
-impl ViewSchema for UniqueValue {
-    type MappedKey<'doc> = <Self::View as View>::Key;
-    type View = Self;
-
-    fn unique(&self) -> bool {
-        true
-    }
-
+impl MapReduce for UniqueValue {
     fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let entry = Unique::document_contents(document)?;
         document.header.emit_key(entry.value)

@@ -6,8 +6,8 @@ use bonsaidb_core::connection::{Connection, StorageConnection};
 use bonsaidb_core::document::{CollectionDocument, Emit};
 use bonsaidb_core::keyvalue::KeyValue;
 use bonsaidb_core::schema::{
-    Collection, CollectionViewSchema, ReduceResult, Schema, SerializedCollection, View,
-    ViewMappedValue,
+    Collection, CollectionMapReduce, ReduceResult, Schema, SerializedCollection, View,
+    ViewMappedValue, ViewSchema,
 };
 use bonsaidb_core::test_util::TestDirectory;
 use fs_extra::dir;
@@ -30,21 +30,16 @@ struct Unique {
     name: String,
 }
 
-#[derive(View, Debug, Clone)]
+#[derive(View, Debug, Clone, ViewSchema)]
 #[view(collection = Unique, key = String, core = bonsaidb_core)]
+#[view_schema(core = bonsaidb_core, unique = true)]
 struct UniqueView;
 
-impl CollectionViewSchema for UniqueView {
-    type View = UniqueView;
-
-    fn unique(&self) -> bool {
-        true
-    }
-
-    fn map(
+impl CollectionMapReduce for UniqueView {
+    fn map<'doc>(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> bonsaidb_core::schema::ViewMapResult<'static, Self> {
+    ) -> bonsaidb_core::schema::ViewMapResult<'doc, Self> {
         document.header.emit_key(document.contents.name)
     }
 }
@@ -56,17 +51,16 @@ struct Basic {
     value: u32,
 }
 
-#[derive(Clone, View, Debug)]
+#[derive(Clone, View, ViewSchema, Debug)]
 #[view(collection = Basic, key = String, value = u32, core = bonsaidb_core)]
+#[view_schema(core = bonsaidb_core)]
 struct Scores;
 
-impl CollectionViewSchema for Scores {
-    type View = Scores;
-
-    fn map(
+impl CollectionMapReduce for Scores {
+    fn map<'doc>(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> bonsaidb_core::schema::ViewMapResult<'static, Self> {
+    ) -> bonsaidb_core::schema::ViewMapResult<'doc, Self> {
         document
             .header
             .emit_key_and_value(document.contents.key, document.contents.value)

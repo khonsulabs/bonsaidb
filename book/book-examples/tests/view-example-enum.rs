@@ -3,7 +3,7 @@ use bonsaidb::core::document::{BorrowedDocument, Emit};
 use bonsaidb::core::key::Key;
 use bonsaidb::core::schema::view::map::ViewMappedValue;
 use bonsaidb::core::schema::{
-    Collection, ReduceResult, SerializedCollection, View, ViewMapResult, ViewSchema,
+    Collection, MapReduce, ReduceResult, SerializedCollection, View, ViewMapResult, ViewSchema,
 };
 use bonsaidb::core::Error;
 use bonsaidb::local::config::{Builder, StorageConfiguration};
@@ -30,14 +30,11 @@ pub struct BlogPost {
 
 // ANCHOR: view
 
-#[derive(Debug, Clone, View)]
+#[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = BlogPost, key = Option<Category>, value = u32, name = "by-category")]
 pub struct BlogPostsByCategory;
 
-impl ViewSchema for BlogPostsByCategory {
-    type MappedKey<'doc> = Option<Category>;
-    type View = Self;
-
+impl MapReduce for BlogPostsByCategory {
     fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let post = BlogPost::document_contents(document)?;
         document.header.emit_key_and_value(post.category, 1)

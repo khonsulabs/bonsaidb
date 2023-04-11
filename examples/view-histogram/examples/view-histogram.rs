@@ -16,9 +16,9 @@
 use std::ops::Deref;
 
 use bonsaidb::core::document::{CollectionDocument, Emit};
-use bonsaidb::core::schema::view::CollectionViewSchema;
 use bonsaidb::core::schema::{
-    Collection, ReduceResult, SerializedCollection, SerializedView, View, ViewMappedValue,
+    Collection, CollectionMapReduce, ReduceResult, SerializedCollection, SerializedView, View,
+    ViewMappedValue, ViewSchema,
 };
 use bonsaidb::core::transmog::{Format, OwnedDeserializer};
 use bonsaidb::local::config::{Builder, StorageConfiguration};
@@ -83,17 +83,15 @@ pub struct Samples {
 }
 
 /// A view for [`Samples`] which produces a histogram.
-#[derive(Debug, Clone, View)]
+#[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = Samples, key = u64, value = SyncHistogram<u64>, name = "as-histogram", serialization = None)]
 pub struct AsHistogram;
 
-impl CollectionViewSchema for AsHistogram {
-    type View = Self;
-
-    fn map(
+impl CollectionMapReduce for AsHistogram {
+    fn map<'doc>(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> bonsaidb::core::schema::ViewMapResult<Self::View> {
+    ) -> bonsaidb::core::schema::ViewMapResult<'doc, Self::View> {
         let mut histogram = Histogram::new(4).unwrap();
         for sample in &document.contents.entries {
             histogram.record(*sample).unwrap();
@@ -106,7 +104,7 @@ impl CollectionViewSchema for AsHistogram {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self::View>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         let mut mappings = mappings.iter();

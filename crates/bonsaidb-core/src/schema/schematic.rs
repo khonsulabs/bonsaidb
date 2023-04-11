@@ -9,7 +9,7 @@ use crate::document::{BorrowedDocument, DocumentId, KeyId};
 use crate::key::{ByteSource, Key, KeyDescription};
 use crate::schema::collection::Collection;
 use crate::schema::view::map::{self, MappedValue};
-use crate::schema::view::{self, Serialized, SerializedView, ViewSchema};
+use crate::schema::view::{self, MapReduce, Serialized, SerializedView, ViewSchema};
 use crate::schema::{CollectionName, Schema, SchemaName, View, ViewName};
 use crate::Error;
 
@@ -66,7 +66,7 @@ impl Schematic {
     }
 
     /// Adds the view `V`.
-    pub fn define_view<V: ViewSchema<View = V> + SerializedView + Clone + 'static>(
+    pub fn define_view<V: MapReduce + ViewSchema<View = V> + SerializedView + Clone + 'static>(
         &mut self,
         view: V,
     ) -> Result<(), Error> {
@@ -76,7 +76,7 @@ impl Schematic {
     /// Adds the view `V`.
     pub fn define_view_with_schema<
         V: SerializedView + 'static,
-        S: ViewSchema<View = V> + 'static,
+        S: MapReduce + ViewSchema<View = V> + 'static,
     >(
         &mut self,
         view: V,
@@ -213,7 +213,7 @@ struct ViewInstance<V, S> {
 impl<V, S> Serialized for ViewInstance<V, S>
 where
     V: SerializedView,
-    S: ViewSchema<View = V>,
+    S: MapReduce + ViewSchema<View = V>,
 {
     fn collection(&self) -> CollectionName {
         <<V as View>::Collection as Collection>::collection_name()

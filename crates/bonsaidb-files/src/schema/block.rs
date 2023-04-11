@@ -9,7 +9,7 @@ use bonsaidb_core::document::{BorrowedDocument, Emit};
 use bonsaidb_core::key::time::TimestampAsNanoseconds;
 use bonsaidb_core::key::KeyEncoding;
 use bonsaidb_core::schema::{
-    Collection, CollectionName, View, ViewMapResult, ViewMappedValue, ViewSchema,
+    Collection, CollectionName, MapReduce, View, ViewMapResult, ViewMappedValue, ViewSchema,
 };
 use bonsaidb_core::transaction::{Operation, Transaction};
 use derive_where::derive_where;
@@ -276,24 +276,19 @@ where
 }
 
 #[derive_where(Clone, Debug, Default)]
-#[derive(View)]
+#[derive(View, ViewSchema)]
 #[view(name = "by-file", collection = Block<Config>, key = u32, value = BlockAppendInfo)]
 #[view(core = bonsaidb_core)]
+#[view_schema(version = 2)]
+#[view_schema(core = bonsaidb_core)]
 struct ByFile<Config>(PhantomData<Config>)
 where
     Config: FileConfig;
 
-impl<Config> ViewSchema for ByFile<Config>
+impl<Config> MapReduce for ByFile<Config>
 where
     Config: FileConfig,
 {
-    type MappedKey<'doc> = u32;
-    type View = Self;
-
-    fn version(&self) -> u64 {
-        2
-    }
-
     fn map<'doc>(&self, doc: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         let timestamp_offset = doc.contents.len() - size_of::<i64>();
         let file_id_offset = timestamp_offset - size_of::<u32>();

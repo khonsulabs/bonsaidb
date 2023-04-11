@@ -10,9 +10,9 @@ use bonsaidb::core::connection::{
 use bonsaidb::core::document::{CollectionDocument, CollectionHeader, Emit};
 use bonsaidb::core::schema::view::map::Mappings;
 use bonsaidb::core::schema::{
-    Collection, CollectionName, CollectionViewSchema, DefaultSerialization, InsertError,
+    Collection, CollectionMapReduce, CollectionName, DefaultSerialization, InsertError,
     NamedCollection, Qualified, ReduceResult, Schema, Schematic, SerializedCollection, View,
-    ViewMapResult, ViewMappedValue,
+    ViewMapResult, ViewMappedValue, ViewSchema,
 };
 use bonsaidb::core::transaction::{self, Transaction};
 use bonsaidb::core::{define_basic_unique_mapped_view, Error};
@@ -421,17 +421,15 @@ define_basic_unique_mapped_view!(
     |document: CollectionDocument<Product>| { document.header.emit_key(document.contents.name) },
 );
 
-#[derive(Debug, Clone, View)]
+#[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = Product, key = u32, value = u32, name = "by-category")]
 pub struct ProductsByCategoryId;
 
-impl CollectionViewSchema for ProductsByCategoryId {
-    type View = Self;
-
-    fn map(
+impl CollectionMapReduce for ProductsByCategoryId {
+    fn map<'doc>(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> ViewMapResult<'static, Self> {
+    ) -> ViewMapResult<'doc, Self> {
         let mut mappings = Mappings::default();
         for &id in &document.contents.category_ids {
             mappings = mappings.and(document.header.emit_key_and_value(id, 1)?);
@@ -459,17 +457,15 @@ impl Collection for ProductReview {
 
 impl DefaultSerialization for ProductReview {}
 
-#[derive(Debug, Clone, View)]
+#[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = ProductReview, key = u32, value = ProductRatings, name = "by-product")]
 pub struct ProductReviewsByProduct;
 
-impl CollectionViewSchema for ProductReviewsByProduct {
-    type View = Self;
-
-    fn map(
+impl CollectionMapReduce for ProductReviewsByProduct {
+    fn map<'doc>(
         &self,
         document: CollectionDocument<<Self as View>::Collection>,
-    ) -> ViewMapResult<'static, Self> {
+    ) -> ViewMapResult<'doc, Self> {
         document.header.emit_key_and_value(
             document.contents.product_id,
             ProductRatings {

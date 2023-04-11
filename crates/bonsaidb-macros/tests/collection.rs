@@ -2,8 +2,8 @@ use core::fmt::Debug;
 
 use bonsaidb::core::document::{CollectionDocument, Emit, KeyId};
 use bonsaidb::core::schema::{
-    Collection, CollectionViewSchema, DefaultSerialization, DefaultViewSerialization, Name,
-    Qualified, Schematic, SerializedCollection, View, ViewMapResult,
+    Collection, CollectionMapReduce, DefaultSerialization, DefaultViewSerialization, Name,
+    Qualified, Schematic, SerializedCollection, View, ViewMapResult, ViewSchema,
 };
 use serde::{Deserialize, Serialize};
 
@@ -57,10 +57,16 @@ fn views() {
         }
     }
 
-    impl CollectionViewSchema for ShapesByNumberOfSides {
+    impl ViewSchema for ShapesByNumberOfSides {
+        type MappedKey<'doc> = u32;
         type View = Self;
+    }
 
-        fn map(&self, document: CollectionDocument<Shape>) -> ViewMapResult<Self::View> {
+    impl CollectionMapReduce for ShapesByNumberOfSides {
+        fn map<'doc>(
+            &self,
+            document: CollectionDocument<Shape>,
+        ) -> ViewMapResult<'doc, Self::View> {
             document
                 .header
                 .emit_key_and_value(document.contents.sides, 1)

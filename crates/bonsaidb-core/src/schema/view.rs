@@ -124,7 +124,14 @@ pub trait ViewSchema: Send + Sync + Debug + 'static {
     fn version(&self) -> u64 {
         0
     }
+}
 
+/// The Map/Reduce functionality for a [`ViewSchema`].
+///
+/// This trait implementation provides the behavior for mapping data from
+/// documents into their key/value pairs for this view, as well as reducing
+/// multiple values into a single value.
+pub trait MapReduce: ViewSchema {
     /// The map function for this view. This function is responsible for
     /// emitting entries for any documents that should be contained in this
     /// View. If None is returned, the View will not include the document. See [the user guide's chapter on
@@ -203,46 +210,24 @@ where
     }
 }
 
-/// A [`View`] for a [`Collection`] that stores Serde-compatible documents. The
-/// only difference between implmementing this and [`View`] is that the `map`
-/// function receives a [`CollectionDocument`] instead of a [`BorrowedDocument`].
-pub trait CollectionViewSchema: Send + Sync + Debug + Sized + 'static
+/// A [`MapReduce`] implementation that automatically serializes/deserializes
+/// using [`CollectionDocument`] and [`SerializedCollection`].
+///
+/// Implementing this trait automatically implements [`ViewSchema`] for the same
+/// type.
+pub trait CollectionMapReduce: ViewSchema
 where
     <Self::View as View>::Collection: SerializedCollection,
 {
-    /// The view this schema is an implementation of.
-    type View: SerializedView;
-
-    /// If true, no two documents may emit the same key. Unique views are
-    /// updated when the document is saved, allowing for this check to be done
-    /// atomically. When a document is updated, all unique views will be
-    /// updated, and if any of them fail, the document will not be allowed to
-    /// update and an
-    /// [`Error::UniqueKeyViolation`](crate::Error::UniqueKeyViolation) will be
-    /// returned.
-    fn unique(&self) -> bool {
-        false
-    }
-
-    /// Returns whether this view should be lazily updated. If true, views will
-    /// be updated only when accessed. If false, views will be updated during
-    /// the transaction that is updating the affected documents.
-    fn lazy(&self) -> bool {
-        true
-    }
-
-    /// The version of the view. Changing this value will cause indexes to be rebuilt.
-    fn version(&self) -> u64 {
-        0
-    }
-
     /// The map function for this view. This function is responsible for
     /// emitting entries for any documents that should be contained in this
     /// View. If None is returned, the View will not include the document.
-    fn map(
+    fn map<'doc>(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> ViewMapResult<'static, Self>;
+    ) -> ViewMapResult<'doc, Self>
+    where
+        CollectionDocument<<Self::View as View>::Collection>: 'doc;
 
     /// The reduce function for this view. If `Err(Error::ReduceUnimplemented)`
     /// is returned, queries that ask for a reduce operation will return an
@@ -259,20 +244,35 @@ where
     }
 }
 
-impl<T> ViewSchema for T
+// impl<T> ViewSchema for T
+// where
+//     T: CollectionViewSchema,
+//     T::View: SerializedView,
+//     <T::View as View>::Collection: SerializedCollection,
+// {
+//     type MappedKey<'doc> = <T::View as View>::Key;
+//     type View = T::View;
+
+//     fn version(&self) -> u64 {
+//         T::version(self)
+//     }
+
+//     fn unique(&self) -> bool {
+//         T::unique(self)
+//     }
+
+//     fn lazy(&self) -> bool {
+//         T::lazy(self)
+//     }
+// }
+
+impl<T> MapReduce for T
 where
-    T: CollectionViewSchema,
+    T: CollectionMapReduce,
     T::View: SerializedView,
     <T::View as View>::Collection: SerializedCollection,
 {
-    type MappedKey<'doc> = <T::View as View>::Key;
-    type View = T::View;
-
-    fn version(&self) -> u64 {
-        T::version(self)
-    }
-
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<'_, Self> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         T::map(self, CollectionDocument::try_from(document)?)
     }
 
@@ -282,14 +282,6 @@ where
         rereduce: bool,
     ) -> Result<<Self::View as View>::Value, crate::Error> {
         T::reduce(self, mappings, rereduce)
-    }
-
-    fn unique(&self) -> bool {
-        T::unique(self)
-    }
-
-    fn lazy(&self) -> bool {
-        T::lazy(self)
     }
 }
 
@@ -397,7 +389,8 @@ macro_rules! define_mapped_view {
             }
         }
 
-        impl $crate::schema::CollectionViewSchema for $view_name {
+        impl $crate::schema::ViewSchema for $view_name {
+            type MappedKey<'doc> = <Self as $crate::schema::View>::Key;
             type View = Self;
 
             fn unique(&self) -> bool {
@@ -407,11 +400,13 @@ macro_rules! define_mapped_view {
             fn version(&self) -> u64 {
                 $version
             }
+        }
 
-            fn map(
+        impl $crate::schema::CollectionMapReduce for $view_name {
+            fn map<'doc>(
                 &self,
                 document: $crate::document::CollectionDocument<$collection>,
-            ) -> $crate::schema::ViewMapResult<'static, Self> {
+            ) -> $crate::schema::ViewMapResult<'doc, Self> {
                 $mapping(document)
             }
         }

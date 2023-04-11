@@ -15,7 +15,8 @@ use std::time::SystemTime;
 
 use bonsaidb::core::document::{CollectionDocument, Emit};
 use bonsaidb::core::schema::{
-    Collection, CollectionViewSchema, SerializedCollection, SerializedView, View, ViewMapResult,
+    Collection, CollectionMapReduce, SerializedCollection, SerializedView, View, ViewMapResult,
+    ViewSchema,
 };
 use bonsaidb::local::config::{Builder, StorageConfiguration};
 use bonsaidb::local::Database;
@@ -40,17 +41,15 @@ impl Message {
     }
 }
 
-#[derive(View, Debug, Clone)]
+#[derive(View, ViewSchema, Debug, Clone)]
 #[view(name = "by-keyword", collection = Message, key = String, value = String)]
 struct MessagesByWords;
 
-impl CollectionViewSchema for MessagesByWords {
-    type View = Self;
-
-    fn map(
+impl CollectionMapReduce for MessagesByWords {
+    fn map<'doc>(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> ViewMapResult<Self::View> {
+    ) -> ViewMapResult<'doc, Self::View> {
         // Emit a key/value mapping for each word found in the subject and body.
         let subject_words =
             keywords(&document.contents.subject).map(|word| (word, String::from("subject")));
