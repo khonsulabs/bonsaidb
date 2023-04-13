@@ -45,8 +45,7 @@ impl Command {
                         let Some(view) = collection.view(&view)
                                 else { return Err(crate::Error::Core(bonsaidb_core::Error::ViewNotFound))};
                         println!("Version: {}", view.version);
-                        println!("Lazy: {}", view.lazy);
-                        println!("Unique: {}", view.unique);
+                        println!("Policy: {}", view.policy);
                     }
                     CollectionOrView::Collection(collection) => {
                         let Some(collection) = schema.collection(&collection)

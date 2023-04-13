@@ -23,7 +23,7 @@ use crate::document::{
 use crate::keyvalue::{AsyncKeyValue, KeyValue};
 use crate::limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS};
 use crate::schema::view::map::{Mappings, ViewMappedValue};
-use crate::schema::view::{MapReduce, ReduceResult, SerializedView};
+use crate::schema::view::{MapReduce, ReduceResult, SerializedView, ViewUpdatePolicy};
 use crate::schema::{
     Collection, CollectionName, MappedValue, NamedCollection, Qualified, Schema, SchemaName,
     Schematic, SerializedCollection, View, ViewMapResult, ViewSchema,
@@ -123,7 +123,7 @@ impl MapReduce for BasicByParentId {
 
 #[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = Basic, key = Option<u64>, value = usize, name = "by-parent-id-eager", core = crate)]
-#[view_schema(core = crate, version = 1, lazy = false)]
+#[view_schema(core = crate, version = 1, policy = Eager)]
 pub struct BasicByParentIdEager;
 
 impl MapReduce for BasicByParentIdEager {
@@ -353,7 +353,7 @@ impl Unique {
 
 #[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = Unique, key = String, value = (), name = "unique-value", core = crate)]
-#[view_schema(core = crate, unique = true)]
+#[view_schema(core = crate, policy = Unique)]
 pub struct UniqueValue;
 
 impl MapReduce for UniqueValue {
@@ -3865,8 +3865,7 @@ pub async fn basic_server_connection_tests<C: AsyncStorageConnection>(
         .views()
         .any(|v| v.name == BasicByParentId.view_name()));
     let by_parent_id = basic_collection.view(&BasicByParentId.view_name()).unwrap();
-    assert!(!by_parent_id.unique);
-    assert!(by_parent_id.lazy);
+    assert_eq!(by_parent_id.policy, ViewUpdatePolicy::Lazy);
 
     assert!(schemas
         .iter()
@@ -3929,8 +3928,7 @@ pub fn blocking_basic_server_connection_tests<C: StorageConnection>(
         .views()
         .any(|v| v.name == BasicByParentId.view_name()));
     let by_parent_id = basic_collection.view(&BasicByParentId.view_name()).unwrap();
-    assert!(!by_parent_id.unique);
-    assert!(by_parent_id.lazy);
+    assert_eq!(by_parent_id.policy, ViewUpdatePolicy::Lazy);
 
     assert!(schemas
         .iter()

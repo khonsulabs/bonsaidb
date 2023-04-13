@@ -609,22 +609,21 @@ where
 /// use bonsaidb_core::define_basic_unique_mapped_view;
 /// use bonsaidb_core::document::{CollectionDocument, Emit};
 /// use bonsaidb_core::schema::{
-///     CollectionViewSchema, DefaultViewSerialization, Name, ReduceResult, View, ViewMapResult,
-///     ViewMappedValue,
+///     CollectionMapReduce, DefaultViewSerialization, Name, ReduceResult, View, ViewMapResult,
+///     ViewMappedValue, ViewSchema,
 /// };
 ///
-/// #[derive(Debug, Clone, View)]
+/// #[derive(Debug, Clone, View, ViewSchema)]
 /// #[view(collection = MyCollection, key = u32, value = f32, name = "scores-by-rank")]
 /// # #[view(core = bonsaidb_core)]
+/// # #[view_schema(core = bonsaidb_core)]
 /// pub struct ScoresByRank;
 ///
-/// impl CollectionViewSchema for ScoresByRank {
-///     type View = Self;
-///
-///     fn map(
+/// impl CollectionMapReduce for ScoresByRank {
+///     fn map<'doc>(
 ///         &self,
 ///         document: CollectionDocument<<Self::View as View>::Collection>,
-///     ) -> ViewMapResult<Self::View> {
+///     ) -> ViewMapResult<'doc, Self::View> {
 ///         document
 ///             .header
 ///             .emit_key_and_value(document.contents.rank, document.contents.score)
@@ -632,7 +631,7 @@ where
 ///
 ///     fn reduce(
 ///         &self,
-///         mappings: &[ViewMappedValue<Self::View>],
+///         mappings: &[ViewMappedValue<'_, Self::View>],
 ///         rereduce: bool,
 ///     ) -> ReduceResult<Self::View> {
 ///         if mappings.is_empty() {
@@ -1789,22 +1788,21 @@ where
 /// use bonsaidb_core::define_basic_unique_mapped_view;
 /// use bonsaidb_core::document::{CollectionDocument, Emit};
 /// use bonsaidb_core::schema::{
-///     CollectionViewSchema, DefaultViewSerialization, Name, ReduceResult, View, ViewMapResult,
-///     ViewMappedValue,
+///     CollectionMapReduce, DefaultViewSerialization, Name, ReduceResult, View, ViewMapResult,
+///     ViewMappedValue, ViewSchema,
 /// };
 ///
-/// #[derive(Debug, Clone, View)]
+/// #[derive(Debug, Clone, View, ViewSchema)]
 /// #[view(collection = MyCollection, key = u32, value = f32, name = "scores-by-rank")]
 /// # #[view(core = bonsaidb_core)]
+/// # #[view_schema(core = bonsaidb_core)]
 /// pub struct ScoresByRank;
 ///
-/// impl CollectionViewSchema for ScoresByRank {
-///     type View = Self;
-///
-///     fn map(
+/// impl CollectionMapReduce for ScoresByRank {
+///     fn map<'doc>(
 ///         &self,
 ///         document: CollectionDocument<<Self::View as View>::Collection>,
-///     ) -> ViewMapResult<Self::View> {
+///     ) -> ViewMapResult<'doc, Self::View> {
 ///         document
 ///             .header
 ///             .emit_key_and_value(document.contents.rank, document.contents.score)
@@ -1812,7 +1810,7 @@ where
 ///
 ///     fn reduce(
 ///         &self,
-///         mappings: &[ViewMappedValue<Self::View>],
+///         mappings: &[ViewMappedValue<'_, Self::View>],
 ///         rereduce: bool,
 ///     ) -> ReduceResult<Self::View> {
 ///         if mappings.is_empty() {
@@ -3544,9 +3542,9 @@ macro_rules! __doctest_prelude {
             define_basic_unique_mapped_view,
             document::{CollectionDocument,Emit, Document, OwnedDocument},
             schema::{
-                Collection, CollectionName, CollectionViewSchema, DefaultSerialization,
+                Collection, CollectionName,  DefaultSerialization,
                 DefaultViewSerialization, Name, NamedCollection, ReduceResult, Schema, SchemaName,
-                Schematic, SerializedCollection, View, ViewMapResult, ViewMappedValue, SerializedView,
+                Schematic, SerializedCollection, View, ViewSchema, CollectionMapReduce, ViewMapResult, ViewMappedValue, SerializedView,
             },
             Error,
         };
@@ -3582,16 +3580,16 @@ macro_rules! __doctest_prelude {
             type ByNameView = MyCollectionByName;
         }
 
-        #[derive(Debug, Clone, View)]
+        #[derive(Debug, Clone, View, ViewSchema)]
         #[view(collection = MyCollection, key = u32, value = f32, name = "scores-by-rank", core = $crate)]
+        #[view_schema(core = $crate)]
         pub struct ScoresByRank;
 
-        impl CollectionViewSchema for ScoresByRank {
-            type View = Self;
-            fn map(
+        impl CollectionMapReduce for ScoresByRank {
+            fn map<'doc>(
                 &self,
                 document: CollectionDocument<<Self::View as View>::Collection>,
-            ) -> ViewMapResult<Self::View> {
+            ) -> ViewMapResult<'doc, Self::View> {
                 document
                     .header
                     .emit_key_and_value(document.contents.rank, document.contents.score)
@@ -3599,7 +3597,7 @@ macro_rules! __doctest_prelude {
 
             fn reduce(
                 &self,
-                mappings: &[ViewMappedValue<Self::View>],
+                mappings: &[ViewMappedValue<'_, Self::View>],
                 rereduce: bool,
             ) -> ReduceResult<Self::View> {
                 if mappings.is_empty() {

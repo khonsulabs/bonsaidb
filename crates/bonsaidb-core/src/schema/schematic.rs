@@ -9,7 +9,9 @@ use crate::document::{BorrowedDocument, DocumentId, KeyId};
 use crate::key::{ByteSource, Key, KeyDescription};
 use crate::schema::collection::Collection;
 use crate::schema::view::map::{self, MappedValue};
-use crate::schema::view::{self, MapReduce, Serialized, SerializedView, ViewSchema};
+use crate::schema::view::{
+    self, MapReduce, Serialized, SerializedView, ViewSchema, ViewUpdatePolicy,
+};
 use crate::schema::{CollectionName, Schema, SchemaName, View, ViewName};
 use crate::Error;
 
@@ -89,7 +91,7 @@ impl Schematic {
         }
 
         let collection = instance.collection();
-        let eager = instance.eager();
+        let eager = instance.update_policy().is_eager();
         self.views.insert(TypeId::of::<V>(), Box::new(instance));
         self.views_by_name.insert(name, TypeId::of::<V>());
 
@@ -223,12 +225,8 @@ where
         KeyDescription::for_key::<<V as View>::Key>()
     }
 
-    fn unique(&self) -> bool {
-        self.schema.unique()
-    }
-
-    fn lazy(&self) -> bool {
-        self.schema.lazy()
+    fn update_policy(&self) -> ViewUpdatePolicy {
+        self.schema.update_policy()
     }
 
     fn version(&self) -> u64 {

@@ -3,7 +3,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::punctuated::Punctuated;
 use syn::token::Paren;
-use syn::{DeriveInput, LitStr, Path, Type, TypeTuple};
+use syn::{DeriveInput, Ident, LitStr, Path, Type, TypeTuple};
 
 use crate::{core_path, unwrap_or_abort};
 
@@ -95,10 +95,8 @@ struct ViewSchemaAttribute {
     mapped_key: Option<Type>,
     #[attribute(example = "\"by-name\"")]
     version: Option<u64>,
-    #[attribute(example = "true")]
-    unique: Option<bool>,
-    #[attribute(example = "false")]
-    lazy: Option<bool>,
+    #[attribute(example = "Lazy")]
+    policy: Option<Ident>,
     #[attribute(example = "bosaidb::core")]
     core: Option<Path>,
 }
@@ -115,8 +113,7 @@ pub fn derive_schema(
         view,
         mapped_key,
         version,
-        unique,
-        lazy,
+        policy,
         core,
     } = unwrap_or_abort!(ViewSchemaAttribute::from_attributes(&attrs));
 
@@ -135,15 +132,9 @@ pub fn derive_schema(
         })
     });
 
-    let unique = unique.map(|unique| {
-        quote!(fn unique(&self) -> bool {
-            #unique
-        })
-    });
-
-    let lazy = lazy.map(|lazy| {
-        quote!(fn lazy(&self) -> bool {
-            #lazy
+    let policy = policy.map(|policy| {
+        quote!(fn update_policy(&self) -> #core::schema::view::ViewUpdatePolicy {
+            #core::schema::view::ViewUpdatePolicy::#policy
         })
     });
 
@@ -155,8 +146,7 @@ pub fn derive_schema(
             type MappedKey<'doc> = #mapped_key;
 
             #version
-            #lazy
-            #unique
+            #policy
         }
     }
 }

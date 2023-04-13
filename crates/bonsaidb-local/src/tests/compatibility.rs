@@ -32,7 +32,7 @@ struct Unique {
 
 #[derive(View, Debug, Clone, ViewSchema)]
 #[view(collection = Unique, key = String, core = bonsaidb_core)]
-#[view_schema(core = bonsaidb_core, unique = true)]
+#[view_schema(core = bonsaidb_core, policy = Unique)]
 struct UniqueView;
 
 impl CollectionMapReduce for UniqueView {

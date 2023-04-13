@@ -383,7 +383,7 @@ impl<Config> DefaultSerialization for File<Config> where Config: FileConfig {}
 #[derive(View, ViewSchema)]
 #[view(name = "by-path", collection = File<Config>, key = OwnedFileKey, value = (TimestampAsNanoseconds, Config::Metadata))]
 #[view(core = bonsaidb_core)]
-#[view_schema(version = 3, unique = true, core = bonsaidb_core)]
+#[view_schema(version = 3, policy = Unique, core = bonsaidb_core)]
 pub struct ByPath<Config>(PhantomData<Config>)
 where
     Config: FileConfig;

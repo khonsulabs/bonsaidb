@@ -393,7 +393,7 @@ impl Database {
                 .data
                 .schema
                 .views_in_collection(collection)
-                .filter(|view| !view.eager())
+                .filter(|view| !view.update_policy().is_eager())
                 .peekable();
             if views.peek().is_some() {
                 let changed_documents = changed_documents.collect::<Vec<_>>();

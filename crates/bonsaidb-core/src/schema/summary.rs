@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::key::KeyDescription;
+use crate::schema::view::ViewUpdatePolicy;
 use crate::schema::{CollectionName, SchemaName, Schematic, ViewName};
 
 /// A summary of a [`Schema`](crate::schema::Schema)/[`Schematic`].
@@ -57,8 +58,7 @@ impl<'a> From<&'a Schematic> for SchemaSummary {
                     ViewSummary {
                         name,
                         key: view.key_description(),
-                        lazy: view.lazy(),
-                        unique: view.unique(),
+                        policy: view.update_policy(),
                         version: view.version(),
                     },
                 );
@@ -100,13 +100,12 @@ pub struct ViewSummary {
     pub name: ViewName,
     /// The description of [`View::Key`](crate::schema::View::Key).
     pub key: KeyDescription,
-    /// The result of [`ViewSchema::lazy()`](crate::schema::ViewSchema::lazy)
-    /// for this view.
-    pub lazy: bool,
-    /// The result of [`ViewSchema::unique()`](crate::schema::ViewSchema::unique)
-    /// for this view.
-    pub unique: bool,
-    /// The result of [`ViewSchema::version()`](crate::schema::ViewSchema::version)
-    /// for this view.
+    /// The result of
+    /// [`ViewSchema::policy()`](crate::schema::ViewSchema::policy) for this
+    /// view.
+    pub policy: ViewUpdatePolicy,
+    /// The result of
+    /// [`ViewSchema::version()`](crate::schema::ViewSchema::version) for this
+    /// view.
     pub version: u64,
 }
