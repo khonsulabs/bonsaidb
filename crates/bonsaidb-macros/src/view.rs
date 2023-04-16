@@ -1,11 +1,12 @@
 use attribute_derive::Attribute;
+use manyhow::Result;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::punctuated::Punctuated;
 use syn::token::Paren;
 use syn::{DeriveInput, Ident, LitStr, Path, Type, TypeTuple};
 
-use crate::{core_path, unwrap_or_abort};
+use crate::core_path;
 
 #[derive(Attribute)]
 #[attribute(ident = view)]
@@ -31,7 +32,7 @@ pub fn derive(
         generics,
         ..
     }: DeriveInput,
-) -> TokenStream {
+) -> Result {
     let ViewAttribute {
         collection,
         key,
@@ -39,7 +40,7 @@ pub fn derive(
         value,
         core,
         serialization,
-    } = unwrap_or_abort!(ViewAttribute::from_attributes(&attrs));
+    } = ViewAttribute::from_attributes(&attrs)?;
 
     let core = core.unwrap_or_else(core_path);
 
@@ -72,7 +73,7 @@ pub fn derive(
         },
     };
 
-    quote! {
+    Ok(quote! {
         impl #impl_generics #core::schema::View for #ident #ty_generics #where_clause {
             type Collection = #collection;
             type Key = #key;
@@ -83,7 +84,7 @@ pub fn derive(
             }
         }
         #serialization
-    }
+    })
 }
 
 #[derive(Attribute)]
@@ -108,14 +109,14 @@ pub fn derive_schema(
         generics,
         ..
     }: DeriveInput,
-) -> TokenStream {
+) -> Result {
     let ViewSchemaAttribute {
         view,
         mapped_key,
         version,
         policy,
         core,
-    } = unwrap_or_abort!(ViewSchemaAttribute::from_attributes(&attrs));
+    } = ViewSchemaAttribute::from_attributes(&attrs)?;
 
     let core = core.unwrap_or_else(core_path);
 
@@ -140,7 +141,7 @@ pub fn derive_schema(
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
-    quote! {
+    Ok(quote! {
         impl #impl_generics #core::schema::ViewSchema for #ident #ty_generics #where_clause {
             type View = #view;
             type MappedKey<'doc> = #mapped_key;
@@ -148,5 +149,5 @@ pub fn derive_schema(
             #version
             #policy
         }
-    }
+    })
 }
