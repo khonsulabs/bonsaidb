@@ -12,9 +12,9 @@
 #![cfg_attr(doc, deny(rustdoc::all))]
 
 use attribute_derive::{Attribute, ConvertParsed};
+use manyhow::{bail, manyhow, Result};
 use proc_macro2::{Span, TokenStream};
 use proc_macro_crate::{crate_name, FoundCrate};
-use proc_macro_error::{abort, abort_call_site, proc_macro_error};
 use quote::ToTokens;
 use quote_use::{
     format_ident_namespaced as format_ident, parse_quote_use as parse_quote, quote_use as quote,
@@ -22,7 +22,7 @@ use quote_use::{
 use syn::punctuated::Punctuated;
 use syn::token::Paren;
 use syn::{
-    parse_macro_input, Data, DataEnum, DataStruct, DeriveInput, Expr, Field, Fields, FieldsNamed,
+    parse, Data, DataEnum, DataStruct, DeriveInput, Expr, Field, Fields, FieldsNamed,
     FieldsUnnamed, Ident, Index, LitStr, Path, Token, Type, TypePath, TypeTuple, Variant,
 };
 
@@ -58,17 +58,6 @@ fn core_path() -> Path {
     }
 }
 
-macro_rules! unwrap_or_abort {
-    ($expr:expr) => {
-        match $expr {
-            Ok(t) => t,
-            Err(e) => {
-                return e.into_compile_error().into();
-            }
-        }
-    };
-}
-
 #[derive(Attribute)]
 #[attribute(ident = collection)]
 struct CollectionAttribute {
@@ -92,16 +81,16 @@ struct CollectionAttribute {
 }
 
 /// Derives the `bonsaidb::core::schema::Collection` trait.
-#[proc_macro_error]
 /// `#[collection(authority = "Authority", name = "Name", views = [a, b, c])]`
+#[manyhow]
 #[proc_macro_derive(Collection, attributes(collection))]
-pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn collection_derive(input: proc_macro::TokenStream) -> Result {
     let DeriveInput {
         attrs,
         ident,
         generics,
         ..
-    } = parse_macro_input!(input as DeriveInput);
+    } = parse(input)?;
 
     let CollectionAttribute {
         authority,
@@ -114,10 +103,10 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         encryption_key,
         encryption_required,
         encryption_optional,
-    } = unwrap_or_abort!(CollectionAttribute::from_attributes(&attrs));
+    } = CollectionAttribute::from_attributes(&attrs)?;
 
     if encryption_required && encryption_key.is_none() {
-        abort_call_site!("If `collection(encryption_required)` is set you need to provide an encryption key via `collection(encryption_key = EncryptionKey)`")
+        bail!("If `collection(encryption_required)` is set you need to provide an encryption key via `collection(encryption_key = EncryptionKey)`")
     }
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -129,7 +118,7 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     let serialization = match serialization {
         Some(serialization) if serialization.is_ident("None") => {
             if let Some(natural_id) = natural_id {
-                abort!(
+                bail!(
                     natural_id,
                     "`natural_id` must be manually implemented when using `serialization = None`"
                 );
@@ -198,7 +187,7 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         }
     });
 
-    quote! {
+    Ok(quote! {
         impl #impl_generics #core::schema::Collection for #ident #ty_generics #where_clause {
             type PrimaryKey = #primary_key;
 
@@ -212,8 +201,7 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
             #encryption
         }
         #serialization
-    }
-    .into()
+    })
 }
 
 #[derive(Attribute)]
@@ -235,17 +223,18 @@ struct ViewAttribute {
 }
 
 /// Derives the `bonsaidb::core::schema::View` trait.
-#[proc_macro_error]
+///
 /// `#[view(collection=CollectionType, key=KeyType, value=ValueType, name = "by-name")]`
 /// `name` and `value` are optional
+#[manyhow]
 #[proc_macro_derive(View, attributes(view))]
-pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn view_derive(input: proc_macro::TokenStream) -> Result {
     let DeriveInput {
         attrs,
         ident,
         generics,
         ..
-    } = parse_macro_input!(input as DeriveInput);
+    } = parse(input)?;
 
     let ViewAttribute {
         collection,
@@ -254,7 +243,7 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         value,
         core,
         serialization,
-    } = unwrap_or_abort!(ViewAttribute::from_attributes(&attrs));
+    } = ViewAttribute::from_attributes(&attrs)?;
 
     let core = core.unwrap_or_else(core_path);
 
@@ -287,7 +276,7 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         },
     };
 
-    quote! {
+    Ok(quote! {
         impl #impl_generics #core::schema::View for #ident #ty_generics #where_clause {
             type Collection = #collection;
             type Key = #key;
@@ -298,8 +287,7 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
         #serialization
-    }
-    .into()
+    })
 }
 
 #[derive(Attribute)]
@@ -318,17 +306,18 @@ struct SchemaAttribute {
 }
 
 /// Derives the `bonsaidb::core::schema::Schema` trait.
-#[proc_macro_error]
+///
 /// `#[schema(name = "Name", authority = "Authority", collections = [A, B, C]), core = bonsaidb::core]`
 /// `authority`, `collections` and `core` are optional
+#[manyhow]
 #[proc_macro_derive(Schema, attributes(schema))]
-pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn schema_derive(input: proc_macro::TokenStream) -> Result {
     let DeriveInput {
         attrs,
         ident,
         generics,
         ..
-    } = parse_macro_input!(input as DeriveInput);
+    } = parse(input)?;
 
     let SchemaAttribute {
         name,
@@ -336,7 +325,7 @@ pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
         collections,
         include,
         core,
-    } = unwrap_or_abort!(SchemaAttribute::from_attributes(&attrs));
+    } = SchemaAttribute::from_attributes(&attrs)?;
 
     let core = core.unwrap_or_else(core_path);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -346,9 +335,7 @@ pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
         |authority| quote!(#core::schema::Qualified::new(#authority, #name)),
     );
 
-    // For some reason, quote! does not like #include.
-    let plugins = include;
-    quote! {
+    Ok(quote! {
         impl #impl_generics #core::schema::Schema for #ident #ty_generics #where_clause {
             fn schema_name() -> #core::schema::SchemaName {
                 #name
@@ -359,13 +346,12 @@ pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
             ) -> Result<(), #core::Error> {
                 #( schema.define_collection::<#collections>()?; )*
 
-                #( <#plugins as #core::schema::Schema>::define_collections(schema)?; )*
+                #( <#include as #core::schema::Schema>::define_collections(schema)?; )*
 
                 Ok(())
             }
         }
-    }
-    .into()
+    })
 }
 
 #[derive(Attribute)]
@@ -410,16 +396,16 @@ impl ConvertParsed for NullHandling {
 /// Derives the `bonsaidb::core::key::Key` trait.
 ///
 /// `#[key(null_handling = escape, enum_repr = u8, core = bonsaidb::core)]`, all parameters are optional
-#[proc_macro_error]
+#[manyhow]
 #[proc_macro_derive(Key, attributes(key))]
-pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn key_derive(input: proc_macro::TokenStream) -> Result {
     let DeriveInput {
         attrs,
         ident,
         generics,
         data,
         ..
-    } = parse_macro_input!(input as DeriveInput);
+    } = parse(input)?;
 
     // Only relevant if it is an enum, gets the representation to use for the variant key
     let repr = attrs.iter().find_map(|attr| {
@@ -452,7 +438,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         enum_repr,
         can_own_bytes,
         name,
-    } = unwrap_or_abort!(KeyAttribute::from_attributes(&attrs));
+    } = KeyAttribute::from_attributes(&attrs)?;
 
     let name = name.map_or_else(
         || quote!(std::any::type_name::<Self>()),
@@ -461,7 +447,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     if matches!(data, Data::Struct(_)) && enum_repr.is_some() {
         // TODO better span when attribute-derive supports that
-        abort!(enum_repr, "`enum_repr` is only usable with enums")
+        bail!(enum_repr, "`enum_repr` is only usable with enums")
     }
 
     let repr: Type = enum_repr.unwrap_or_else(|| {
@@ -512,7 +498,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         }) if unnamed.len() == 1 => Some((quote!(0), unnamed[0].ty.clone(), quote!(Self))),
         _ => None,
     } {
-        return quote! {
+        return Ok(quote! {
             # use std::{borrow::Cow, io::{self, ErrorKind}};
             # use #core::key::{ByteSource, KeyVisitor, IncorrectByteLength, Key, KeyEncoding};
 
@@ -540,8 +526,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     self.#name.as_ord_bytes()
                 }
             }
-        }
-        .into();
+        });
     }
 
     let (encode_fields, decode_fields, describe, composite_kind, field_count): (
@@ -606,7 +591,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     )
                 }
                 Fields::Unit => {
-                    return quote! {
+                    return Ok(quote! {
                         # use std::{borrow::Cow, io::{self, ErrorKind}};
                         # use #core::key::{ByteSource, KeyVisitor, IncorrectByteLength, Key, KeyKind, KeyEncoding};
 
@@ -634,8 +619,8 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                 Ok(Cow::Borrowed(&[]))
                             }
                         }
-                    }.into()
-                },
+                    })
+                }
             };
             (
                 encode_fields,
@@ -779,7 +764,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 // Special case: if no enum variants have embedded values,
                 // implement Key as a plain value, avoiding the composite key
                 // overhead.
-                return quote! {
+                return Ok(quote! {
                     # use std::{borrow::Cow, io::{self, ErrorKind}};
                     # use #core::key::{ByteSource, CompositeKeyDecoder, KeyVisitor, CompositeKeyEncoder, CompositeKeyError, Key, KeyEncoding};
 
@@ -816,8 +801,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                             }.map_err(#core::key::CompositeKeyError::new)
                         }
                     }
-                }
-                .into();
+                });
             }
 
             // At least one variant has a value, which means we need to encode a composite field.
@@ -843,10 +827,10 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 field_count,
             )
         }
-        Data::Union(_) => abort_call_site!("unions are not supported"),
+        Data::Union(_) => bail!("unions are not supported"),
     };
 
-    quote! {
+    Ok(quote! {
         # use std::{borrow::Cow, io::{self, ErrorKind}};
         # use #core::key::{ByteSource, CompositeKeyDecoder, KeyVisitor, CompositeKeyEncoder, CompositeKeyError, Key, KeyEncoding};
 
@@ -887,8 +871,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 Ok(Cow::Owned($encoder.finish()))
             }
         }
-    }
-    .into()
+    })
 }
 
 #[derive(Attribute)]
@@ -907,17 +890,18 @@ struct ApiAttribute {
 }
 
 /// Derives the `bonsaidb::core::api::Api` trait.
-#[proc_macro_error]
+///
 /// `#[api(name = "Name", authority = "Authority", response = ResponseType, error = ErrorType, core = bonsaidb::core)]`
 /// `authority`, `response`, `error` and `core` are optional
+#[manyhow]
 #[proc_macro_derive(Api, attributes(api))]
-pub fn api_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn api_derive(input: proc_macro::TokenStream) -> Result {
     let DeriveInput {
         attrs,
         ident,
         generics,
         ..
-    } = parse_macro_input!(input as DeriveInput);
+    } = parse(input)?;
 
     let ApiAttribute {
         name,
@@ -925,7 +909,7 @@ pub fn api_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         response,
         error,
         core,
-    } = unwrap_or_abort!(ApiAttribute::from_attributes(&attrs));
+    } = ApiAttribute::from_attributes(&attrs)?;
 
     let core = core.unwrap_or_else(core_path);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -938,7 +922,7 @@ pub fn api_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let response = response.unwrap_or_else(|| parse_quote!(()));
     let error = error.unwrap_or_else(|| parse_quote!(#core::api::Infallible));
 
-    quote! {
+    Ok(quote! {
         # use #core::api::{Api, ApiName};
 
         impl #impl_generics Api for #ident #ty_generics #where_clause {
@@ -949,8 +933,7 @@ pub fn api_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 #name
             }
         }
-    }
-    .into()
+    })
 }
 
 // -----------------------------------------------------------------------------
@@ -996,17 +979,18 @@ struct FileConfigAttribute {
 }
 
 /// Derives the `bonsaidb::files::FileConfig` trait.
-#[proc_macro_error]
+///
 /// `#[api(metadata = MetadataType, block_size = 65_536, authority = "authority", files_name = "files", blocks_name = "blocks", core = bonsaidb::core, files = bosaidb::files)]`
 /// all arguments are optional
+#[manyhow]
 #[proc_macro_derive(FileConfig, attributes(file_config))]
-pub fn file_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn file_config_derive(input: proc_macro::TokenStream) -> Result {
     let DeriveInput {
         attrs,
         ident,
         generics,
         ..
-    } = parse_macro_input!(input as DeriveInput);
+    } = parse(input)?;
 
     let FileConfigAttribute {
         metadata,
@@ -1016,7 +1000,7 @@ pub fn file_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
         blocks_name,
         core,
         files,
-    } = unwrap_or_abort!(FileConfigAttribute::from_attributes(&attrs));
+    } = FileConfigAttribute::from_attributes(&attrs)?;
 
     let core = core.unwrap_or_else(core_path);
     let files = files.unwrap_or_else(files_path);
@@ -1035,15 +1019,15 @@ pub fn file_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
             quote!(#core::schema::Qualified::private(#files_name)),
             quote!(#core::schema::Qualified::private(#blocks_name)),
         ),
-        (Some(_), ..) => abort_call_site!(
+        (Some(_), ..) => bail!(
             "if `authority` is specified, `files_name` and `blocks_name need to be provided as well"
         ),
-        (_, Some(_), _) => abort_call_site!(
-            "if `files_name` is specified, `blocks_name` needs to be provided as well"
-        ),
-        (_, _, Some(_)) => abort_call_site!(
-            "if `blocks_name` is specified, `files_name` needs to be provided as well"
-        ),
+        (_, Some(_), _) => {
+            bail!("if `files_name` is specified, `blocks_name` needs to be provided as well")
+        }
+        (_, _, Some(_)) => {
+            bail!("if `blocks_name` is specified, `files_name` needs to be provided as well")
+        }
     };
 
     let metadata = metadata
@@ -1053,7 +1037,7 @@ pub fn file_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
         |block_size| quote!(#block_size),
     );
 
-    quote! {
+    Ok(quote! {
         # use #files::FileConfig;
         # use #core::schema::CollectionName;
 
@@ -1069,8 +1053,7 @@ pub fn file_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
                 #blocks_name
             }
         }
-    }
-    .into()
+    })
 }
 
 #[test]
