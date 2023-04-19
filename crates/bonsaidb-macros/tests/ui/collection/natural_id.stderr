@@ -1,0 +1,57 @@
+error: field marked as `natural_id` while `natural_id` expression is specified as well
+
+         = help: remove `#[natural_id]` attribute on field
+ --> tests/ui/collection/natural_id.rs:6:5
+  |
+6 |     #[natural_id]
+  |     ^^^^^^^^^^^^^
+
+error: `natural_id` expression is specified here
+ --> tests/ui/collection/natural_id.rs:4:42
+  |
+4 | #[collection(name = "name", natural_id = Some(self.field))]
+  |                                          ^^^^^^^^^^^^^^^^
+
+error: field marked as `natural_id` while `natural_id` expression is specified as well
+
+         = help: remove `#[natural_id]` attribute on field
+  --> tests/ui/collection/natural_id.rs:12:14
+   |
+12 | struct Test2(#[natural_id] usize);
+   |              ^^^^^^^^^^^^^
+
+error: `natural_id` expression is specified here
+  --> tests/ui/collection/natural_id.rs:11:42
+   |
+11 | #[collection(name = "name", natural_id = Some(self.field))]
+   |                                          ^^^^^^^^^^^^^^^^
+
+error: marked multiple fields as `natural_id`
+
+         = note: currently only one field can be marked as `natural_id`
+         = help: use `#[collection(natural_id=...)]` on the struct instead
+  --> tests/ui/collection/natural_id.rs:19:5
+   |
+19 |     #[natural_id]
+   |     ^^^^^^^^^^^^^
+
+error: previous `natural_id`
+  --> tests/ui/collection/natural_id.rs:17:5
+   |
+17 |     #[natural_id]
+   |     ^^^^^^^^^^^^^
+
+error: marked multiple fields as `natural_id`
+
+         = note: currently only one field can be marked as `natural_id`
+         = help: use `#[collection(natural_id=...)]` on the struct instead
+  --> tests/ui/collection/natural_id.rs:25:35
+   |
+25 | struct Test4(#[natural_id] usize, #[natural_id] usize);
+   |                                   ^^^^^^^^^^^^^
+
+error: previous `natural_id`
+  --> tests/ui/collection/natural_id.rs:25:14
+   |
+25 | struct Test4(#[natural_id] usize, #[natural_id] usize);
+   |              ^^^^^^^^^^^^^

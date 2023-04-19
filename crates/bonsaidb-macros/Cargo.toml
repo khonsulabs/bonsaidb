@@ -23,7 +23,7 @@ quote = "1"
 quote-use = { version = "0.7.0", features = ["namespace_idents"] }
 syn = "2"
 trybuild = "1.0.54"
-manyhow = "0.1.0"
+manyhow = "0.2"
 
 [dev-dependencies]
 compiletest_rs = "0.9"

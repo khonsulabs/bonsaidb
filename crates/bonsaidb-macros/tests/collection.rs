@@ -158,3 +158,17 @@ fn natural_id() {
     #[collection(natural_id = Some(self.0 as u64))]
     struct Test(u8);
 }
+
+#[test]
+fn natural_id_attr() {
+    #[derive(Collection, Debug, Deserialize, Serialize)]
+    #[collection(name = "Name")]
+    struct TestTuple(#[natural_id] u8);
+
+    #[derive(Collection, Debug, Deserialize, Serialize)]
+    #[collection(name = "Name")]
+    struct TestStruct {
+        #[natural_id]
+        named: String,
+    }
+}

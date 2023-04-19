@@ -12,14 +12,15 @@
 #![cfg_attr(doc, deny(rustdoc::all))]
 
 use attribute_derive::{Attribute, ConvertParsed};
-use manyhow::{bail, manyhow, Result};
+use manyhow::{bail, error_message, manyhow, JoinToTokensError, Result};
 use proc_macro2::{Span, TokenStream};
 use proc_macro_crate::{crate_name, FoundCrate};
-use quote::ToTokens;
+use quote::{quote_spanned, ToTokens};
 use quote_use::{
     format_ident_namespaced as format_ident, parse_quote_use as parse_quote, quote_use as quote,
 };
 use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 use syn::token::Paren;
 use syn::{
     parse, Data, DataEnum, DataStruct, DeriveInput, Expr, Field, Fields, FieldsNamed,
@@ -83,12 +84,13 @@ struct CollectionAttribute {
 /// Derives the `bonsaidb::core::schema::Collection` trait.
 /// `#[collection(authority = "Authority", name = "Name", views = [a, b, c])]`
 #[manyhow]
-#[proc_macro_derive(Collection, attributes(collection))]
+#[proc_macro_derive(Collection, attributes(collection, natural_id))]
 pub fn collection_derive(input: proc_macro::TokenStream) -> Result {
     let DeriveInput {
         attrs,
         ident,
         generics,
+        data,
         ..
     } = parse(input)?;
 
@@ -97,13 +99,53 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> Result {
         name,
         views,
         serialization,
-        primary_key,
-        natural_id,
+        mut primary_key,
+        mut natural_id,
         core,
         encryption_key,
         encryption_required,
         encryption_optional,
     } = CollectionAttribute::from_attributes(&attrs)?;
+
+    if let Data::Struct(DataStruct { fields, .. }) = data {
+        let mut previous: Option<syn::Attribute> = None;
+        for (
+            idx,
+            Field {
+                attrs, ident, ty, ..
+            },
+        ) in fields.into_iter().enumerate()
+        {
+            if let Some(attr) = attrs
+                .into_iter()
+                .find(|attr| attr.path().is_ident("natural_id"))
+            {
+                if let Some(previous) = &previous {
+                    bail!(error_message!(attr,
+                            "marked multiple fields as `natural_id`";
+                            note="currently only one field can be marked as `natural_id`";
+                            help="use `#[collection(natural_id=...)]` on the struct instead")
+                    .join(error_message!(previous, "previous `natural_id`")));
+                }
+                if let Some(natural_id) = &natural_id {
+                    bail!(error_message!(attr, "field marked as `natural_id` while `natural_id` expression is specified as well";
+                            help = "remove `#[natural_id]` attribute on field")
+                        .join(error_message!(natural_id, "`natural_id` expression is specified here")));
+                }
+                previous = Some(attr);
+                let ident = if let Some(ident) = ident {
+                    quote!(#ident)
+                } else {
+                    let idx = Index::from(idx);
+                    quote_spanned!(ty.span()=> #idx)
+                };
+                natural_id = Some(parse_quote!(Some(Clone::clone(&self.#ident))));
+                if primary_key.is_none() {
+                    primary_key = Some(ty);
+                }
+            }
+        }
+    };
 
     if encryption_required && encryption_key.is_none() {
         bail!("If `collection(encryption_required)` is set you need to provide an encryption key via `collection(encryption_key = EncryptionKey)`")
@@ -115,25 +157,27 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> Result {
 
     let primary_key = primary_key.unwrap_or_else(|| parse_quote!(u64));
 
-    let serialization = match serialization {
-        Some(serialization) if serialization.is_ident("None") => {
-            if let Some(natural_id) = natural_id {
-                bail!(
-                    natural_id,
-                    "`natural_id` must be manually implemented when using `serialization = None`"
-                );
-            }
-
-            TokenStream::new()
+    let serialization = if matches!(&serialization, Some(serialization) if serialization.is_ident("None"))
+    {
+        if let Some(natural_id) = natural_id {
+            bail!(
+                natural_id,
+                "`natural_id` must be manually implemented when using `serialization = None`"
+            );
         }
-        Some(serialization) => {
-            let natural_id = natural_id.map(|natural_id| {
-                quote!(
-                    fn natural_id(contents: &Self::Contents) -> Option<Self::PrimaryKey> {
-                        #natural_id(contents)
-                    }
-                )
-            });
+
+        TokenStream::new()
+    } else {
+        let natural_id = natural_id.map(|natural_id| {
+            quote!(
+                fn natural_id(&self) -> Option<Self::PrimaryKey> {
+                    #[allow(clippy::clone_on_copy)]
+                    #natural_id
+                }
+            )
+        });
+
+        if let Some(serialization) = serialization {
             quote! {
                 impl #impl_generics #core::schema::SerializedCollection for #ident #ty_generics #where_clause {
                     type Contents = #ident #ty_generics;
@@ -146,15 +190,7 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> Result {
                     #natural_id
                 }
             }
-        }
-        None => {
-            let natural_id = natural_id.map(|natural_id| {
-                quote!(
-                    fn natural_id(&self) -> Option<Self::PrimaryKey> {
-                        #natural_id
-                    }
-                )
-            });
+        } else {
             quote! {
                 impl #impl_generics #core::schema::DefaultSerialization for #ident #ty_generics #where_clause {
                     #natural_id
