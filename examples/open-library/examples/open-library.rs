@@ -37,7 +37,7 @@ pub trait LibraryEntity: SerializedCollection<PrimaryKey = String, Contents = Se
 }
 
 #[derive(Debug, Serialize, Deserialize, Collection)]
-#[collection(name = "authors", primary_key = String, natural_id = |author: &Self| Some(author.key.clone()))]
+#[collection(name = "authors", primary_key = String, natural_id = Some(self.key.clone()))]
 struct Author {
     pub key: String,
     pub name: Option<String>,
@@ -89,7 +89,7 @@ impl LibraryEntity for Author {
 }
 
 #[derive(Debug, Serialize, Deserialize, Collection)]
-#[collection(name = "editions", primary_key = String, natural_id = |edition: &Self| Some(edition.key.clone()))]
+#[collection(name = "editions", primary_key = String, natural_id = Some(self.key.clone()))]
 #[collection(views = [EditionsByWork])]
 struct Edition {
     pub key: String,
@@ -218,7 +218,7 @@ impl LibraryEntity for Edition {
 }
 
 #[derive(Debug, Serialize, Deserialize, Collection)]
-#[collection(name = "works", primary_key = String, natural_id = |work: &Self| Some(work.key.clone()))]
+#[collection(name = "works", primary_key = String, natural_id = Some(self.key.clone()))]
 #[collection(views = [WorksByAuthor])]
 struct Work {
     pub key: String,

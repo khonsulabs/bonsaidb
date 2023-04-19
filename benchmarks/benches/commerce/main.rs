@@ -256,7 +256,7 @@ fn run_standard_benchmarks(
         "./commerce-bench/index.html",
         tera.render(
             "overview.html",
-            &Context::from_serialize(&Overview {
+            &Context::from_serialize(Overview {
                 datasets,
                 timestamp: current_timestamp_string(),
                 revision: local_git_rev(),

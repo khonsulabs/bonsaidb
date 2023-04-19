@@ -74,7 +74,7 @@ struct CollectionAttribute {
     encryption_optional: bool,
     #[attribute(example = "u64")]
     primary_key: Option<Type>,
-    #[attribute(example = "function_name or |doc| { .. }")]
+    #[attribute(example = "self.0 or something(self)")]
     natural_id: Option<Expr>,
     #[attribute(example = "bosaidb::core")]
     core: Option<Path>,
@@ -151,7 +151,7 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> Result {
             let natural_id = natural_id.map(|natural_id| {
                 quote!(
                     fn natural_id(&self) -> Option<Self::PrimaryKey> {
-                        (#natural_id)(self)
+                        #natural_id
                     }
                 )
             });

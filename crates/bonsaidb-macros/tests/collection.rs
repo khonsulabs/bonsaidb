@@ -147,7 +147,7 @@ fn primary_key() {
 fn primary_key_natural_id() {
     #[derive(Collection, Debug, Deserialize, Serialize)]
     #[collection(name = "Name")]
-    #[collection(primary_key = u32, natural_id = |_:&Self| Some(1_u32))]
+    #[collection(primary_key = u32, natural_id = Some(1_u32))]
     struct Test;
 }
 
@@ -155,6 +155,6 @@ fn primary_key_natural_id() {
 fn natural_id() {
     #[derive(Collection, Debug, Deserialize, Serialize)]
     #[collection(name = "Name")]
-    #[collection( natural_id = |_:&Self| Some(1_u64))]
-    struct Test;
+    #[collection(natural_id = Some(self.0 as u64))]
+    struct Test(u8);
 }
