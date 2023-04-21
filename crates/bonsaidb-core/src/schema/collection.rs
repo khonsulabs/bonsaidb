@@ -109,15 +109,31 @@ use crate::Error;
 /// pub struct MyCollection;
 /// ```
 ///
-/// If the data being stored has a ["natural key"][natural-key], a closure or a
-/// function can be provided to extract the value during a `push` operation:
+/// If the data being stored has a ["natural key"][natural-key], the field can
+/// be annotated with `#[natural_id]` to use the field's contents as the primary
+/// key when doing a push operation:
 ///
 /// ```rust
 /// use bonsaidb_core::schema::Collection;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
-/// #[collection(name = "MyCollection", natural_id = |item: &Self| Some(item.external_id))]
+/// #[collection(name = "MyCollection")]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection {
+///     #[natural_id]
+///     pub external_id: u64,
+/// }
+/// ```
+///
+/// Alternatively, this can be accomplished with an expression using the `natural_id` attribute:
+///
+/// ```rust
+/// use bonsaidb_core::schema::Collection;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection", natural_id = Some(self.external_id))]
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection {
 ///     pub external_id: u64,

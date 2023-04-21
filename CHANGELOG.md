@@ -132,6 +132,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ConnectedClient::all_sessions()` is a new function that returns all of the
   active sessions for the given client.
 
+- `natural_id` support in the `Collection` derive macro has been changed. The
+  attribute now expects an expression rather than a closure. The expression can
+  reference `self`. This was done to avoid the required type annotations that
+  the closure approach required.
+
+  Alternatively, `#[natural_id]` can be annotated directly on a field to have it
+  become the natural id automatically.
+
 ### Added
 
 - [#239][239] `Key` can now be derived on enums and structs, allowing an easier way
