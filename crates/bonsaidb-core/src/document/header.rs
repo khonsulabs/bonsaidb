@@ -38,6 +38,16 @@ pub trait Emit {
         self.emit_key_and_value((), ())
     }
 
+    /// Creates a `Map` result with an empty key and value if `condition` is
+    /// true.
+    fn emit_if(&self, condition: bool) -> Result<Mappings<(), ()>, crate::Error> {
+        if condition {
+            self.emit()
+        } else {
+            Ok(Mappings::default())
+        }
+    }
+
     /// Creates a `Map` result with a `key` and an empty value.
     fn emit_key<K: for<'k> Key<'k>>(&self, key: K) -> Result<Mappings<K, ()>, crate::Error> {
         self.emit_key_and_value(key, ())
