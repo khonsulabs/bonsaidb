@@ -304,6 +304,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this function.
 - Limited case insensitivity was implemented incorrectly yielding inconsistent
   results.
+- `CustomServer::listen_on` no longer will return an error if an incoming
+  connection fails during the TLS or QUIC handshake. Thank you to @phantie for
+  reporting this in #296.
 
 ## v0.4.1
 

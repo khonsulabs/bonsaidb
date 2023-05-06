@@ -387,7 +387,7 @@ impl<B: Backend> CustomServer<B> {
             .await
             .expect("server already shut down");
 
-        while let Some(result) = tokio::select! {
+        while let Some(incoming) = tokio::select! {
             shutdown_state = shutdown_watcher.wait_for_shutdown() => {
                 drop(server.close_incoming());
                 if matches!(shutdown_state, ShutdownState::GracefulShutdown) {
@@ -397,12 +397,18 @@ impl<B: Backend> CustomServer<B> {
             },
             msg = server.next() => msg
         } {
-            let connection = result.accept::<()>().await?;
+            let address = incoming.remote_address();
+            let connection = match incoming.accept::<()>().await {
+                Ok(connection) => connection,
+                Err(err) => {
+                    log::error!("[server] error on incoming connection from {address}: {err:?}");
+                    continue;
+                }
+            };
             let task_self = self.clone();
             tokio::spawn(async move {
-                let address = connection.remote_address();
                 if let Err(err) = task_self.handle_bonsai_connection(connection).await {
-                    log::error!("[server] closing connection {}: {:?}", address, err);
+                    log::error!("[server] closing connection {address}: {err:?}");
                 }
             });
         }
