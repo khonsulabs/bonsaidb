@@ -10,8 +10,9 @@ struct ExampleSchema;
 
 // ANCHOR: derive_with_natural_id
 #[derive(Debug, Serialize, Deserialize, Collection, Eq, PartialEq)]
-#[collection(name = "user-profiles", primary_key = u32, natural_id = |user: &UserProfile| Some(user.external_id))]
+#[collection(name = "user-profiles", primary_key = u32)]
 struct UserProfile {
+    #[natural_id]
     pub external_id: u32,
     pub name: String,
 }

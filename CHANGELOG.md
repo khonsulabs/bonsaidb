@@ -159,6 +159,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   type MappedKey<'doc> = <Self::View as View>::Key
   ```
 
+- `natural_id` support in the `Collection` derive macro has been changed. The
+  attribute now expects an expression rather than a closure. The expression can
+  reference `self`. This was done to avoid the required type annotations that
+  the closure approach required.
+
+  Alternatively, `#[natural_id]` can be annotated directly on a field to have it
+  become the natural id automatically.
+
 ### Added
 
 - [#239][239] `Key` can now be derived on enums and structs, allowing an easier way
@@ -324,6 +332,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this function.
 - Limited case insensitivity was implemented incorrectly yielding inconsistent
   results.
+- `CustomServer::listen_on` no longer will return an error if an incoming
+  connection fails during the TLS or QUIC handshake. Thank you to @phantie for
+  reporting this in #296.
 
 ## v0.4.1
 
