@@ -800,7 +800,7 @@ impl<B: Backend> CustomServer<B> {
                                 let (shutdown_sender, shutdown_receiver) = flume::bounded(1);
                                 tokio::task::spawn(async move {
                                     task_server.shutdown(Some(Duration::from_secs(30))).await?;
-                                    let _ = shutdown_sender.send(());
+                                    let _: Result<_, _> = shutdown_sender.send(());
                                     Result::<(), Error>::Ok(())
                                 });
                                 *state = SignalShutdownState::ShuttingDown(shutdown_receiver);
