@@ -29,7 +29,7 @@ pub async fn reconnecting_client_loop(
     connection_counter: Arc<AtomicU32>,
 ) -> Result<(), Error> {
     if url.port().is_none() && url.scheme() == "bonsaidb" {
-        let _ = url.set_port(Some(5645));
+        let _: Result<_, _> = url.set_port(Some(5645));
     }
 
     subscribers.clear();

@@ -615,15 +615,15 @@ impl KeyValueState {
             (Some(commit_target), Some(key_target)) => {
                 let closest_target = key_target.min(commit_target);
                 let new_target = BackgroundWorkerProcessTarget::Timestamp(closest_target);
-                let _ = self.background_worker_target.update(new_target);
+                let _: Result<_, _> = self.background_worker_target.update(new_target);
             }
             (Some(target), None) | (None, Some(target)) => {
-                let _ = self
+                let _: Result<_, _> = self
                     .background_worker_target
                     .update(BackgroundWorkerProcessTarget::Timestamp(target));
             }
             (None, None) => {
-                let _ = self
+                let _: Result<_, _> = self
                     .background_worker_target
                     .update(BackgroundWorkerProcessTarget::Never);
             }
@@ -750,7 +750,7 @@ impl KeyValueState {
                 let staged_keys = state.stage_dirty_keys();
                 if staged_keys.is_none() {
                     let shutdown = state.shutdown.take().unwrap();
-                    let _ = shutdown.send(());
+                    let _: Result<_, _> = shutdown.send(());
                 }
                 staged_keys
             } else {

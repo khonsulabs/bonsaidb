@@ -652,14 +652,14 @@ impl Tokio {
                 let (completion_sender, completion_receiver) = oneshot::channel();
                 let task = async move {
                     task.await?;
-                    let _ = completion_sender.send(());
+                    let _: Result<_, _> = completion_sender.send(());
                     Ok(())
                 };
                 let task = tokio.spawn(task);
 
                 std::thread::spawn(move || {
                     tokio.block_on(async move {
-                        let _ = completion_receiver.await;
+                        let _: Result<_, _> = completion_receiver.await;
                     });
                 });
                 task

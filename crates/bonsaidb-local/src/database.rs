@@ -1737,7 +1737,7 @@ impl Drop for ContextData {
             let mut state = self.key_value_state.lock();
             state.shutdown(&self.key_value_state)
         } {
-            let _ = shutdown.recv();
+            let _: Result<_, _> = shutdown.recv();
         }
     }
 }
