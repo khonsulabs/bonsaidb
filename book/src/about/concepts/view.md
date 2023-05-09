@@ -24,11 +24,11 @@ While `category` should be an enum, let's first explore using `String` and upgra
 {{#include ../../../book-examples/tests/view-example-string.rs:view}}
 ```
 
-The two traits being implemented are [View][view-trait] and
-[ViewSchema][viewschema-trait]. These traits are designed to allow keeping the
-`View` implementation in a shared code library that is used by both client-side
-and server-side code, while keeping the `ViewSchema` implementation in the
-server executable only.
+The three view-related traits being implemented are [`View`][view-trait],
+[`ViewSchema`][viewschema-trait], and [`MapReduce`][mapreduce-trait]. These
+traits are designed to allow keeping the `View` implementation in a shared code
+library that is used by both client-side and server-side code, while keeping the
+`ViewSchema` and `MapReduce` implementation in the server executable only.
 
 ## Views for [`SerializedCollection`][serialized-collection]
 
@@ -127,6 +127,7 @@ In our previous example, we used `String` for the Key type. The reason is import
 [key]: ../../traits/key.md
 [view-trait]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.View.html
 [viewschema-trait]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.ViewSchema.html
+[mapreduce-trait]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/view/trait.MapReduce.html
 [viewschema-version]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.ViewSchema.html#method.version
 [serialized-collection]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.SerializedCollection.html
 [borrowed-document]: {{DOCS_BASE_URL}}/bonsaidb/core/document/trait.Document.html
