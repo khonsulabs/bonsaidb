@@ -54,7 +54,7 @@ impl OpenTrees {
 
         for view in schema.views_in_collection(collection) {
             let view_name = view.view_name();
-            if view.eager() {
+            if view.update_policy().is_eager() {
                 self.open_tree::<Unversioned>(
                     &view_document_map_tree_name(&view_name),
                     #[cfg(any(feature = "encryption", feature = "compression"))]

@@ -10,8 +10,8 @@ use bonsaidb::core::connection::{AsyncConnection, AsyncLowLevelConnection};
 use bonsaidb::core::document::{CollectionDocument, Emit};
 use bonsaidb::core::keyvalue::Timestamp;
 use bonsaidb::core::schema::{
-    Collection, CollectionViewSchema, ReduceResult, Schema, SerializedCollection, SerializedView,
-    View, ViewMapResult, ViewMappedValue,
+    Collection, CollectionMapReduce, ReduceResult, Schema, SerializedCollection, SerializedView,
+    View, ViewMapResult, ViewMappedValue, ViewSchema,
 };
 use bonsaidb::core::transaction::{Operation, Transaction};
 use bonsaidb::local::config::{Builder, Compression, StorageConfiguration};
@@ -155,17 +155,15 @@ struct Edition {
     pub last_modified: TypedValue,
 }
 
-#[derive(View, Debug, Clone)]
+#[derive(View, ViewSchema, Debug, Clone)]
 #[view(name = "by-work", collection = Edition, key = String, value = u32)]
 struct EditionsByWork;
 
-impl CollectionViewSchema for EditionsByWork {
-    type View = Self;
-
-    fn map(
+impl CollectionMapReduce for EditionsByWork {
+    fn map<'doc>(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> ViewMapResult<Self::View> {
+    ) -> ViewMapResult<'doc, Self::View> {
         document
             .contents
             .works
@@ -180,7 +178,7 @@ impl CollectionViewSchema for EditionsByWork {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self::View>],
+        mappings: &[ViewMappedValue<'_, Self::View>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -245,21 +243,16 @@ struct Work {
     pub last_modified: TypedValue,
 }
 
-#[derive(View, Debug, Clone)]
+#[derive(View, ViewSchema, Debug, Clone)]
 #[view(name = "by-author", collection = Work, key = String, value = u32)]
+#[view_schema(version = 1)]
 struct WorksByAuthor;
 
-impl CollectionViewSchema for WorksByAuthor {
-    type View = Self;
-
-    fn version(&self) -> u64 {
-        1
-    }
-
-    fn map(
+impl CollectionMapReduce for WorksByAuthor {
+    fn map<'doc>(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> ViewMapResult<Self::View> {
+    ) -> ViewMapResult<'doc, Self::View> {
         document
             .contents
             .authors

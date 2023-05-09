@@ -54,7 +54,7 @@ use crate::Error;
 /// The list of views can be specified using the `views` parameter:
 ///
 /// ```rust
-/// use bonsaidb_core::schema::{Collection, View};
+/// use bonsaidb_core::schema::{Collection, View, ViewSchema};
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
@@ -62,30 +62,30 @@ use crate::Error;
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection;
 ///
-/// #[derive(Debug, Clone, View)]
+/// #[derive(Debug, Clone, View, ViewSchema)]
 /// #[view(collection = MyCollection, key = u32, value = f32, name = "scores-by-rank")]
 /// # #[view(core = bonsaidb_core)]
+/// # #[view_schema(core = bonsaidb_core)]
 /// pub struct ScoresByRank;
 /// #
 /// # use bonsaidb_core::{
 /// #     document::CollectionDocument,
 /// #     schema::{
-/// #         CollectionViewSchema,   ReduceResult,
+/// #         ReduceResult, CollectionMapReduce,
 /// #         ViewMapResult, ViewMappedValue,
 /// #    },
 /// # };
-/// # impl CollectionViewSchema for ScoresByRank {
-/// #     type View = Self;
-/// #     fn map(
+/// # impl CollectionMapReduce for ScoresByRank {
+/// #     fn map<'doc>(
 /// #         &self,
 /// #         _document: CollectionDocument<<Self::View as View>::Collection>,
-/// #     ) -> ViewMapResult<Self::View> {
+/// #     ) -> ViewMapResult<'doc, Self::View> {
 /// #         todo!()
 /// #     }
 /// #
 /// #     fn reduce(
 /// #         &self,
-/// #         _mappings: &[ViewMappedValue<Self::View>],
+/// #         _mappings: &[ViewMappedValue<'_, Self::View>],
 /// #         _rereduce: bool,
 /// #     ) -> ReduceResult<Self::View> {
 /// #         todo!()

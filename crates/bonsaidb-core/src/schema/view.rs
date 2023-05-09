@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use transmog::{Format, OwnedDeserializer};
 use transmog_pot::Pot;
 
@@ -54,12 +54,17 @@ pub type ReduceResult<V> = Result<<V as View>::Value, crate::Error>;
 ///
 /// A view provides an efficient way to query data within a collection. BonsaiDb
 /// indexes the associated [`View::Collection`] by calling
-/// [`CollectionViewSchema::map()`]/[`ViewSchema::map()`] every time a document
-/// is created or updated. The result [`Mappings`] form a sorted index that can
-/// be efficiently queried using the [`View::Key`] type.
+/// [`CollectionMapReduce::map()`]/[`MapReduce::map()`] every time a document is
+/// created or updated. The result [`Mappings`] form a sorted index that can be
+/// efficiently queried using the [`View::Key`] type.
 ///
 /// A View behaves similarly to the standard library's BTreeMap with these
 /// types: `BTreeMap<View::Key, Vec<(Header, View::Value)>>`
+///
+/// This trait only defines the types and functionality required to interact
+/// with the view's query system. The [`MapReduce`]/[`CollectionMapReduce`]
+/// traits define the map/reduce behavior, and the [`ViewSchema`] trait defines
+/// additional metadata such as the [`ViewUpdatePolicy`] and view version.
 ///
 /// For a deeper dive on Views, see [the section in our user's
 /// guide](https://dev.bonsaidb.io/main/guide/about/concepts/view.html).
@@ -85,7 +90,83 @@ pub trait View: Sized + Send + Sync + Debug + 'static {
     }
 }
 
-/// The implementation of Map/Reduce for a [`View`].
+/// Schema information for a [`View`].
+///
+/// This trait controls several behaviors for a view:
+///
+/// - [`MappedKey<'doc>`](Self::MappedKey): A [`Key`] type that is compatible
+///   with the associated [`View::Key`] type, but can borrow from the document
+///   by using the `'doc` generic associated lifetime.
+/// - [`policy()`](Self::policy): Controls when the view's data is updated and
+///   any restrictions on the data contained in the view. The default policy for
+///   views is [`ViewUpdatePolicy`]
+/// - [`version()`](Self::version): An integer representing the view's version.
+///   Changing this number will cause the view to be re-indexed. This is useful
+///   when there are fundamental changes in how the view is implemented.
+///
+/// ## Where is this trait used?
+///
+/// This trait is currently only used by `bonsaidb-local`, but is provided in
+/// `bonsaidb-core` to allow it to be used anywhere. It may be desireable to
+/// keep the implementation of `ViewSchema` in the "server" binary, while only
+/// exposing the `View` implementation to the "client".
+///
+/// ## Deriving this Trait
+///
+/// This trait can be derived, and all attributes are optional. The available
+/// options are:
+///
+/// - `view`: Sets the associated [`View`](Self::View) type. If not provided,
+///   `Self` will be used.
+/// - `version`: Sets the [version number](Self::version) of the view. If not
+///   provided, `0` will be used.
+/// - `mapped_key`: Sets the [`MappedKey<'doc>`](Self::MappedKey) type to the
+///   provided type. The `'doc` lifetime can be utilized to borrow data during
+///   the [`MapReduce::map()`] function.
+///
+///   If not provided, the `ViewSchema` implementation uses [`View::Key`].
+/// - `policy`: Sets the [`ViewUpdatePolicy`]. The accepted policies are:
+///   - [`Lazy`](ViewUpdatePolicy::Lazy)
+///   - [`Eager`](ViewUpdatePolicy::Eager)
+///   - [`Unique`](ViewUpdatePolicy::Unique)
+///
+///   If not provided, the [`Lazy`](ViewUpdatePolicy::Lazy) policy will be used.
+///
+/// Here is an example that showcases most of the options:
+/// ```rust
+/// # mod collection {
+/// # bonsaidb_core::__doctest_prelude!();
+/// # }
+/// # use collection::MyCollection;
+/// use std::borrow::Cow;
+///
+/// use bonsaidb_core::document::{BorrowedDocument, Emit};
+/// use bonsaidb_core::schema::view::{ReduceResult, ViewMapResult};
+/// use bonsaidb_core::schema::{MapReduce, View, ViewMappedValue, ViewSchema};
+///
+/// #[derive(View, ViewSchema, Debug)]
+/// #[view(collection = MyCollection, key = String, value = u32)]
+/// #[view_schema(mapped_key = Cow<'doc, str>, policy = Unique)]
+/// # #[view(core = bonsaidb_core)]
+/// struct UniqueByName;
+///
+/// impl MapReduce for UniqueByName {
+///     fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
+///         let contents_as_str = std::str::from_utf8(&document.contents).expect("invalid utf-8");
+///         document
+///             .header
+///             .emit_key_and_value(Cow::Borrowed(contents_as_str), 1)
+///     }
+///
+///     fn reduce(
+///         &self,
+///         mappings: &[ViewMappedValue<'_, Self::View>],
+///         _rereduce: bool,
+///     ) -> ReduceResult<Self::View> {
+///         Ok(mappings.iter().map(|mapping| mapping.value).sum())
+///     }
+/// }
+/// ```
 #[doc = "\n"]
 #[doc = include_str!("./view-overview.md")]
 pub trait ViewSchema: Send + Sync + Debug + 'static {
@@ -102,29 +183,63 @@ pub trait ViewSchema: Send + Sync + Debug + 'static {
     /// borrowed from the document.
     type MappedKey<'doc>: Key<'doc>;
 
-    /// If true, no two documents may emit the same key. Unique views are
-    /// updated when the document is saved, allowing for this check to be done
-    /// atomically. When a document is updated, all unique views will be
-    /// updated, and if any of them fail, the document will not be allowed to
-    /// update and an
-    /// [`Error::UniqueKeyViolation`](crate::Error::UniqueKeyViolation) will be
-    /// returned.
-    fn unique(&self) -> bool {
-        false
+    /// Returns the update policy for this view, which controls when and how the
+    /// view's data is updated. The provided implementation returns
+    /// [`ViewUpdatePolicy::Lazy`].
+    fn update_policy(&self) -> ViewUpdatePolicy {
+        ViewUpdatePolicy::default()
     }
 
-    /// Returns whether this view should be lazily updated. If true, views will
-    /// be updated only when accessed. If false, views will be updated during
-    /// the transaction that is updating the affected documents.
-    fn lazy(&self) -> bool {
-        true
-    }
-
-    /// The version of the view. Changing this value will cause indexes to be rebuilt.
+    /// The version of the view. Changing this value will cause indexes to be
+    /// rebuilt.
     fn version(&self) -> u64 {
         0
     }
+}
 
+/// The policy under which a [`View`] is updated when documents are saved.
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub enum ViewUpdatePolicy {
+    /// The view is updated when a query is made. If a document is updated
+    /// multiple times between queries, the view will only be updated when the
+    /// query is executed.
+    #[default]
+    Lazy,
+    /// The view is updated during the transaction where documents are being
+    /// inserted, updated, or removed.
+    Eager,
+    /// No two documents may emit the same key. Unique views are updated when
+    /// the document is saved, allowing for this check to be done atomically.
+    /// When a document is updated, all unique views will be updated, and if any
+    /// of them fail, the document will not be allowed to update and an
+    /// [`Error::UniqueKeyViolation`](crate::Error::UniqueKeyViolation) will be
+    /// returned.
+    Unique,
+}
+
+impl ViewUpdatePolicy {
+    /// Returns true if the view should be updated eagerly.
+    ///
+    /// This returns true if the policy is either [`Eager`](Self::Eager) or
+    /// [`Unique`](Self::Unique).
+    #[must_use]
+    pub const fn is_eager(&self) -> bool {
+        matches!(self, Self::Eager | Self::Unique)
+    }
+}
+
+impl std::fmt::Display for ViewUpdatePolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+/// The Map/Reduce functionality for a [`ViewSchema`].
+///
+/// This trait implementation provides the behavior for mapping data from
+/// documents into their key/value pairs for this view, as well as reducing
+/// multiple values into a single value.
+pub trait MapReduce: ViewSchema {
     /// The map function for this view. This function is responsible for
     /// emitting entries for any documents that should be contained in this
     /// View. If None is returned, the View will not include the document. See [the user guide's chapter on
@@ -203,46 +318,24 @@ where
     }
 }
 
-/// A [`View`] for a [`Collection`] that stores Serde-compatible documents. The
-/// only difference between implmementing this and [`View`] is that the `map`
-/// function receives a [`CollectionDocument`] instead of a [`BorrowedDocument`].
-pub trait CollectionViewSchema: Send + Sync + Debug + Sized + 'static
+/// A [`MapReduce`] implementation that automatically serializes/deserializes
+/// using [`CollectionDocument`] and [`SerializedCollection`].
+///
+/// Implementing this trait automatically implements [`ViewSchema`] for the same
+/// type.
+pub trait CollectionMapReduce: ViewSchema
 where
     <Self::View as View>::Collection: SerializedCollection,
 {
-    /// The view this schema is an implementation of.
-    type View: SerializedView;
-
-    /// If true, no two documents may emit the same key. Unique views are
-    /// updated when the document is saved, allowing for this check to be done
-    /// atomically. When a document is updated, all unique views will be
-    /// updated, and if any of them fail, the document will not be allowed to
-    /// update and an
-    /// [`Error::UniqueKeyViolation`](crate::Error::UniqueKeyViolation) will be
-    /// returned.
-    fn unique(&self) -> bool {
-        false
-    }
-
-    /// Returns whether this view should be lazily updated. If true, views will
-    /// be updated only when accessed. If false, views will be updated during
-    /// the transaction that is updating the affected documents.
-    fn lazy(&self) -> bool {
-        true
-    }
-
-    /// The version of the view. Changing this value will cause indexes to be rebuilt.
-    fn version(&self) -> u64 {
-        0
-    }
-
     /// The map function for this view. This function is responsible for
     /// emitting entries for any documents that should be contained in this
     /// View. If None is returned, the View will not include the document.
-    fn map(
+    fn map<'doc>(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> ViewMapResult<'static, Self>;
+    ) -> ViewMapResult<'doc, Self>
+    where
+        CollectionDocument<<Self::View as View>::Collection>: 'doc;
 
     /// The reduce function for this view. If `Err(Error::ReduceUnimplemented)`
     /// is returned, queries that ask for a reduce operation will return an
@@ -259,20 +352,13 @@ where
     }
 }
 
-impl<T> ViewSchema for T
+impl<T> MapReduce for T
 where
-    T: CollectionViewSchema,
+    T: CollectionMapReduce,
     T::View: SerializedView,
     <T::View as View>::Collection: SerializedCollection,
 {
-    type MappedKey<'doc> = <T::View as View>::Key;
-    type View = T::View;
-
-    fn version(&self) -> u64 {
-        T::version(self)
-    }
-
-    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<'_, Self> {
+    fn map<'doc>(&self, document: &'doc BorrowedDocument<'_>) -> ViewMapResult<'doc, Self> {
         T::map(self, CollectionDocument::try_from(document)?)
     }
 
@@ -283,14 +369,6 @@ where
     ) -> Result<<Self::View as View>::Value, crate::Error> {
         T::reduce(self, mappings, rereduce)
     }
-
-    fn unique(&self) -> bool {
-        T::unique(self)
-    }
-
-    fn lazy(&self) -> bool {
-        T::lazy(self)
-    }
 }
 
 /// Wraps a [`View`] with serialization to erase the associated types
@@ -299,16 +377,8 @@ pub trait Serialized: Send + Sync + Debug {
     fn collection(&self) -> CollectionName;
     /// Returns the description of the view's `Key`.
     fn key_description(&self) -> KeyDescription;
-    /// Wraps [`ViewSchema::unique`]
-    fn unique(&self) -> bool;
-    /// Wraps [`ViewSchema::lazy`]
-    fn lazy(&self) -> bool;
-
-    /// Returns true if this view should be eagerly updated during document
-    /// updates.
-    fn eager(&self) -> bool {
-        self.unique() || !self.lazy()
-    }
+    /// Wraps [`ViewSchema::policy`]
+    fn update_policy(&self) -> ViewUpdatePolicy;
 
     /// Wraps [`ViewSchema::version`]
     fn version(&self) -> u64;
@@ -397,21 +467,28 @@ macro_rules! define_mapped_view {
             }
         }
 
-        impl $crate::schema::CollectionViewSchema for $view_name {
+        impl $crate::schema::ViewSchema for $view_name {
+            type MappedKey<'doc> = <Self as $crate::schema::View>::Key;
             type View = Self;
 
-            fn unique(&self) -> bool {
-                $unique
+            fn update_policy(&self) -> $crate::schema::view::ViewUpdatePolicy {
+                if $unique {
+                    $crate::schema::view::ViewUpdatePolicy::Unique
+                } else {
+                    $crate::schema::view::ViewUpdatePolicy::Lazy
+                }
             }
 
             fn version(&self) -> u64 {
                 $version
             }
+        }
 
-            fn map(
+        impl $crate::schema::CollectionMapReduce for $view_name {
+            fn map<'doc>(
                 &self,
                 document: $crate::document::CollectionDocument<$collection>,
-            ) -> $crate::schema::ViewMapResult<'static, Self> {
+            ) -> $crate::schema::ViewMapResult<'doc, Self> {
                 $mapping(document)
             }
         }

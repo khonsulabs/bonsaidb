@@ -393,7 +393,7 @@ impl Database {
                 .data
                 .schema
                 .views_in_collection(collection)
-                .filter(|view| !view.eager())
+                .filter(|view| !view.update_policy().is_eager())
                 .peekable();
             if views.peek().is_some() {
                 let changed_documents = changed_documents.collect::<Vec<_>>();
@@ -1737,7 +1737,7 @@ impl Drop for ContextData {
             let mut state = self.key_value_state.lock();
             state.shutdown(&self.key_value_state)
         } {
-            let _ = shutdown.recv();
+            let _: Result<_, _> = shutdown.recv();
         }
     }
 }

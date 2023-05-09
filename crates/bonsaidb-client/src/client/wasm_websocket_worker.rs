@@ -242,7 +242,7 @@ fn on_error_callback(
 ) -> JsValue {
     Closure::once_into_js(move |e: ErrorEvent| {
         ws.set_onerror(None);
-        let _ = shutdown.send(());
+        let _: Result<_, _> = shutdown.send(());
         if let Some(initial_request) = take_initial_request(&initial_request) {
             drop(
                 initial_request
@@ -281,7 +281,7 @@ fn on_close_callback(
     connection_counter: Arc<AtomicU32>,
 ) -> JsValue {
     Closure::once_into_js(move |c: CloseEvent| {
-        let _ = shutdown.send(());
+        let _: Result<_, _> = shutdown.send(());
         ws.set_onclose(None);
 
         let mut pending_error = Some(Error::from(WebSocketError(format!(

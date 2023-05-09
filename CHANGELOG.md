@@ -131,6 +131,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `ConnectedClient::all_sessions()` is a new function that returns all of the
   active sessions for the given client.
+- View schemas are now partially deriveble, and have had their map/reduce
+  functionality split into their own traits. The following notes all apply to
+  this refactoring:
+  - `ViewSchema::map()` and `ViewSchema::reduce()` have been moved to a new
+    trait: `MapReduce`.
+  - `CollectionViewSchema` has been removed, and the `map()` and `reduce()`
+    functions have been moved to a new trait: `CollectionMapReduce`.
+  - `ViewSchema::unique()` and `ViewSchema::lazy()` have been replaced with
+    `ViewSchema::update_policy()`, which returns a new enum: `ViewUpdatePolicy`.
+    This enum contains three variants: Lazy, Eager, and Unique, allowing the same
+    options that the previous two methods supported without any ambiguities.
+  - `ViewSchema` is now implementable/derivable for all views, regardless of
+    whether the map/reduce functionality utilizes `SerializedCollection`s or
+    not.
+- `ViewSchema::MappedKey<'doc>` is a new associated type with a generic
+  associated lifetime that enables `map()`/`reduce()` to utilize borrowed data
+  for the view's key type. This has caused the `map()` and `reduce()` functions
+  to have new lifetime annotations added. These changes are part of an effort to
+  support more flows where borrowing data is possible to minimize allocations
+  while indexing and querying views.
+
+  For all existing users, setting this associated type to the view's Key type
+  will work, or pasting this associated type definition in:
+
+  ```rust
+  type MappedKey<'doc> = <Self::View as View>::Key
+  ```
 
 - `natural_id` support in the `Collection` derive macro has been changed. The
   attribute now expects an expression rather than a closure. The expression can
@@ -152,6 +179,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   variable integer encoding, allowing for proper cross-architecture behavior.
   When trying to decode a value that is too large for the given target
   architecture, an error will be returned.
+- `ViewSchema` can now be derived.
 - `bonsaidb_core::Error::is_unique_key_error()` is a convenience function to
   quickly check if an error is a result of a unique key violation from a
   specific view.

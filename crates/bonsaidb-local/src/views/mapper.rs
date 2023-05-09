@@ -6,7 +6,7 @@ use std::sync::Arc;
 use bonsaidb_core::arc_bytes::serde::Bytes;
 use bonsaidb_core::arc_bytes::{ArcBytes, OwnedBytes};
 use bonsaidb_core::connection::Connection;
-use bonsaidb_core::schema::view::{self, map, Serialized};
+use bonsaidb_core::schema::view::{self, map, Serialized, ViewUpdatePolicy};
 use bonsaidb_core::schema::{CollectionName, ViewName};
 use easy_parallel::Parallel;
 use nebari::io::any::AnyFile;
@@ -465,7 +465,7 @@ impl<'a> ViewEntryUpdater<'a> {
         if let Some(new_mappings) = self.new_mappings.remove(&key[..]) {
             for map::Serialized { source, value, .. } in new_mappings {
                 // Before altering any data, verify that the key is unique if this is a unique view.
-                if self.view.unique()
+                if self.view.update_policy() == ViewUpdatePolicy::Unique
                     && !view_entry.mappings.is_empty()
                     && view_entry.mappings[0].source.id != source.id
                 {

@@ -1,0 +1,5 @@
+error: supported fields are `view`, `mapped_key`, `version`, `policy` and `core`
+ --> tests/ui/view_schema/invalid_attribute.rs:4:15
+  |
+4 | #[view_schema(hi)]
+  |               ^^

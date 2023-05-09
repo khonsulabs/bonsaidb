@@ -21,11 +21,12 @@ use quote_use::{
 };
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::token::Paren;
 use syn::{
     parse, Data, DataEnum, DataStruct, DeriveInput, Expr, Field, Fields, FieldsNamed,
-    FieldsUnnamed, Ident, Index, LitStr, Path, Token, Type, TypePath, TypeTuple, Variant,
+    FieldsUnnamed, Ident, Index, Path, Token, Type, TypePath, Variant,
 };
+
+mod view;
 
 // -----------------------------------------------------------------------------
 //     - Core Macros -
@@ -239,25 +240,6 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> Result {
         #serialization
     })
 }
-
-#[derive(Attribute)]
-#[attribute(ident = view)]
-struct ViewAttribute {
-    #[attribute(example = "CollectionType")]
-    #[attribute(example = "CollectionType")]
-    collection: Type,
-    #[attribute(example = "KeyType")]
-    key: Type,
-    #[attribute(example = "\"by-name\"")]
-    name: Option<LitStr>,
-    #[attribute(example = "ValueType")]
-    value: Option<Type>,
-    #[attribute(example = "bosaidb::core")]
-    core: Option<Path>,
-    #[attribute(example = "Format or None")]
-    serialization: Option<Path>,
-}
-
 /// Derives the `bonsaidb::core::schema::View` trait.
 ///
 /// `#[view(collection=CollectionType, key=KeyType, value=ValueType, name = "by-name")]`
@@ -265,65 +247,16 @@ struct ViewAttribute {
 #[manyhow]
 #[proc_macro_derive(View, attributes(view))]
 pub fn view_derive(input: proc_macro::TokenStream) -> Result {
-    let DeriveInput {
-        attrs,
-        ident,
-        generics,
-        ..
-    } = parse(input)?;
-
-    let ViewAttribute {
-        collection,
-        key,
-        name,
-        value,
-        core,
-        serialization,
-    } = ViewAttribute::from_attributes(&attrs)?;
-
-    let core = core.unwrap_or_else(core_path);
-
-    let value = value.unwrap_or_else(|| {
-        Type::Tuple(TypeTuple {
-            paren_token: Paren::default(),
-            elems: Punctuated::new(),
-        })
-    });
-
-    let name = name
-        .as_ref()
-        .map_or_else(|| ident.to_string(), LitStr::value);
-
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-
-    let serialization = match serialization {
-        Some(serialization) if serialization.is_ident("None") => TokenStream::new(),
-        Some(serialization) => quote! {
-            impl #impl_generics #core::schema::SerializedView for #ident #ty_generics #where_clause {
-                type Format = #serialization;
-
-                fn format() -> Self::Format {
-                    #serialization::default()
-                }
-            }
-        },
-        None => quote! {
-            impl #impl_generics #core::schema::DefaultViewSerialization for #ident #ty_generics #where_clause {}
-        },
-    };
-
-    Ok(quote! {
-        impl #impl_generics #core::schema::View for #ident #ty_generics #where_clause {
-            type Collection = #collection;
-            type Key = #key;
-            type Value = #value;
-
-            fn name(&self) -> #core::schema::Name {
-                #core::schema::Name::new(#name)
-            }
-        }
-        #serialization
-    })
+    view::derive(parse(input)?)
+}
+/// Derives the `bonsaidb::core::schema::ViewSchema` trait.
+#[manyhow]
+/// `#[view_schema(version = 1, unique = true, lazy = false, view=ViewType, mapped_key=KeyType<'doc>)]`
+///
+/// All attributes are optional.
+#[proc_macro_derive(ViewSchema, attributes(view_schema))]
+pub fn view_schema_derive(input: proc_macro::TokenStream) -> Result {
+    view::derive_schema(parse(input)?)
 }
 
 #[derive(Attribute)]

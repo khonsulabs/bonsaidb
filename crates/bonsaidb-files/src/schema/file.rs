@@ -11,10 +11,11 @@ use bonsaidb_core::key::{
     IntoPrefixRange, Key, KeyEncoding, KeyKind,
 };
 use bonsaidb_core::schema::{
-    Collection, CollectionName, CollectionViewSchema, DefaultSerialization, SerializedCollection,
+    Collection, CollectionMapReduce, CollectionName, DefaultSerialization, SerializedCollection,
     View, ViewMapResult,
 };
 use bonsaidb_core::transaction::{Operation, Transaction};
+use bonsaidb_macros::ViewSchema;
 use bonsaidb_utils::next_string_sequence;
 use derive_where::derive_where;
 use serde::{Deserialize, Serialize};
@@ -379,28 +380,19 @@ where
 impl<Config> DefaultSerialization for File<Config> where Config: FileConfig {}
 
 #[derive_where(Clone, Debug, Default)]
-#[derive(View)]
+#[derive(View, ViewSchema)]
 #[view(name = "by-path", collection = File<Config>, key = OwnedFileKey, value = (TimestampAsNanoseconds, Config::Metadata))]
 #[view(core = bonsaidb_core)]
+#[view_schema(version = 3, policy = Unique, core = bonsaidb_core)]
 pub struct ByPath<Config>(PhantomData<Config>)
 where
     Config: FileConfig;
 
-impl<Config> CollectionViewSchema for ByPath<Config>
+impl<Config> CollectionMapReduce for ByPath<Config>
 where
     Config: FileConfig,
 {
-    type View = Self;
-
-    fn version(&self) -> u64 {
-        3
-    }
-
-    fn unique(&self) -> bool {
-        true
-    }
-
-    fn map(&self, doc: CollectionDocument<File<Config>>) -> ViewMapResult<'static, Self> {
+    fn map<'doc>(&self, doc: CollectionDocument<File<Config>>) -> ViewMapResult<'doc, Self> {
         doc.header.emit_key_and_value(
             OwnedFileKey(FileKey::Full {
                 path: Cow::Owned(doc.contents.path.unwrap_or_else(|| String::from("/"))),

@@ -1,8 +1,7 @@
 use bonsaidb::core::document::{CollectionDocument, Emit};
-use bonsaidb::core::schema::view::CollectionViewSchema;
 use bonsaidb::core::schema::{
-    Collection, ReduceResult, SerializedCollection, SerializedView, View, ViewMapResult,
-    ViewMappedValue,
+    Collection, CollectionMapReduce, ReduceResult, SerializedCollection, SerializedView, View,
+    ViewMapResult, ViewMappedValue, ViewSchema,
 };
 use bonsaidb::local::config::{Builder, StorageConfiguration};
 use bonsaidb::local::Database;
@@ -15,14 +14,12 @@ struct Shape {
     pub sides: u32,
 }
 
-#[derive(Debug, Clone, View)]
+#[derive(Debug, Clone, View, ViewSchema)]
 #[view(collection = Shape, key = u32, value = usize, name = "by-number-of-sides")]
 struct ShapesByNumberOfSides;
 
-impl CollectionViewSchema for ShapesByNumberOfSides {
-    type View = Self;
-
-    fn map(&self, document: CollectionDocument<Shape>) -> ViewMapResult<Self::View> {
+impl CollectionMapReduce for ShapesByNumberOfSides {
+    fn map<'doc>(&self, document: CollectionDocument<Shape>) -> ViewMapResult<'doc, Self::View> {
         document
             .header
             .emit_key_and_value(document.contents.sides, 1)
@@ -30,7 +27,7 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<Self>],
+        mappings: &[ViewMappedValue<'_, Self>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|m| m.value).sum())
