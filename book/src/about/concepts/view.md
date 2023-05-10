@@ -32,7 +32,7 @@ library that is used by both client-side and server-side code, while keeping the
 
 ## Views for [`SerializedCollection`][serialized-collection]
 
-For users who are using [`SerializedCollection`][serialized-collection], [`CollectionViewSchema`][collection-view-schema] can be implemented instead of [`ViewSchema`][viewschema-trait]. The only difference between the two is that the [`map()`][collection-view-schema-map] function takes a [`CollectionDocument`][collection-document] instead of a [`BorrowedDocument`][borrowed-document].
+For users who are using [`SerializedCollection`][serialized-collection], [`CollectionViewSchema`][collection-mapreduce] can be implemented instead of [`ViewSchema`][viewschema-trait]. The only difference between the two is that the [`map()`][collection-mapreduce-map] function takes a [`CollectionDocument`][collection-document] instead of a [`BorrowedDocument`][borrowed-document].
 
 ## Value Serialization
 
@@ -132,5 +132,5 @@ In our previous example, we used `String` for the Key type. The reason is import
 [serialized-collection]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.SerializedCollection.html
 [borrowed-document]: {{DOCS_BASE_URL}}/bonsaidb/core/document/trait.Document.html
 [collection-document]: {{DOCS_BASE_URL}}/bonsaidb/core/document/struct.CollectionDocument.html
-[collection-view-schema]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.CollectionViewSchema.html
-[collection-view-schema-map]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.CollectionViewSchema.html#tymethod.map
+[collection-mapreduce]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.CollectionMapReduce.html
+[collection-mapreduce-map]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.CollectionMapReduce.html#tymethod.map
