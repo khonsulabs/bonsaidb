@@ -603,10 +603,6 @@ impl Debug for Data {
             .field("authenticated_permissions", &self.authenticated_permissions)
             .field("sessions", &self.sessions)
             .field("subscribers", &self.subscribers)
-            .field("argon", &self.argon)
-            .field("vault", &self.vault)
-            .field("default_encryption_key", &self.default_encryption_key)
-            .field("tree_vault", &self.tree_vault)
             .field("key_value_persistence", &self.key_value_persistence)
             .field("chunk_cache", &self.chunk_cache)
             .field(
@@ -622,6 +618,16 @@ impl Debug for Data {
         } else {
             f.field("schemas", &"RwLock locked");
         }
+
+        #[cfg(feature = "password-hashing")]
+        f.field("argon", &self.argon);
+        #[cfg(feature = "encryption")]
+        {
+            f.field("vault", &self.vault)
+                .field("default_encryption_key", &self.default_encryption_key);
+        }
+        #[cfg(any(feature = "compression", feature = "encryption"))]
+        f.field("tree_vault", &self.tree_vault);
 
         f.finish()
     }
