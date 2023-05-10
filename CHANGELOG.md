@@ -297,6 +297,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   database name is used as a directory name on-disk, care must be taken on
   case-insensitive filesystems to not attempt to create two databases with
   different casing.
+- `TimedArgonParameters` now guarantees that the minimum parameters chosen will
+  meet the `OWASP` recommendations. Manual configuration still is allowed to set
+  exact parameters.
 
 [239]: https://github.com/khonsulabs/bonsaidb/pull/239
 

@@ -121,7 +121,7 @@ impl HashingThread {
                 let mut output = Vec::default();
 
                 let minimum_duration = config.minimum_duration;
-                let mut min_cost = 1;
+                let mut min_cost = 2; // OWASP sets the minimum iteration count at 2
                 let mut total_spent_t = 0;
                 let mut total_duration = Duration::ZERO;
 

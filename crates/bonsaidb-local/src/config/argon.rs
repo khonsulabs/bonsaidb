@@ -95,7 +95,7 @@ impl Default for TimedArgonParams {
     /// [rfc]: https://www.rfc-editor.org/rfc/rfc9106.html#name-parameter-choice
     fn default() -> Self {
         Self {
-            lanes: 4,
+            lanes: 1,
             ram_per_hasher: Self::MINIMUM_RAM_PER_HASHER,
             minimum_duration: Duration::from_secs(1),
         }
@@ -104,11 +104,11 @@ impl Default for TimedArgonParams {
 
 impl TimedArgonParams {
     /// The minimum amount of ram to allocate per hasher. This value is
-    /// currently 64MB but will change as the [minimum recommendations][rfc] are
+    /// currently 19MB but will change as the [OWASP minimum recommendations][owasp] are
     /// changed.
     ///
-    /// [rfc]: https://www.rfc-editor.org/rfc/rfc9106.html#name-parameter-choice
-    pub const MINIMUM_RAM_PER_HASHER: u32 = 64 * 1024 * 1024;
+    /// [owasp]: https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
+    pub const MINIMUM_RAM_PER_HASHER: u32 = 19 * 1024 * 1024;
 
     /// Returns the default configuration based on the system information and
     /// number of hashers.
@@ -123,15 +123,18 @@ impl TimedArgonParams {
     ///   total of 1GB of RAM will be used between 4 hashers, yielding a
     ///   `ram_per_hasher` value of 256MB.
     ///
-    /// - `lanes`: defaults to 4.
+    /// - `lanes`: defaults to 1, per the recommended `OWASP` minimum settings.
     ///
     /// - `minimum_duration`: defaults to 1 second. The [RFC][rfc] suggests 0.5
-    ///   seconds, but many in the community recommend 1 second.
+    ///   seconds, but many in the community recommend 1 second. When computing
+    ///   the ideal parameters, a minimum iteration count of 2 will be used to
+    ///   ensure compliance with minimum parameters recommended by `OWASP`.
     ///
     /// The strength of Argon2 is derived largely by the amount of RAM dedicated
     /// to it, so the largest value acceptable should be chosen for
     /// `ram_per_hasher`. For more guidance on parameter selection, see [RFC
-    /// 9106, section 4 "Parameter Choice"][rfc].
+    /// 9106, section 4 "Parameter Choice"][rfc] or the [`OWASP` Password
+    /// Storage Cheetsheet][owasp]
     ///
     /// ## Debug Mode
     ///
@@ -139,13 +142,15 @@ impl TimedArgonParams {
     /// 32kb. This is due to how slow debug mode is for the hashing algorithm.
     /// These settings should not be used in production.
     ///
+    /// [owasp]:
+    ///     https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
     /// [rfc]: https://www.rfc-editor.org/rfc/rfc9106.html#name-parameter-choice
     pub fn default_for(system: &System, hashers: u32) -> Self {
         let total_memory = u32::try_from(system.total_memory()).unwrap_or(u32::MAX);
         let max_memory = total_memory / 32;
 
         let ram_per_hasher = if cfg!(debug_assertions) {
-            32 * 1024
+            Self::MINIMUM_RAM_PER_HASHER
         } else {
             (max_memory / hashers).max(Self::MINIMUM_RAM_PER_HASHER)
         };

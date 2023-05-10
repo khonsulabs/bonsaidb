@@ -148,6 +148,7 @@ pub trait View: Sized + Send + Sync + 'static {
 /// #[view(collection = MyCollection, key = String, value = u32)]
 /// #[view_schema(mapped_key = Cow<'doc, str>, policy = Unique)]
 /// # #[view(core = bonsaidb_core)]
+/// # #[view_schema(core = bonsaidb_core)]
 /// struct UniqueByName;
 ///
 /// impl MapReduce for UniqueByName {
