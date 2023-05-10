@@ -70,7 +70,7 @@ pub type ReduceResult<V> = Result<<V as View>::Value, crate::Error>;
 /// guide](https://dev.bonsaidb.io/main/guide/about/concepts/view.html).
 #[doc = "\n"]
 #[doc = include_str!("./view-overview.md")]
-pub trait View: Sized + Send + Sync + Debug + 'static {
+pub trait View: Sized + Send + Sync + 'static {
     /// The collection this view belongs to
     type Collection: Collection;
     /// The key for this view.
@@ -144,7 +144,7 @@ pub trait View: Sized + Send + Sync + Debug + 'static {
 /// use bonsaidb_core::schema::view::{ReduceResult, ViewMapResult};
 /// use bonsaidb_core::schema::{MapReduce, View, ViewMappedValue, ViewSchema};
 ///
-/// #[derive(View, ViewSchema, Debug)]
+/// #[derive(View, ViewSchema)]
 /// #[view(collection = MyCollection, key = String, value = u32)]
 /// #[view_schema(mapped_key = Cow<'doc, str>, policy = Unique)]
 /// # #[view(core = bonsaidb_core)]
@@ -169,7 +169,7 @@ pub trait View: Sized + Send + Sync + Debug + 'static {
 /// ```
 #[doc = "\n"]
 #[doc = include_str!("./view-overview.md")]
-pub trait ViewSchema: Send + Sync + Debug + 'static {
+pub trait ViewSchema: Send + Sync + 'static {
     /// The view this schema is defined for.
     type View: SerializedView;
     /// The key type used during the map/reduce operation.
@@ -372,7 +372,7 @@ where
 }
 
 /// Wraps a [`View`] with serialization to erase the associated types
-pub trait Serialized: Send + Sync + Debug {
+pub trait Serialized: Send + Sync {
     /// Wraps returing [`<View::Collection as Collection>::collection_name()`](crate::schema::Collection::collection_name)
     fn collection(&self) -> CollectionName;
     /// Returns the description of the view's `Key`.

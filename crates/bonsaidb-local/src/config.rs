@@ -20,7 +20,7 @@ mod argon;
 pub use argon::*;
 
 /// Configuration options for [`Storage`](crate::storage::Storage).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct StorageConfiguration {
     /// The path to the database. Defaults to `db.bonsaidb` if not specified.
@@ -104,6 +104,27 @@ impl Default for StorageConfiguration {
             argon: ArgonConfiguration::default_for(&system),
             initial_schemas: HashMap::default(),
         }
+    }
+}
+
+impl std::fmt::Debug for StorageConfiguration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut schemas = self.initial_schemas.keys().collect::<Vec<_>>();
+        schemas.sort();
+        f.debug_struct("StorageConfiguration")
+            .field("path", &self.path)
+            .field("memory_only", &self.memory_only)
+            .field("unique_id", &self.unique_id)
+            .field("vault_key_storage", &self.vault_key_storage)
+            .field("default_encryption_key", &self.default_encryption_key)
+            .field("workers", &self.workers)
+            .field("views", &self.views)
+            .field("key_value_persistence", &self.key_value_persistence)
+            .field("default_compression", &self.default_compression)
+            .field("authenticated_permissions", &self.authenticated_permissions)
+            .field("argon", &self.argon)
+            .field("initial_schemas", &schemas)
+            .finish()
     }
 }
 

@@ -4,7 +4,6 @@ mod schematic;
 mod summary;
 /// Types for defining map/reduce-powered `View`s.
 pub mod view;
-use std::fmt::Debug;
 
 pub use bonsaidb_macros::{Collection, Schema, View, ViewSchema};
 
@@ -35,12 +34,12 @@ use crate::Error;
 /// use bonsaidb_core::schema::{Collection, Schema};
 /// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Debug, Schema)]
+/// #[derive(Schema)]
 /// #[schema(name = "MySchema", collections = [MyCollection])]
 /// # #[schema(core = bonsaidb_core)]
 /// pub struct MySchema;
 ///
-/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[derive(Serialize, Deserialize, Default, Collection)]
 /// #[collection(name = "MyCollection")]
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection {
@@ -55,14 +54,14 @@ use crate::Error;
 /// ```rust
 /// use bonsaidb_core::schema::Schema;
 ///
-/// #[derive(Debug, Schema)]
+/// #[derive(Schema)]
 /// #[schema(name = "MySchema", authority = "khonsulabs", collections = [MyCollection])]
 /// # #[schema(core = bonsaidb_core)]
 /// pub struct MySchema;
 ///
 /// # use serde::{Deserialize, Serialize};
 /// # use bonsaidb_core::schema::Collection;
-/// # #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// # #[derive(Serialize, Deserialize, Default, Collection)]
 /// # #[collection(name = "MyCollection")]
 /// # #[collection(core = bonsaidb_core)]
 /// # pub struct MyCollection {
@@ -70,7 +69,7 @@ use crate::Error;
 /// #    pub score: f32,
 /// # }
 /// ```
-pub trait Schema: Send + Sync + Debug + 'static {
+pub trait Schema: Send + Sync + 'static {
     /// Returns the unique [`SchemaName`] for this schema.
     fn schema_name() -> SchemaName;
 

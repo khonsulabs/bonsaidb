@@ -16,7 +16,6 @@ use crate::schema::{CollectionName, Schema, SchemaName, View, ViewName};
 use crate::Error;
 
 /// A collection of defined collections and views.
-#[derive(Debug)]
 pub struct Schematic {
     /// The name of the schema this was built from.
     pub name: SchemaName,
@@ -206,6 +205,32 @@ impl Schematic {
     }
 }
 
+impl Debug for Schematic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut views = self
+            .views
+            .values()
+            .map(|v| v.view_name())
+            .collect::<Vec<_>>();
+        views.sort();
+
+        f.debug_struct("Schematic")
+            .field("name", &self.name)
+            .field("contained_collections", &self.contained_collections)
+            .field("collections_by_type_id", &self.collections_by_type_id)
+            .field(
+                "collection_encryption_keys",
+                &self.collection_encryption_keys,
+            )
+            .field("collection_id_generators", &self.collection_id_generators)
+            .field("views", &views)
+            .field("views_by_name", &self.views_by_name)
+            .field("views_by_collection", &self.views_by_collection)
+            .field("eager_views_by_collection", &self.eager_views_by_collection)
+            .finish()
+    }
+}
+
 #[derive(Debug)]
 struct ViewInstance<V, S> {
     view: V,
@@ -271,8 +296,7 @@ pub trait IdGenerator: Debug + Send + Sync {
     fn next_id(&self, id: Option<DocumentId>) -> Result<DocumentId, Error>;
 }
 
-#[derive(Debug)]
-#[derive_where(Default)]
+#[derive_where(Default, Debug)]
 pub struct KeyIdGenerator<C: Collection>(PhantomData<C>);
 
 impl<C> IdGenerator for KeyIdGenerator<C>

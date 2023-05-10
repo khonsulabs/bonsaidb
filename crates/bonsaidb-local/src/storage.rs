@@ -233,7 +233,6 @@ impl From<StorageInstance> for Storage {
     }
 }
 
-#[derive(Debug)]
 struct Data {
     lock: StorageLock,
     path: PathBuf,
@@ -590,6 +589,44 @@ impl Storage {
     }
 }
 
+impl Debug for Data {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut f = f.debug_struct("Data");
+        f.field("lock", &self.lock)
+            .field("path", &self.path)
+            .field("parallelization", &self.parallelization)
+            .field("threadpool", &self.threadpool)
+            .field("file_manager", &self.file_manager)
+            .field("tasks", &self.tasks)
+            .field("available_databases", &self.available_databases)
+            .field("open_roots", &self.open_roots)
+            .field("authenticated_permissions", &self.authenticated_permissions)
+            .field("sessions", &self.sessions)
+            .field("subscribers", &self.subscribers)
+            .field("argon", &self.argon)
+            .field("vault", &self.vault)
+            .field("default_encryption_key", &self.default_encryption_key)
+            .field("tree_vault", &self.tree_vault)
+            .field("key_value_persistence", &self.key_value_persistence)
+            .field("chunk_cache", &self.chunk_cache)
+            .field(
+                "check_view_integrity_on_database_open",
+                &self.check_view_integrity_on_database_open,
+            )
+            .field("relay", &self.relay);
+
+        if let Some(schemas) = self.schemas.try_read() {
+            let mut schemas = schemas.keys().collect::<Vec<_>>();
+            schemas.sort();
+            f.field("schemas", &schemas);
+        } else {
+            f.field("schemas", &"RwLock locked");
+        }
+
+        f.finish()
+    }
+}
+
 impl StorageInstance {
     #[cfg_attr(
         not(any(feature = "encryption", feature = "compression")),
@@ -866,12 +903,11 @@ impl StorageInstance {
     }
 }
 
-pub trait DatabaseOpener: Send + Sync + Debug {
+pub trait DatabaseOpener: Send + Sync {
     fn schematic(&self) -> &'_ Schematic;
     fn open(&self, name: String, storage: &Storage) -> Result<Database, Error>;
 }
 
-#[derive(Debug)]
 pub struct StorageSchemaOpener<DB: Schema> {
     schematic: Schematic,
     _phantom: PhantomData<DB>,

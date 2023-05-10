@@ -31,7 +31,7 @@ use crate::Error;
 /// use bonsaidb_core::schema::Collection;
 /// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[derive(Serialize, Deserialize, Default, Collection)]
 /// #[collection(name = "MyCollection")]
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection;
@@ -45,7 +45,7 @@ use crate::Error;
 /// use bonsaidb_core::schema::Collection;
 /// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[derive(Serialize, Deserialize, Default, Collection)]
 /// #[collection(name = "MyCollection", authority = "khonsulabs")]
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection;
@@ -57,12 +57,12 @@ use crate::Error;
 /// use bonsaidb_core::schema::{Collection, View, ViewSchema};
 /// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[derive(Serialize, Deserialize, Default, Collection)]
 /// #[collection(name = "MyCollection", views = [ScoresByRank])]
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection;
 ///
-/// #[derive(Debug, Clone, View, ViewSchema)]
+/// #[derive(Clone, View, ViewSchema)]
 /// #[view(collection = MyCollection, key = u32, value = f32, name = "scores-by-rank")]
 /// # #[view(core = bonsaidb_core)]
 /// # #[view_schema(core = bonsaidb_core)]
@@ -103,7 +103,7 @@ use crate::Error;
 /// use bonsaidb_core::schema::Collection;
 /// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[derive(Serialize, Deserialize, Default, Collection)]
 /// #[collection(name = "MyCollection", primary_key = u128)]
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection;
@@ -117,7 +117,7 @@ use crate::Error;
 /// use bonsaidb_core::schema::Collection;
 /// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[derive(Serialize, Deserialize, Default, Collection)]
 /// #[collection(name = "MyCollection")]
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection {
@@ -132,7 +132,7 @@ use crate::Error;
 /// use bonsaidb_core::schema::Collection;
 /// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[derive(Serialize, Deserialize, Default, Collection)]
 /// #[collection(name = "MyCollection", natural_id = Some(self.external_id))]
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection {
@@ -156,7 +156,7 @@ use crate::Error;
 /// use bonsaidb_core::schema::Collection;
 /// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[derive(Serialize, Deserialize, Default, Collection)]
 /// #[collection(name = "MyCollection", encryption_key = Some(KeyId::Master))]
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection;
@@ -170,7 +170,7 @@ use crate::Error;
 /// use bonsaidb_core::schema::Collection;
 /// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[derive(Serialize, Deserialize, Default, Collection)]
 /// #[collection(name = "MyCollection")]
 /// #[collection(encryption_key = Some(KeyId::Master), encryption_required)]
 /// # #[collection(core = bonsaidb_core)]
@@ -186,7 +186,7 @@ use crate::Error;
 /// use bonsaidb_core::schema::Collection;
 /// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[derive(Serialize, Deserialize, Default, Collection)]
 /// #[collection(name = "MyCollection")]
 /// #[collection(encryption_key = Some(KeyId::Master), encryption_optional)]
 /// # #[collection(core = bonsaidb_core)]
@@ -204,7 +204,7 @@ use crate::Error;
 /// use bonsaidb_core::schema::Collection;
 /// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[derive(Serialize, Deserialize, Default, Collection)]
 /// #[collection(name = "MyCollection")]
 /// #[collection(serialization = transmog_bincode::Bincode)]
 /// # #[collection(core = bonsaidb_core)]
@@ -217,13 +217,13 @@ use crate::Error;
 /// ```rust
 /// use bonsaidb_core::schema::Collection;
 ///
-/// #[derive(Debug, Default, Collection)]
+/// #[derive(Default, Collection)]
 /// #[collection(name = "MyCollection")]
 /// #[collection(serialization = None)]
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection;
 /// ```
-pub trait Collection: Debug + Send + Sync {
+pub trait Collection: Send + Sync {
     /// The unique id type. Each document stored in a collection will be
     /// uniquely identified by this type.
     ///
