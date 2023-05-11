@@ -28,7 +28,7 @@ use crate::schema::{
     Collection, CollectionName, MappedValue, NamedCollection, Qualified, Schema, SchemaName,
     Schematic, SerializedCollection, View, ViewMapResult, ViewSchema,
 };
-use crate::transaction::{Operation, Transaction};
+use crate::transaction::{Operation, OperationResult, Transaction};
 use crate::Error;
 #[cfg(feature = "token-authentication")]
 use crate::{
@@ -467,6 +467,7 @@ pub enum HarnessTest {
     GetMultiple,
     List,
     ListTransactions,
+    Transactions,
     TransactionCheck,
     ViewQuery,
     UnassociatedCollection,
@@ -617,6 +618,15 @@ macro_rules! define_async_connection_test_suite {
                 let db = harness.connect().await?;
 
                 $crate::test_util::list_transactions_tests(&db).await?;
+                harness.shutdown().await
+            }
+
+            #[tokio::test]
+            async fn transactions() -> anyhow::Result<()> {
+                let harness = $harness::new($crate::test_util::HarnessTest::Transactions).await?;
+                let db = harness.connect().await?;
+
+                $crate::test_util::transaction_tests(&db).await?;
                 harness.shutdown().await
             }
 
@@ -861,6 +871,15 @@ macro_rules! define_blocking_connection_test_suite {
                 let db = harness.connect()?;
 
                 $crate::test_util::blocking_transaction_check_tests(&db)?;
+                harness.shutdown()
+            }
+
+            #[test]
+            fn transactions() -> anyhow::Result<()> {
+                let harness = $harness::new($crate::test_util::HarnessTest::Transactions)?;
+                let db = harness.connect()?;
+
+                $crate::test_util::blocking_transaction_tests(&db)?;
                 harness.shutdown()
             }
 
@@ -1659,6 +1678,68 @@ pub fn blocking_list_transactions_tests<C: Connection + Clone + 'static>(
         u32::try_from(transactions.len()).unwrap(),
         LIST_TRANSACTIONS_MAX_RESULTS + 1
     );
+
+    Ok(())
+}
+
+pub async fn transaction_tests<C: AsyncConnection + 'static>(db: &C) -> anyhow::Result<()> {
+    let mut tx = Transaction::new();
+    Basic::new("test").push_in_transaction(&mut tx)?;
+    let results = tx.apply_async(db).await?;
+    let OperationResult::DocumentUpdated { header, .. } = &results[0] else { unreachable!("unexpected tx result") };
+    let id: u64 = header.id.deserialize()?;
+
+    // Update the doc
+    let mut tx = Transaction::new();
+    let mut doc = Basic::get_async(&id, db).await?.expect("doc not found");
+    doc.contents.category = Some(String::from("cat"));
+    doc.update_in_transaction(&mut tx)?;
+    tx.apply_async(db).await?;
+    let doc = Basic::get_async(&id, db).await?.expect("doc not found");
+    assert_eq!(doc.contents.category.as_deref(), Some("cat"));
+
+    // Overwrite the document.
+    let mut tx = Transaction::new();
+    Basic::new("test").overwrite_in_transaction(&id, &mut tx)?;
+    tx.apply_async(db).await?;
+    let doc = Basic::get_async(&id, db).await?.expect("doc not found");
+    assert_eq!(doc.contents.category, None);
+
+    // Delete the document
+    let mut tx = Transaction::new();
+    doc.delete_in_transaction(&mut tx)?;
+    tx.apply_async(db).await?;
+
+    Ok(())
+}
+
+pub fn blocking_transaction_tests<C: Connection + 'static>(db: &C) -> anyhow::Result<()> {
+    let mut tx = Transaction::new();
+    Basic::new("test").push_in_transaction(&mut tx)?;
+    let results = tx.apply(db)?;
+    let OperationResult::DocumentUpdated { header, .. } = &results[0] else { unreachable!("unexpected tx result") };
+    let id: u64 = header.id.deserialize()?;
+
+    // Update the doc
+    let mut tx = Transaction::new();
+    let mut doc = Basic::get(&id, db)?.expect("doc not found");
+    doc.contents.category = Some(String::from("cat"));
+    doc.update_in_transaction(&mut tx)?;
+    tx.apply(db)?;
+    let doc = Basic::get(&id, db)?.expect("doc not found");
+    assert_eq!(doc.contents.category.as_deref(), Some("cat"));
+
+    // Overwrite the document.
+    let mut tx = Transaction::new();
+    Basic::new("test").overwrite_in_transaction(&id, &mut tx)?;
+    tx.apply(db)?;
+    let doc = Basic::get(&id, db)?.expect("doc not found");
+    assert_eq!(doc.contents.category, None);
+
+    // Delete the document
+    let mut tx = Transaction::new();
+    doc.delete_in_transaction(&mut tx)?;
+    tx.apply(db)?;
 
     Ok(())
 }

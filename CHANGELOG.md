@@ -276,6 +276,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `VarInt<T>` is a new type that implements `Key` using the `ordered-varint`
   crate. This allows using types such as `VarInt<u64>` instead of `u64` to
   reduce the number of bytes encoded keys consume on average.
+- `SerializedCollection` now has `insert_in_transaction()`,
+  `push_in_transaction()`, and `overwrite_in_transaction()` which are new
+  helpers that help writing transactional code easier by creating and pushing
+  the `Operations` in one step.
+- `CollectionDocument<T>` now has `update_in_transaction()` and
+  `delete_in_transaction()` which are new helpers that help writing
+  transactional code easier by creating and pushing the `Operations` in one
+  step.
 
 ### Changed
 

@@ -14,7 +14,7 @@ use bonsaidb::core::schema::{
     NamedCollection, Qualified, ReduceResult, Schema, Schematic, SerializedCollection, View,
     ViewMapResult, ViewMappedValue, ViewSchema,
 };
-use bonsaidb::core::transaction::{self, Transaction};
+use bonsaidb::core::transaction::Transaction;
 use bonsaidb::core::{define_basic_unique_mapped_view, Error};
 use bonsaidb::local::config::Builder;
 #[cfg(feature = "compression")]
@@ -171,27 +171,19 @@ impl Operator<Load, u32> for BonsaiOperator {
         let measurement = measurements.begin(self.label, Metric::Load);
         let mut tx = Transaction::default();
         for (id, category) in &operation.initial_data.categories {
-            tx.push(
-                transaction::Operation::insert_serialized::<Category>(Some(id), category).unwrap(),
-            );
+            category.insert_in_transaction(id, &mut tx).unwrap();
         }
         for (id, product) in &operation.initial_data.products {
-            tx.push(
-                transaction::Operation::insert_serialized::<Product>(Some(id), product).unwrap(),
-            );
+            product.insert_in_transaction(id, &mut tx).unwrap();
         }
         for (id, customer) in &operation.initial_data.customers {
-            tx.push(
-                transaction::Operation::insert_serialized::<Customer>(Some(id), customer).unwrap(),
-            );
+            customer.insert_in_transaction(id, &mut tx).unwrap();
         }
         for (id, order) in &operation.initial_data.orders {
-            tx.push(transaction::Operation::insert_serialized::<Order>(Some(id), order).unwrap());
+            order.insert_in_transaction(id, &mut tx).unwrap();
         }
         for review in &operation.initial_data.reviews {
-            tx.push(
-                transaction::Operation::insert_serialized::<ProductReview>(None, review).unwrap(),
-            );
+            review.push_in_transaction(&mut tx).unwrap();
         }
         self.database.apply_transaction(tx).await.unwrap();
         measurement.finish();

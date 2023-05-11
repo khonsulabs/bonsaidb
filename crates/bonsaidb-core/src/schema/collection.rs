@@ -941,6 +941,19 @@ pub trait SerializedCollection: Collection {
         Self::push_async(self, connection).await
     }
 
+    /// Pushes an [`Operation::Insert`] without a key to the transaction for
+    /// this document, allowing the database to generate the primary key for the
+    /// document.
+    ///
+    /// The document will be inserted once the transaction is applied.
+    fn push_in_transaction(&self, transaction: &mut Transaction) -> Result<(), Error>
+    where
+        Self: SerializedCollection<Contents = Self> + Sized + 'static,
+    {
+        transaction.push(Operation::push_serialized::<Self>(self)?);
+        Ok(())
+    }
+
     /// Inserts this value into the collection with the specified id, returning
     /// the created document.
     ///
@@ -1070,6 +1083,21 @@ pub trait SerializedCollection: Collection {
         Self::insert_async(id, self, connection).await
     }
 
+    /// Pushes an [`Operation::Insert`] to the transaction for this document.
+    ///
+    /// The document will be inserted once the transaction is applied.
+    fn insert_in_transaction(
+        &self,
+        key: &Self::PrimaryKey,
+        transaction: &mut Transaction,
+    ) -> Result<(), Error>
+    where
+        Self: SerializedCollection<Contents = Self> + Sized + 'static,
+    {
+        transaction.push(Operation::insert_serialized::<Self>(Some(key), self)?);
+        Ok(())
+    }
+
     /// Overwrites this value into the collection with the specified id, returning
     /// the created or updated document.
     ///
@@ -1171,6 +1199,24 @@ pub trait SerializedCollection: Collection {
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
         Self::overwrite(id, self, connection)
+    }
+
+    /// Pushes an [`Operation::Overwrite`] to the transaction for this document.
+    ///
+    /// The document will be overwritten once the transaction is applied.
+    fn overwrite_in_transaction<PrimaryKey>(
+        &self,
+        id: &PrimaryKey,
+        transaction: &mut Transaction,
+    ) -> Result<(), Error>
+    where
+        PrimaryKey: KeyEncoding<Self::PrimaryKey>,
+        Self: SerializedCollection<Contents = Self> + Sized + 'static,
+    {
+        transaction.push(Operation::overwrite_serialized::<Self, PrimaryKey>(
+            id, self,
+        )?);
+        Ok(())
     }
 
     /// Overwrites this value into the collection with the given `id`, returning

@@ -7,8 +7,11 @@ use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 
 use crate::connection::{AsyncConnection, Connection};
-use crate::document::{BorrowedDocument, CollectionHeader, DocumentId, Header, OwnedDocument};
+use crate::document::{
+    BorrowedDocument, CollectionHeader, DocumentId, HasHeader, Header, OwnedDocument,
+};
 use crate::schema::SerializedCollection;
+use crate::transaction::{Operation, Transaction};
 use crate::Error;
 
 /// A document with serializable contents.
@@ -91,6 +94,17 @@ where
 
         self.header = CollectionHeader::try_from(doc.header)?;
 
+        Ok(())
+    }
+
+    /// Pushes an [`Operation::Update`] to the transaction for this document.
+    ///
+    /// The changes will happen once the transaction is applied.
+    pub fn update_in_transaction(&self, transaction: &mut Transaction) -> Result<(), Error> {
+        transaction.push(Operation::update_serialized::<C>(
+            self.header.clone(),
+            &self.contents,
+        )?);
         Ok(())
     }
 
@@ -245,6 +259,14 @@ where
     pub async fn delete_async<Cn: AsyncConnection>(&self, connection: &Cn) -> Result<(), Error> {
         connection.collection::<C>().delete(self).await?;
 
+        Ok(())
+    }
+
+    /// Pushes an [`Operation::Delete`] to the transaction for this document.
+    ///
+    /// The document will be deleted once the transaction is applied.
+    pub fn delete_in_transaction(&self, transaction: &mut Transaction) -> Result<(), Error> {
+        transaction.push(Operation::delete(C::collection_name(), self.header()?));
         Ok(())
     }
 
