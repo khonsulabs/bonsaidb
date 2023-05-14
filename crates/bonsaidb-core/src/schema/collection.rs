@@ -126,7 +126,8 @@ use crate::Error;
 /// }
 /// ```
 ///
-/// Alternatively, this can be accomplished with an expression using the `natural_id` attribute:
+/// Alternatively, this can be accomplished with an expression using the
+/// `natural_id` attribute:
 ///
 /// ```rust
 /// use bonsaidb_core::schema::Collection;
@@ -223,6 +224,10 @@ use crate::Error;
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection;
 /// ```
+///
+/// If the collection type implements or derives the [`Key`](crate::key::Key)
+/// trait, `serialization = Key` can be passed to serialize using the [key
+/// format](crate::key::KeyFormat).
 pub trait Collection: Send + Sync {
     /// The unique id type. Each document stored in a collection will be
     /// uniquely identified by this type.

@@ -7,7 +7,7 @@ use std::time::Duration;
 use bonsaidb::client::url::Url;
 use bonsaidb::client::{ApiError, AsyncClient};
 use bonsaidb::core::actionable::Permissions;
-use bonsaidb::core::api::{Api, ApiName, Infallible};
+use bonsaidb::core::api::Api;
 use bonsaidb::core::async_trait::async_trait;
 use bonsaidb::core::connection::{
     AsyncStorageConnection, Authentication, AuthenticationMethod, SensitiveString,
@@ -15,44 +15,23 @@ use bonsaidb::core::connection::{
 use bonsaidb::core::keyvalue::AsyncKeyValue;
 use bonsaidb::core::permissions::bonsai::{BonsaiAction, ServerAction};
 use bonsaidb::core::permissions::{Action, Identifier, Statement};
-use bonsaidb::core::schema::Qualified;
 use bonsaidb::local::config::Builder;
 use bonsaidb::server::api::{Handler, HandlerResult, HandlerSession};
-use bonsaidb::server::{Backend, CustomServer, ServerConfiguration};
+use bonsaidb::server::{Server, ServerConfiguration};
 use serde::{Deserialize, Serialize};
 
-/// The `Backend` for the BonsaiDb server.
-#[derive(Debug, Default)]
-pub struct ExampleBackend;
-
 // ANCHOR: api-types
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Api)]
+#[api(name = "ping", response = Pong)]
 pub struct Ping;
-
-impl Api for Ping {
-    type Error = Infallible;
-    type Response = Pong;
-
-    fn name() -> ApiName {
-        ApiName::private("ping")
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Pong;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Api)]
+#[api(name = "increment", response = Counter)]
 pub struct IncrementCounter {
     amount: u64,
-}
-
-impl Api for IncrementCounter {
-    type Error = Infallible;
-    type Response = Counter;
-
-    fn name() -> ApiName {
-        ApiName::private("increment")
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -60,11 +39,6 @@ pub struct Counter(pub u64);
 // ANCHOR_END: api-types
 
 // ANCHOR: server-traits
-impl Backend for ExampleBackend {
-    type ClientData = ();
-    type Error = Infallible;
-}
-
 /// Dispatches Requests and returns Responses.
 #[derive(Debug)]
 pub struct ExampleHandler;
@@ -73,11 +47,8 @@ pub struct ExampleHandler;
 /// causes `PingHandler` to be generated with a single method and no implicit
 /// permission handling.
 #[async_trait]
-impl Handler<ExampleBackend, Ping> for ExampleHandler {
-    async fn handle(
-        _session: HandlerSession<'_, ExampleBackend>,
-        _request: Ping,
-    ) -> HandlerResult<Ping> {
+impl Handler<Ping> for ExampleHandler {
+    async fn handle(_session: HandlerSession<'_>, _request: Ping) -> HandlerResult<Ping> {
         Ok(Pong)
     }
 }
@@ -103,9 +74,9 @@ pub async fn increment_counter<S: AsyncStorageConnection<Database = C>, C: Async
 }
 
 #[async_trait]
-impl Handler<ExampleBackend, IncrementCounter> for ExampleHandler {
+impl Handler<IncrementCounter> for ExampleHandler {
     async fn handle(
-        session: HandlerSession<'_, ExampleBackend>,
+        session: HandlerSession<'_>,
         request: IncrementCounter,
     ) -> HandlerResult<IncrementCounter> {
         Ok(Counter(
@@ -119,7 +90,7 @@ impl Handler<ExampleBackend, IncrementCounter> for ExampleHandler {
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
     // ANCHOR: server-init
-    let server = CustomServer::<ExampleBackend>::open(
+    let server = Server::open(
         ServerConfiguration::new("custom-api.bonsaidb")
             .default_permissions(Permissions::from(
                 Statement::for_any()

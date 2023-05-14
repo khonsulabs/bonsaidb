@@ -69,7 +69,7 @@ impl Api for SetValue {
 struct SetValueHandler;
 
 #[async_trait]
-impl Handler<CustomBackend, SetValue> for SetValueHandler {
+impl Handler<SetValue, CustomBackend> for SetValueHandler {
     async fn handle(
         session: HandlerSession<'_, CustomBackend>,
         request: SetValue,

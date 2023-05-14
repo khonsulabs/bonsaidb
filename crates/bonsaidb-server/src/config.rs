@@ -112,7 +112,7 @@ impl<B: Backend> ServerConfiguration<B> {
 
     /// Registers a `handler` for a [`Api`][api::Api]. When an [`Api`][api::Api] is
     /// received by the server, the handler will be invoked
-    pub fn register_custom_api<Dispatcher: Handler<B, Api> + 'static, Api: api::Api>(
+    pub fn register_custom_api<Dispatcher: Handler<Api, B> + 'static, Api: api::Api>(
         &mut self,
     ) -> Result<(), Error> {
         // TODO this should error on duplicate registration.
@@ -124,7 +124,7 @@ impl<B: Backend> ServerConfiguration<B> {
     }
 
     /// Registers the custom api dispatcher and returns self.
-    pub fn with_api<Dispatcher: Handler<B, Api> + 'static, Api: api::Api>(
+    pub fn with_api<Dispatcher: Handler<Api, B> + 'static, Api: api::Api>(
         mut self,
     ) -> Result<Self, Error> {
         self.register_custom_api::<Dispatcher, Api>()?;

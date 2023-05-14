@@ -4,7 +4,7 @@ The [`Api`]({{DOCS_BASE_URL}}/bonsaidb/core/api/trait.Api.html) trait defines tw
 
 > All code on this page comes from this example: [`examples/basic-server/examples/custom-api.rs`][full-example].
 
-This example defines two Api types with associated output types, but uses BonsaiDb's [`Infallible`]({{DOCS_BASE_URL}}/bonsaidb/core/api/enum.Infallible.html) type for the Error associated type:
+This example shows how to derive the `Api` trait. Because an error type isn't specified, the derive macro will use BonsaiDb's [`Infallible`]({{DOCS_BASE_URL}}/bonsaidb/core/api/enum.Infallible.html) type as the error type.
 
 ```rust,noplayground,no_run
 {{#include ../../../../examples/basic-server/examples/custom-api.rs:api-types}}

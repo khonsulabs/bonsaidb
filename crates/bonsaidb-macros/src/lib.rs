@@ -179,6 +179,11 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> Result {
         });
 
         if let Some(serialization) = serialization {
+            let serialization = if serialization.is_ident("Key") {
+                quote!(#core::key::KeyFormat)
+            } else {
+                quote!(#serialization)
+            };
             quote! {
                 impl #impl_generics #core::schema::SerializedCollection for #ident #ty_generics #where_clause {
                     type Contents = #ident #ty_generics;
@@ -251,7 +256,7 @@ pub fn view_derive(input: proc_macro::TokenStream) -> Result {
 }
 /// Derives the `bonsaidb::core::schema::ViewSchema` trait.
 #[manyhow]
-/// `#[view_schema(version = 1, unique = true, lazy = false, view=ViewType, mapped_key=KeyType<'doc>)]`
+/// `#[view_schema(version = 1, policy = Unique, view=ViewType, mapped_key=KeyType<'doc>)]`
 ///
 /// All attributes are optional.
 #[proc_macro_derive(ViewSchema, attributes(view_schema))]

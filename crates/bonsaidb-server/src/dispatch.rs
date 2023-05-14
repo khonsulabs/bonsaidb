@@ -86,7 +86,7 @@ impl ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, CreateDatabase> for ServerDispatcher {
+impl<B: Backend> Handler<CreateDatabase, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         request: CreateDatabase,
@@ -104,7 +104,7 @@ impl<B: Backend> Handler<B, CreateDatabase> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, DeleteDatabase> for ServerDispatcher {
+impl<B: Backend> Handler<DeleteDatabase, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: DeleteDatabase,
@@ -115,7 +115,7 @@ impl<B: Backend> Handler<B, DeleteDatabase> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, ListDatabases> for ServerDispatcher {
+impl<B: Backend> Handler<ListDatabases, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         _command: ListDatabases,
@@ -129,7 +129,7 @@ impl<B: Backend> Handler<B, ListDatabases> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, ListAvailableSchemas> for ServerDispatcher {
+impl<B: Backend> Handler<ListAvailableSchemas, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         _command: ListAvailableSchemas,
@@ -143,7 +143,7 @@ impl<B: Backend> Handler<B, ListAvailableSchemas> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, CreateUser> for ServerDispatcher {
+impl<B: Backend> Handler<CreateUser, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: CreateUser,
@@ -157,7 +157,7 @@ impl<B: Backend> Handler<B, CreateUser> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, DeleteUser> for ServerDispatcher {
+impl<B: Backend> Handler<DeleteUser, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: DeleteUser,
@@ -172,7 +172,7 @@ impl<B: Backend> Handler<B, DeleteUser> for ServerDispatcher {
 
 #[cfg(feature = "password-hashing")]
 #[async_trait]
-impl<B: Backend> Handler<B, SetUserPassword> for ServerDispatcher {
+impl<B: Backend> Handler<SetUserPassword, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: SetUserPassword,
@@ -187,7 +187,7 @@ impl<B: Backend> Handler<B, SetUserPassword> for ServerDispatcher {
 
 #[cfg(feature = "password-hashing")]
 #[async_trait]
-impl<B: Backend> Handler<B, Authenticate> for ServerDispatcher {
+impl<B: Backend> Handler<Authenticate, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: Authenticate,
@@ -205,7 +205,7 @@ impl<B: Backend> Handler<B, Authenticate> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, AssumeIdentity> for ServerDispatcher {
+impl<B: Backend> Handler<AssumeIdentity, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: AssumeIdentity,
@@ -220,7 +220,7 @@ impl<B: Backend> Handler<B, AssumeIdentity> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, LogOutSession> for ServerDispatcher {
+impl<B: Backend> Handler<LogOutSession, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: LogOutSession,
@@ -241,7 +241,7 @@ impl<B: Backend> Handler<B, LogOutSession> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, AlterUserPermissionGroupMembership> for ServerDispatcher {
+impl<B: Backend> Handler<AlterUserPermissionGroupMembership, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: AlterUserPermissionGroupMembership,
@@ -263,7 +263,7 @@ impl<B: Backend> Handler<B, AlterUserPermissionGroupMembership> for ServerDispat
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, AlterUserRoleMembership> for ServerDispatcher {
+impl<B: Backend> Handler<AlterUserRoleMembership, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: AlterUserRoleMembership,
@@ -285,7 +285,7 @@ impl<B: Backend> Handler<B, AlterUserRoleMembership> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, Get> for ServerDispatcher {
+impl<B: Backend> Handler<Get, B> for ServerDispatcher {
     async fn handle(session: HandlerSession<'_, B>, command: Get) -> HandlerResult<Get> {
         let database = session
             .as_client
@@ -299,7 +299,7 @@ impl<B: Backend> Handler<B, Get> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, GetMultiple> for ServerDispatcher {
+impl<B: Backend> Handler<GetMultiple, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: GetMultiple,
@@ -316,7 +316,7 @@ impl<B: Backend> Handler<B, GetMultiple> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, List> for ServerDispatcher {
+impl<B: Backend> Handler<List, B> for ServerDispatcher {
     async fn handle(session: HandlerSession<'_, B>, command: List) -> HandlerResult<List> {
         let database = session
             .as_client
@@ -335,7 +335,7 @@ impl<B: Backend> Handler<B, List> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, ListHeaders> for ServerDispatcher {
+impl<B: Backend> Handler<ListHeaders, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: ListHeaders,
@@ -357,7 +357,7 @@ impl<B: Backend> Handler<B, ListHeaders> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, Count> for ServerDispatcher {
+impl<B: Backend> Handler<Count, B> for ServerDispatcher {
     async fn handle(session: HandlerSession<'_, B>, command: Count) -> HandlerResult<Count> {
         let database = session
             .as_client
@@ -371,7 +371,7 @@ impl<B: Backend> Handler<B, Count> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, Query> for ServerDispatcher {
+impl<B: Backend> Handler<Query, B> for ServerDispatcher {
     async fn handle(session: HandlerSession<'_, B>, command: Query) -> HandlerResult<Query> {
         let database = session
             .as_client
@@ -391,7 +391,7 @@ impl<B: Backend> Handler<B, Query> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, QueryWithDocs> for ServerDispatcher {
+impl<B: Backend> Handler<QueryWithDocs, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: QueryWithDocs,
@@ -414,7 +414,7 @@ impl<B: Backend> Handler<B, QueryWithDocs> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, Reduce> for ServerDispatcher {
+impl<B: Backend> Handler<Reduce, B> for ServerDispatcher {
     async fn handle(session: HandlerSession<'_, B>, command: Reduce) -> HandlerResult<Reduce> {
         let database = session
             .as_client
@@ -429,7 +429,7 @@ impl<B: Backend> Handler<B, Reduce> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, ReduceGrouped> for ServerDispatcher {
+impl<B: Backend> Handler<ReduceGrouped, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: ReduceGrouped,
@@ -446,7 +446,7 @@ impl<B: Backend> Handler<B, ReduceGrouped> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, ApplyTransaction> for ServerDispatcher {
+impl<B: Backend> Handler<ApplyTransaction, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: ApplyTransaction,
@@ -463,7 +463,7 @@ impl<B: Backend> Handler<B, ApplyTransaction> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, DeleteDocs> for ServerDispatcher {
+impl<B: Backend> Handler<DeleteDocs, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: DeleteDocs,
@@ -480,7 +480,7 @@ impl<B: Backend> Handler<B, DeleteDocs> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, ListExecutedTransactions> for ServerDispatcher {
+impl<B: Backend> Handler<ListExecutedTransactions, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: ListExecutedTransactions,
@@ -497,7 +497,7 @@ impl<B: Backend> Handler<B, ListExecutedTransactions> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, LastTransactionId> for ServerDispatcher {
+impl<B: Backend> Handler<LastTransactionId, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: LastTransactionId,
@@ -514,7 +514,7 @@ impl<B: Backend> Handler<B, LastTransactionId> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, CreateSubscriber> for ServerDispatcher {
+impl<B: Backend> Handler<CreateSubscriber, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: CreateSubscriber,
@@ -536,7 +536,7 @@ impl<B: Backend> Handler<B, CreateSubscriber> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, Publish> for ServerDispatcher {
+impl<B: Backend> Handler<Publish, B> for ServerDispatcher {
     async fn handle(session: HandlerSession<'_, B>, command: Publish) -> HandlerResult<Publish> {
         let database = session
             .as_client
@@ -550,7 +550,7 @@ impl<B: Backend> Handler<B, Publish> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, PublishToAll> for ServerDispatcher {
+impl<B: Backend> Handler<PublishToAll, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: PublishToAll,
@@ -570,7 +570,7 @@ impl<B: Backend> Handler<B, PublishToAll> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, SubscribeTo> for ServerDispatcher {
+impl<B: Backend> Handler<SubscribeTo, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: SubscribeTo,
@@ -587,7 +587,7 @@ impl<B: Backend> Handler<B, SubscribeTo> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, UnsubscribeFrom> for ServerDispatcher {
+impl<B: Backend> Handler<UnsubscribeFrom, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: UnsubscribeFrom,
@@ -604,7 +604,7 @@ impl<B: Backend> Handler<B, UnsubscribeFrom> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, UnregisterSubscriber> for ServerDispatcher {
+impl<B: Backend> Handler<UnregisterSubscriber, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: UnregisterSubscriber,
@@ -620,7 +620,7 @@ impl<B: Backend> Handler<B, UnregisterSubscriber> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, ExecuteKeyOperation> for ServerDispatcher {
+impl<B: Backend> Handler<ExecuteKeyOperation, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: ExecuteKeyOperation,
@@ -637,7 +637,7 @@ impl<B: Backend> Handler<B, ExecuteKeyOperation> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, CompactCollection> for ServerDispatcher {
+impl<B: Backend> Handler<CompactCollection, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: CompactCollection,
@@ -654,7 +654,7 @@ impl<B: Backend> Handler<B, CompactCollection> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, CompactKeyValueStore> for ServerDispatcher {
+impl<B: Backend> Handler<CompactKeyValueStore, B> for ServerDispatcher {
     async fn handle(
         session: HandlerSession<'_, B>,
         command: CompactKeyValueStore,
@@ -671,7 +671,7 @@ impl<B: Backend> Handler<B, CompactKeyValueStore> for ServerDispatcher {
 }
 
 #[async_trait]
-impl<B: Backend> Handler<B, Compact> for ServerDispatcher {
+impl<B: Backend> Handler<Compact, B> for ServerDispatcher {
     async fn handle(client: HandlerSession<'_, B>, command: Compact) -> HandlerResult<Compact> {
         let database = client
             .as_client

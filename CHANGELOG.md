@@ -167,6 +167,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Alternatively, `#[natural_id]` can be annotated directly on a field to have it
   become the natural id automatically.
 
+- `bonsaidb::server::api::Handler` has had its generic arguments order reversed,
+  which allows the type to specify a default `Backend` of `NoBackend`.
+
 ### Added
 
 - [#239][239] `Key` can now be derived on enums and structs, allowing an easier way
@@ -179,6 +182,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   variable integer encoding, allowing for proper cross-architecture behavior.
   When trying to decode a value that is too large for the given target
   architecture, an error will be returned.
+- `bonsaidb::core::key::KeyFormat` is a new `transmog::Format` that can be used
+  as a `SerializedCollection::Format` associated type. This implements
+  serialization using the `Key` trait rather than Serde.
+
+  When deriving the `Collection` trait, specifying `serialization = Key` will
+  use this format.
 - `ViewSchema` can now be derived.
 - `bonsaidb_core::Error::is_unique_key_error()` is a convenience function to
   quickly check if an error is a result of a unique key violation from a

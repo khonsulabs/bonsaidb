@@ -7,7 +7,7 @@ mod deprecated;
 use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::io::ErrorKind;
+use std::io::{self, ErrorKind};
 use std::num::TryFromIntError;
 use std::ops::Deref;
 use std::string::FromUtf8Error;
@@ -19,6 +19,7 @@ pub use deprecated::*;
 use num_traits::{FromPrimitive, ToPrimitive};
 use ordered_varint::{Signed, Unsigned, Variable};
 use serde::{Deserialize, Serialize};
+use transmog::BorrowedDeserializer;
 pub use varint::{VarInt, VariableInteger};
 
 use crate::connection::{Bound, BoundRef, MaybeOwned, RangeRef};
@@ -1456,7 +1457,7 @@ impl CompositeKeyNullHandler for DenyNullBytes {
     #[inline]
     fn handle_nulls(&self, encoded: &mut Cow<'_, [u8]>) -> Result<(), CompositeKeyError> {
         if encoded.iter().any(|b| *b == 0) {
-            Err(CompositeKeyError::new(std::io::Error::new(
+            Err(CompositeKeyError::new(io::Error::new(
                 ErrorKind::InvalidData,
                 CompositeKeyFieldContainsNullByte,
             )))
@@ -1676,7 +1677,7 @@ where
             }
 
             if !found_end {
-                return Err(CompositeKeyError::new(std::io::Error::from(
+                return Err(CompositeKeyError::new(io::Error::from(
                     ErrorKind::UnexpectedEof,
                 )));
             }
@@ -1700,7 +1701,7 @@ where
             }
             Ok(decoded)
         } else {
-            Err(CompositeKeyError::new(std::io::Error::from(
+            Err(CompositeKeyError::new(io::Error::from(
                 ErrorKind::UnexpectedEof,
             )))
         }
@@ -1711,7 +1712,7 @@ where
         if self.offset == self.end {
             Ok(())
         } else {
-            Err(CompositeKeyError::new(std::io::Error::from(
+            Err(CompositeKeyError::new(io::Error::from(
                 ErrorKind::InvalidData,
             )))
         }
@@ -1848,8 +1849,8 @@ impl From<TryFromIntError> for CompositeKeyError {
     }
 }
 
-impl From<std::io::Error> for CompositeKeyError {
-    fn from(err: std::io::Error) -> Self {
+impl From<io::Error> for CompositeKeyError {
+    fn from(err: io::Error) -> Self {
         Self::new(err)
     }
 }
@@ -1875,7 +1876,7 @@ impl<'k> Key<'k> for Signed {
 }
 
 impl KeyEncoding<Self> for Signed {
-    type Error = std::io::Error;
+    type Error = io::Error;
 
     const LENGTH: Option<usize> = None;
 
@@ -1912,7 +1913,7 @@ impl<'k> Key<'k> for Unsigned {
 }
 
 impl KeyEncoding<Self> for Unsigned {
-    type Error = std::io::Error;
+    type Error = io::Error;
 
     const LENGTH: Option<usize> = None;
 
@@ -1945,7 +1946,7 @@ impl<'k> Key<'k> for isize {
 }
 
 impl KeyEncoding<Self> for isize {
-    type Error = std::io::Error;
+    type Error = io::Error;
 
     const LENGTH: Option<usize> = None;
 
@@ -1978,7 +1979,7 @@ impl<'k> Key<'k> for usize {
 }
 
 impl KeyEncoding<Self> for usize {
-    type Error = std::io::Error;
+    type Error = io::Error;
 
     const LENGTH: Option<Self> = None;
 
@@ -2230,7 +2231,7 @@ where
         let primitive = u64::decode_variable(bytes.as_ref())?;
         T::from_u64(primitive)
             .map(Self)
-            .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidData, UnknownEnumVariant))
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, UnknownEnumVariant))
     }
 }
 
@@ -2238,7 +2239,7 @@ impl<T> KeyEncoding<Self> for EnumKey<T>
 where
     T: ToPrimitive + FromPrimitive + Clone + Eq + Ord + std::fmt::Debug + Send + Sync,
 {
-    type Error = std::io::Error;
+    type Error = io::Error;
 
     const LENGTH: Option<usize> = None;
 
@@ -2254,7 +2255,7 @@ where
             .0
             .to_u64()
             .map(Unsigned::from)
-            .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidData, IncorrectByteLength))?;
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, IncorrectByteLength))?;
         Ok(Cow::Owned(integer.to_variable_vec()?))
     }
 }
@@ -2356,6 +2357,65 @@ fn primitive_key_encoding_tests() -> anyhow::Result<()> {
     );
 
     Ok(())
+}
+
+/// A Transmog [`Format`](transmog::Format) implementation that uses [`Key`] to
+/// serialize and deserialize the contents.
+#[derive(Default, Debug)]
+pub struct KeyFormat;
+
+impl KeyFormat {
+    fn get_bytes<T: KeyEncoding>(value: &T) -> io::Result<Cow<'_, [u8]>> {
+        value
+            .as_ord_bytes()
+            .map_err(|err| io::Error::new(ErrorKind::InvalidInput, err))
+    }
+}
+
+impl<'a, T> transmog::Format<'a, T> for KeyFormat
+where
+    T: KeyEncoding,
+{
+    type Error = io::Error;
+
+    fn serialize_into<W: io::Write>(&self, value: &T, mut writer: W) -> Result<(), Self::Error> {
+        let data = Self::get_bytes(value)?;
+        writer.write_all(&data)
+    }
+
+    fn serialized_size(&self, _value: &T) -> Result<Option<usize>, Self::Error> {
+        Ok(T::LENGTH)
+    }
+
+    fn serialize(&self, value: &T) -> Result<Vec<u8>, Self::Error> {
+        Ok(Self::get_bytes(value)?.into_owned())
+    }
+}
+
+impl<'a, T> transmog::BorrowedDeserializer<'a, T> for KeyFormat
+where
+    T: Key<'a>,
+{
+    fn deserialize_borrowed(&self, data: &'a [u8]) -> Result<T, Self::Error> {
+        T::from_ord_bytes(ByteSource::Borrowed(data))
+            .map_err(|err| io::Error::new(ErrorKind::InvalidData, err))
+    }
+}
+
+impl<T> transmog::OwnedDeserializer<T> for KeyFormat
+where
+    T: for<'a> Key<'a> + 'static,
+{
+    fn deserialize_from<R: io::Read>(&self, mut reader: R) -> Result<T, Self::Error> {
+        let mut buffer = Vec::new();
+        reader.read_to_end(&mut buffer)?;
+        self.deserialize_owned(&buffer)
+    }
+
+    fn deserialize_owned(&self, data: &[u8]) -> Result<T, Self::Error> {
+        let possibly_borrowed = self.deserialize_borrowed(data)?;
+        Ok(possibly_borrowed)
+    }
 }
 
 #[test]
@@ -2494,4 +2554,19 @@ fn key_descriptions() {
             attributes: HashMap::new(),
         })
     );
+}
+
+#[test]
+fn key_serialization() {
+    #[derive(crate::schema::Collection, Key, Clone, Eq, PartialEq, Debug)]
+    #[collection(core = crate, name = "test", serialization = Key)]
+    #[key(core = crate)]
+    struct Test {
+        field: u64,
+    }
+    let start = Test { field: 42 };
+    let encoded = <Test as crate::schema::SerializedCollection>::serialize(&start).unwrap();
+    assert_eq!(encoded, &[0, 0, 0, 0, 0, 0, 0, 42]);
+    let decoded = <Test as crate::schema::SerializedCollection>::deserialize(&encoded).unwrap();
+    assert_eq!(decoded, start);
 }

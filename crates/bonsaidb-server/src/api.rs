@@ -11,7 +11,7 @@ use crate::{Backend, ConnectedClient, CustomServer, Error, NoBackend};
 
 /// A trait that can dispatch requests for a [`Api`].
 #[async_trait]
-pub trait Handler<B: Backend, Api: api::Api>: Send + Sync {
+pub trait Handler<Api: api::Api, B: Backend = NoBackend>: Send + Sync {
     /// Returns a dispatcher to handle custom api requests. The parameters are
     /// provided so that they can be cloned if needed during the processing of
     /// requests.
@@ -37,13 +37,13 @@ pub(crate) trait AnyHandler<B: Backend>: Send + Sync + Debug {
     async fn handle(&self, session: HandlerSession<'_, B>, request: &[u8]) -> Result<Bytes, Error>;
 }
 
-pub(crate) struct AnyWrapper<D: Handler<B, A>, B: Backend, A: Api>(
+pub(crate) struct AnyWrapper<D: Handler<A, B>, B: Backend, A: Api>(
     pub(crate) PhantomData<(D, B, A)>,
 );
 
 impl<D, B, A> Debug for AnyWrapper<D, B, A>
 where
-    D: Handler<B, A>,
+    D: Handler<A, B>,
     B: Backend,
     A: Api,
 {
@@ -56,7 +56,7 @@ where
 impl<T, B, A> AnyHandler<B> for AnyWrapper<T, B, A>
 where
     B: Backend,
-    T: Handler<B, A>,
+    T: Handler<A, B>,
     A: Api,
 {
     async fn handle(&self, client: HandlerSession<'_, B>, request: &[u8]) -> Result<Bytes, Error> {
