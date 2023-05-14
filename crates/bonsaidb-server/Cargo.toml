@@ -71,7 +71,9 @@ pot = "2.0.0"
 fabruic = { version = "0.0.1-dev.6", features = ["dangerous"] }
 cfg-if = "1"
 pem = { version = "1", optional = true }
-async-acme = { version = "0.3", optional = true, features = ["hyper_rustls"] }
+async-acme = { version = "=0.3.1", optional = true, features = [
+    "hyper_rustls",
+] }
 rustls = "0.20"
 tokio-rustls = { version = "0.23" }
 parking_lot = "0.12.0"
