@@ -101,8 +101,8 @@ pub struct ViewSummary {
     /// The description of [`View::Key`](crate::schema::View::Key).
     pub key: KeyDescription,
     /// The result of
-    /// [`ViewSchema::policy()`](crate::schema::ViewSchema::policy) for this
-    /// view.
+    /// [`ViewSchema::update_policy()`](crate::schema::ViewSchema::update_policy)
+    /// for this view.
     pub policy: ViewUpdatePolicy,
     /// The result of
     /// [`ViewSchema::version()`](crate::schema::ViewSchema::version) for this

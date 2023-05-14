@@ -1,12 +1,12 @@
 Views allow querying documents contained within [`Collection`s][Collection] in
 an efficient manner.
 
-The [`ViewSchema::map()`] function is responsible for "mapping" data from the
+The [`MapReduce::map()`] function is responsible for "mapping" data from the
 stored document into the `Key` type. In the example below, the field `rank` is
 being used as the View's [`Key`](View::Key) type, and the field `score` is being
 used as the View's [`Value`](View::Value)
 
-The [`ViewSchema::reduce()`] function is responsible for "reducing" a list of
+The [`MapReduce::reduce()`] function is responsible for "reducing" a list of
 [`Value`s](View::Value) into a single value. The example below implements
 `reduce()` to return an average value.
 

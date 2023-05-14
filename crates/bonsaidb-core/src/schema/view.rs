@@ -97,9 +97,9 @@ pub trait View: Sized + Send + Sync + 'static {
 /// - [`MappedKey<'doc>`](Self::MappedKey): A [`Key`] type that is compatible
 ///   with the associated [`View::Key`] type, but can borrow from the document
 ///   by using the `'doc` generic associated lifetime.
-/// - [`policy()`](Self::policy): Controls when the view's data is updated and
-///   any restrictions on the data contained in the view. The default policy for
-///   views is [`ViewUpdatePolicy`]
+/// - [`update_policy()`](Self::update_policy): Controls when the view's data is
+///   updated and any restrictions on the data contained in the view. The
+///   default policy for views is [`ViewUpdatePolicy`]
 /// - [`version()`](Self::version): An integer representing the view's version.
 ///   Changing this number will cause the view to be re-indexed. This is useful
 ///   when there are fundamental changes in how the view is implemented.
@@ -378,16 +378,16 @@ pub trait Serialized: Send + Sync {
     fn collection(&self) -> CollectionName;
     /// Returns the description of the view's `Key`.
     fn key_description(&self) -> KeyDescription;
-    /// Wraps [`ViewSchema::policy`]
+    /// Wraps [`ViewSchema::update_policy`]
     fn update_policy(&self) -> ViewUpdatePolicy;
 
     /// Wraps [`ViewSchema::version`]
     fn version(&self) -> u64;
     /// Wraps [`View::view_name`]
     fn view_name(&self) -> ViewName;
-    /// Wraps [`ViewSchema::map`]
+    /// Wraps [`MapReduce::map`]
     fn map(&self, document: &BorrowedDocument<'_>) -> Result<Vec<map::Serialized>, Error>;
-    /// Wraps [`ViewSchema::reduce`]
+    /// Wraps [`MapReduce::reduce`]
     fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, Error>;
 }
 

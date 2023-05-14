@@ -21,7 +21,7 @@
 //! [`OwnedDocument`]/[`BorrowedDocument`] using the [`SerializedCollection`]
 //! trait. This interface is recommended for most users, as it is significantly
 //! more ergonomic. Views implemented using
-//! [`CollectionViewSchema`](crate::schema::CollectionViewSchema) receive a
+//! [`CollectionMapReduce`](crate::schema::CollectionMapReduce) receive a
 //! [`CollectionDocument<T>`] parameter to the map function.
 use std::borrow::Cow;
 

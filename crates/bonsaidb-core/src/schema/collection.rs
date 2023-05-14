@@ -946,8 +946,8 @@ pub trait SerializedCollection: Collection {
         Self::push_async(self, connection).await
     }
 
-    /// Pushes an [`Operation::Insert`] without a key to the transaction for
-    /// this document, allowing the database to generate the primary key for the
+    /// Pushes an insert [`Operation`] without a key to the transaction for this
+    /// document, allowing the database to generate the primary key for the
     /// document.
     ///
     /// The document will be inserted once the transaction is applied.
@@ -1088,7 +1088,7 @@ pub trait SerializedCollection: Collection {
         Self::insert_async(id, self, connection).await
     }
 
-    /// Pushes an [`Operation::Insert`] to the transaction for this document.
+    /// Pushes an insert [`Operation`] to the transaction for this document.
     ///
     /// The document will be inserted once the transaction is applied.
     fn insert_in_transaction(
@@ -1206,7 +1206,7 @@ pub trait SerializedCollection: Collection {
         Self::overwrite(id, self, connection)
     }
 
-    /// Pushes an [`Operation::Overwrite`] to the transaction for this document.
+    /// Pushes an overwrite [`Operation`] to the transaction for this document.
     ///
     /// The document will be overwritten once the transaction is applied.
     fn overwrite_in_transaction<PrimaryKey>(

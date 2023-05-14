@@ -97,7 +97,7 @@ where
         Ok(())
     }
 
-    /// Pushes an [`Operation::Update`] to the transaction for this document.
+    /// Pushes an update [`Operation`] to the transaction for this document.
     ///
     /// The changes will happen once the transaction is applied.
     pub fn update_in_transaction(&self, transaction: &mut Transaction) -> Result<(), Error> {
@@ -262,7 +262,7 @@ where
         Ok(())
     }
 
-    /// Pushes an [`Operation::Delete`] to the transaction for this document.
+    /// Pushes a delete [`Operation`] to the transaction for this document.
     ///
     /// The document will be deleted once the transaction is applied.
     pub fn delete_in_transaction(&self, transaction: &mut Transaction) -> Result<(), Error> {
