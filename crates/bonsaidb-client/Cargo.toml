@@ -60,10 +60,11 @@ web-sys = { version = "0.3", features = [
 ] }
 wasm-bindgen-futures = "0.4"
 wasm-bindgen = "0.2"
+wasm-timer = "0.2.5"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 fabruic = { version = "0.0.1-dev.6" }
-tokio = { version = "1.16.1", features = ["sync", "macros"] }
+tokio = { version = "1.16.1", features = ["sync", "macros", "time"] }
 tokio-tungstenite = { version = "0.18", optional = true, features = [
     "rustls-tls-native-roots",
 ] }

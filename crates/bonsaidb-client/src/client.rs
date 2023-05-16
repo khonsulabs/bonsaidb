@@ -6,6 +6,7 @@ use std::ops::Deref;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use bonsaidb_core::admin::{Admin, ADMIN_DATABASE_NAME};
@@ -228,6 +229,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 pub struct AsyncClient {
     pub(crate) data: Arc<Data>,
     session: ClientSession,
+    request_timeout: Duration,
 }
 
 impl Drop for AsyncClient {
@@ -286,6 +288,8 @@ impl AsyncClient {
             url,
             CURRENT_PROTOCOL_VERSION,
             HashMap::default(),
+            None,
+            None,
             #[cfg(not(target_arch = "wasm32"))]
             None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -312,6 +316,8 @@ impl AsyncClient {
         url: Url,
         protocol_version: &'static str,
         mut custom_apis: HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
+        connect_timeout: Option<Duration>,
+        request_timeout: Option<Duration>,
         #[cfg(not(target_arch = "wasm32"))] certificate: Option<fabruic::Certificate>,
         #[cfg(not(target_arch = "wasm32"))] tokio: Option<Handle>,
     ) -> Result<Self, Error> {
@@ -339,24 +345,29 @@ impl AsyncClient {
                 },
             ))),
         );
-        match url.scheme() {
+        // Default timeouts to 1 minute.
+        let connection = ConnectionInfo {
+            url,
+            subscribers,
+            connect_timeout: connect_timeout.unwrap_or(Duration::from_secs(60)),
+            request_timeout: request_timeout.unwrap_or(Duration::from_secs(60)),
+        };
+        match connection.url.scheme() {
             #[cfg(not(target_arch = "wasm32"))]
             "bonsaidb" => Ok(Self::new_bonsai_client(
-                url,
+                connection,
                 protocol_version,
                 certificate,
                 custom_apis,
                 tokio,
-                subscribers,
             )),
             #[cfg(feature = "websockets")]
             "wss" | "ws" => Ok(Self::new_websocket_client(
-                url,
+                connection,
                 protocol_version,
                 custom_apis,
                 #[cfg(not(target_arch = "wasm32"))]
                 tokio,
-                subscribers,
             )),
             other => Err(Error::InvalidUrl(format!("unsupported scheme {other}"))),
         }
@@ -364,24 +375,24 @@ impl AsyncClient {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn new_bonsai_client(
-        url: Url,
+        server: ConnectionInfo,
         protocol_version: &'static str,
         certificate: Option<fabruic::Certificate>,
         custom_apis: HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
         tokio: Option<Handle>,
-        subscribers: SubscriberMap,
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
         let connection_counter = Arc::new(AtomicU32::default());
+        let request_timeout = server.request_timeout;
+        let subscribers = server.subscribers.clone();
 
         let worker = sync::spawn_client(
             quic_worker::reconnecting_client_loop(
-                url,
+                server,
                 protocol_version,
                 certificate,
                 request_receiver,
                 Arc::new(custom_apis),
-                subscribers.clone(),
                 connection_counter.clone(),
             ),
             tokio,
@@ -407,27 +418,28 @@ impl AsyncClient {
                 background_task_running,
             }),
             session: ClientSession::default(),
+            request_timeout,
         }
     }
 
     #[cfg(all(feature = "websockets", not(target_arch = "wasm32")))]
     fn new_websocket_client(
-        url: Url,
+        server: ConnectionInfo,
         protocol_version: &'static str,
         custom_apis: HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
         tokio: Option<Handle>,
-        subscribers: SubscriberMap,
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
         let connection_counter = Arc::new(AtomicU32::default());
+        let request_timeout = server.request_timeout;
+        let subscribers = server.subscribers.clone();
 
         let worker = sync::spawn_client(
             tungstenite_worker::reconnecting_client_loop(
-                url,
+                server,
                 protocol_version,
                 request_receiver,
                 Arc::new(custom_apis),
-                subscribers.clone(),
                 connection_counter.clone(),
             ),
             tokio,
@@ -454,27 +466,28 @@ impl AsyncClient {
                 background_task_running,
             }),
             session: ClientSession::default(),
+            request_timeout,
         }
     }
 
     #[cfg(all(feature = "websockets", target_arch = "wasm32"))]
     fn new_websocket_client(
-        url: Url,
+        server: ConnectionInfo,
         protocol_version: &'static str,
         custom_apis: HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
-        subscribers: SubscriberMap,
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
         let connection_counter = Arc::new(AtomicU32::default());
 
         wasm_websocket_worker::spawn_client(
-            Arc::new(url),
+            Arc::new(server.url),
             protocol_version,
             request_receiver,
             Arc::new(custom_apis),
-            subscribers.clone(),
+            server.subscribers.clone(),
             connection_counter.clone(),
             None,
+            server.connect_timeout,
         );
 
         #[cfg(feature = "test-util")]
@@ -493,11 +506,12 @@ impl AsyncClient {
                 request_id: AtomicU32::default(),
                 connection_counter,
                 effective_permissions: Mutex::default(),
-                subscribers,
+                subscribers: server.subscribers,
                 #[cfg(feature = "test-util")]
                 background_task_running,
             }),
             session: ClientSession::default(),
+            request_timeout: server.request_timeout,
         }
     }
 
@@ -524,14 +538,49 @@ impl AsyncClient {
     async fn send_request_async(&self, name: ApiName, bytes: Bytes) -> Result<Bytes, Error> {
         let result_receiver = self.send_request_without_confirmation(name, bytes)?;
 
-        result_receiver.recv_async().await?
+        #[cfg(target_arch = "wasm32")]
+        let result = {
+            use std::pin::pin;
+            // wasm_timer has a weird quirk in how TryFuture is implemented to
+            // try to combine errors. We don't want this behavior, so we're just
+            // going to wrap the result in another result via this adapter.
+            struct FlumeWrapper<F>(F);
+            impl<F> Future for FlumeWrapper<F>
+            where
+                F: Future + Unpin,
+            {
+                type Output = Result<F::Output, std::io::Error>;
+
+                fn poll(
+                    mut self: std::pin::Pin<&mut Self>,
+                    cx: &mut std::task::Context<'_>,
+                ) -> std::task::Poll<Self::Output> {
+                    match pin!(&mut self.0).poll(cx) {
+                        std::task::Poll::Ready(result) => std::task::Poll::Ready(Ok(result)),
+                        std::task::Poll::Pending => std::task::Poll::Pending,
+                    }
+                }
+            }
+            wasm_timer::ext::TryFutureExt::timeout(
+                FlumeWrapper(result_receiver.recv_async()),
+                self.request_timeout,
+            )
+            .await
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let result = tokio::time::timeout(self.request_timeout, result_receiver.recv_async()).await;
+
+        match result {
+            Ok(response) => response?,
+            Err(_) => Err(Error::RequestTimeout),
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     fn send_request(&self, name: ApiName, bytes: Bytes) -> Result<Bytes, Error> {
         let result_receiver = self.send_request_without_confirmation(name, bytes)?;
 
-        result_receiver.recv()?
+        result_receiver.recv_timeout(self.request_timeout)?
     }
 
     /// Sends an api `request`.
@@ -630,6 +679,14 @@ impl AsyncClient {
     fn session_is_current(&self) -> bool {
         self.session.session.id.is_none()
             || self.data.connection_counter.load(Ordering::SeqCst) == self.session.connection_id
+    }
+
+    /// Sets this instance's request timeout.
+    ///
+    /// Each client has its own timeout. When cloning a client, this timeout
+    /// setting will be copied to the clone.
+    pub fn set_request_timeout(&mut self, timeout: impl Into<Duration>) {
+        self.request_timeout = timeout.into();
     }
 }
 
@@ -735,6 +792,7 @@ impl AsyncStorageConnection for AsyncClient {
                 session: Arc::new(session),
                 connection_id: self.data.connection_counter.load(Ordering::SeqCst),
             },
+            request_timeout: self.request_timeout,
         })
     }
 
@@ -751,6 +809,7 @@ impl AsyncStorageConnection for AsyncClient {
                 session: Arc::new(session),
                 connection_id: self.data.connection_counter.load(Ordering::SeqCst),
             },
+            request_timeout: self.request_timeout,
         })
     }
 
@@ -985,4 +1044,12 @@ async fn disconnect_pending_requests(
                 .send(Err(pending_error.take().unwrap_or(Error::Disconnected))),
         );
     }
+}
+
+struct ConnectionInfo {
+    pub url: Url,
+    pub subscribers: SubscriberMap,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub connect_timeout: Duration,
+    pub request_timeout: Duration,
 }

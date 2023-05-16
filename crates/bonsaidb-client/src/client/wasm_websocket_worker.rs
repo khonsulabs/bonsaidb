@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use bonsaidb_core::api::ApiName;
 use bonsaidb_core::networking::Payload;
@@ -17,6 +18,7 @@ use crate::client::{
 };
 use crate::Error;
 
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_client(
     url: Arc<Url>,
     protocol_version: &'static str,
@@ -25,6 +27,7 @@ pub fn spawn_client(
     subscribers: SubscriberMap,
     connection_counter: Arc<AtomicU32>,
     pending_error: Option<Error>,
+    connect_timeout: Duration,
 ) {
     wasm_bindgen_futures::spawn_local(create_websocket(
         url,
@@ -34,9 +37,11 @@ pub fn spawn_client(
         subscribers,
         connection_counter,
         pending_error,
+        connect_timeout,
     ));
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn create_websocket(
     url: Arc<Url>,
     protocol_version: &'static str,
@@ -45,6 +50,7 @@ async fn create_websocket(
     subscribers: SubscriberMap,
     connection_counter: Arc<AtomicU32>,
     pending_error: Option<Error>,
+    connect_timeout: Duration,
 ) {
     subscribers.clear();
 
@@ -76,6 +82,7 @@ async fn create_websocket(
                 subscribers,
                 connection_counter,
                 None,
+                connect_timeout,
             );
             return;
         }
@@ -108,6 +115,15 @@ async fn create_websocket(
         on_error_callback(ws.clone(), initial_request.clone(), shutdown_sender.clone());
     ws.set_onerror(Some(onerror_callback.as_ref().unchecked_ref()));
 
+    if let Some(window) = web_sys::window() {
+        let _: Result<_, _> = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+            connect_timeout_callback(ws.clone(), initial_request.clone(), shutdown_sender.clone())
+                .as_ref()
+                .unchecked_ref(),
+            connect_timeout.as_millis().try_into().unwrap_or(i32::MAX),
+        );
+    }
+
     let onclose_callback = on_close_callback(
         url.clone(),
         protocol_version,
@@ -119,6 +135,7 @@ async fn create_websocket(
         custom_apis.clone(),
         subscribers.clone(),
         connection_counter.clone(),
+        connect_timeout,
     );
     ws.set_onclose(Some(onclose_callback.as_ref().unchecked_ref()));
 }
@@ -235,6 +252,23 @@ fn on_message_callback(
     .into_js_value()
 }
 
+fn connect_timeout_callback(
+    ws: WebSocket,
+    initial_request: Arc<Mutex<Option<PendingRequest>>>,
+    shutdown: flume::Sender<()>,
+) -> JsValue {
+    Closure::once_into_js(move || {
+        // We only want to treat this as a timeout if the initial request hasn't
+        // been processed yet.
+        if let Some(initial_request) = take_initial_request(&initial_request) {
+            ws.set_onerror(None);
+            let _: Result<_, _> = shutdown.send(());
+            drop(initial_request.responder.send(Err(Error::ConnectTimeout)));
+            ws.close().unwrap();
+        }
+    })
+}
+
 fn on_error_callback(
     ws: WebSocket,
     initial_request: Arc<Mutex<Option<PendingRequest>>>,
@@ -279,6 +313,7 @@ fn on_close_callback(
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
     connection_counter: Arc<AtomicU32>,
+    connect_timeout: Duration,
 ) -> JsValue {
     Closure::once_into_js(move |c: CloseEvent| {
         let _: Result<_, _> = shutdown.send(());
@@ -309,6 +344,7 @@ fn on_close_callback(
                 subscribers,
                 connection_counter,
                 pending_error,
+                connect_timeout,
             );
         });
     })

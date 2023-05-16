@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::time::Duration;
 
 use bonsaidb_core::api;
 use bonsaidb_core::api::ApiName;
@@ -26,6 +27,8 @@ pub struct Builder<AsyncMode> {
     url: Url,
     protocol_version: &'static str,
     custom_apis: HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
+    connect_timeout: Option<Duration>,
+    request_timeout: Option<Duration>,
     #[cfg(not(target_arch = "wasm32"))]
     certificate: Option<fabruic::Certificate>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -40,6 +43,8 @@ impl<AsyncMode> Builder<AsyncMode> {
             url,
             protocol_version: CURRENT_PROTOCOL_VERSION,
             custom_apis: HashMap::new(),
+            request_timeout: None,
+            connect_timeout: None,
             #[cfg(not(target_arch = "wasm32"))]
             certificate: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -90,11 +95,30 @@ impl<AsyncMode> Builder<AsyncMode> {
         self
     }
 
+    /// Sets the request timeout for the client.
+    ///
+    /// If not specified, requests will time out after 60 seconds.
+    pub fn with_request_timeout(mut self, timeout: impl Into<Duration>) -> Self {
+        self.request_timeout = Some(timeout.into());
+        self
+    }
+
+    /// Sets the connection timeout for the client.
+    ///
+    /// If not specified, the client will time out after 60 seconds if a
+    /// connection cannot be established.
+    pub fn with_connect_timeout(mut self, timeout: impl Into<Duration>) -> Self {
+        self.connect_timeout = Some(timeout.into());
+        self
+    }
+
     fn finish_internal(self) -> Result<AsyncClient, Error> {
         AsyncClient::new_from_parts(
             self.url,
             self.protocol_version,
             self.custom_apis,
+            self.connect_timeout,
+            self.request_timeout,
             #[cfg(not(target_arch = "wasm32"))]
             self.certificate,
             #[cfg(not(target_arch = "wasm32"))]

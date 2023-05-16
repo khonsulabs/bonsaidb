@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use bonsaidb_core::api::ApiName;
 use bonsaidb_core::networking::Payload;
@@ -12,27 +13,26 @@ use url::Url;
 
 use super::PendingRequest;
 use crate::client::{
-    disconnect_pending_requests, AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap,
+    disconnect_pending_requests, AnyApiCallback, ConnectionInfo, OutstandingRequestMapHandle,
 };
 use crate::Error;
 
 /// This function will establish a connection and try to keep it active. If an
 /// error occurs, any queries that come in while reconnecting will have the
 /// error replayed to them.
-pub async fn reconnecting_client_loop(
-    mut url: Url,
+pub(super) async fn reconnecting_client_loop(
+    mut server: ConnectionInfo,
     protocol_version: &'static str,
     certificate: Option<Certificate>,
     request_receiver: Receiver<PendingRequest>,
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
-    subscribers: SubscriberMap,
     connection_counter: Arc<AtomicU32>,
 ) -> Result<(), Error> {
-    if url.port().is_none() && url.scheme() == "bonsaidb" {
-        let _: Result<_, _> = url.set_port(Some(5645));
+    if server.url.port().is_none() && server.url.scheme() == "bonsaidb" {
+        let _: Result<_, _> = server.url.set_port(Some(5645));
     }
 
-    subscribers.clear();
+    server.subscribers.clear();
     let mut pending_error = None;
     while let Ok(request) = request_receiver.recv_async().await {
         if let Some(pending_error) = pending_error.take() {
@@ -41,12 +41,13 @@ pub async fn reconnecting_client_loop(
         }
         connection_counter.fetch_add(1, Ordering::SeqCst);
         if let Err((failed_request, Some(err))) = connect_and_process(
-            &url,
+            &server.url,
             protocol_version,
             certificate.as_ref(),
             request,
             &request_receiver,
             custom_apis.clone(),
+            server.connect_timeout,
         )
         .await
         {
@@ -68,11 +69,15 @@ async fn connect_and_process(
     initial_request: PendingRequest,
     request_receiver: &Receiver<PendingRequest>,
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
+    connect_timeout: Duration,
 ) -> Result<(), (Option<PendingRequest>, Option<Error>)> {
     let (_connection, payload_sender, payload_receiver) =
-        match connect(url, certificate, protocol_version).await {
-            Ok(result) => result,
-            Err(err) => return Err((Some(initial_request), Some(err))),
+        match tokio::time::timeout(connect_timeout, connect(url, certificate, protocol_version))
+            .await
+        {
+            Ok(Ok(result)) => result,
+            Ok(Err(err)) => return Err((Some(initial_request), Some(err))),
+            Err(_) => return Err((Some(initial_request), Some(Error::ConnectTimeout))),
         };
 
     let outstanding_requests = OutstandingRequestMapHandle::default();

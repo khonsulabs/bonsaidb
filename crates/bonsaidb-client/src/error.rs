@@ -38,11 +38,27 @@ pub enum Error {
     /// The server is incompatible with this version of the client.
     #[error("server incompatible with client protocol version")]
     ProtocolVersionMismatch,
+
+    /// A timeout occurred while connecting to the server.
+    #[error("connection to server timed out")]
+    ConnectTimeout,
+    /// A timeout occurred while waiting for a response from the server.
+    #[error("request timed out")]
+    RequestTimeout,
 }
 
 impl<T> From<flume::SendError<T>> for Error {
     fn from(_: flume::SendError<T>) -> Self {
         Self::Disconnected
+    }
+}
+
+impl From<flume::RecvTimeoutError> for Error {
+    fn from(err: flume::RecvTimeoutError) -> Self {
+        match err {
+            flume::RecvTimeoutError::Timeout => Self::RequestTimeout,
+            flume::RecvTimeoutError::Disconnected => Self::Disconnected,
+        }
     }
 }
 

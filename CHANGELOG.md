@@ -296,6 +296,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `delete_in_transaction()` which are new helpers that help writing
   transactional code easier by creating and pushing the `Operations` in one
   step.
+- `Client`'s builder now has two additional settings: `request_timeout` and
+  `connect_timeout`. If not specified, both timeouts are 60 seconds. Thank you
+  to @phantie for requesting these settings in #296.
 
 ### Changed
 

@@ -12,25 +12,23 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::handshake::client::generate_key;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
-use url::Url;
 
 use super::PendingRequest;
 use crate::client::{
-    disconnect_pending_requests, AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap,
+    disconnect_pending_requests, AnyApiCallback, ConnectionInfo, OutstandingRequestMapHandle,
 };
 use crate::Error;
 
-pub async fn reconnecting_client_loop(
-    url: Url,
+pub(super) async fn reconnecting_client_loop(
+    server: ConnectionInfo,
     protocol_version: &str,
     request_receiver: Receiver<PendingRequest>,
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
-    subscribers: SubscriberMap,
     connection_counter: Arc<AtomicU32>,
 ) -> Result<(), Error> {
     let mut pending_error = None;
     while let Ok(request) = {
-        subscribers.clear();
+        server.subscribers.clear();
         request_receiver.recv_async().await
     } {
         if let Some(pending_error) = pending_error.take() {
@@ -39,22 +37,31 @@ pub async fn reconnecting_client_loop(
         }
 
         connection_counter.fetch_add(1, Ordering::SeqCst);
-        let (stream, _) = match tokio_tungstenite::connect_async(
-            tokio_tungstenite::tungstenite::handshake::client::Request::get(url.as_str())
+        let (stream, _) = match tokio::time::timeout(
+            server.connect_timeout,
+            tokio_tungstenite::connect_async(
+                tokio_tungstenite::tungstenite::handshake::client::Request::get(
+                    server.url.as_str(),
+                )
                 .header("Sec-WebSocket-Protocol", protocol_version)
                 .header("Sec-WebSocket-Version", "13")
                 .header("Sec-WebSocket-Key", generate_key())
-                .header("Host", url.host_str().expect("no host"))
+                .header("Host", server.url.host_str().expect("no host"))
                 .header("Connection", "Upgrade")
                 .header("Upgrade", "websocket")
                 .body(())
                 .unwrap(),
+            ),
         )
         .await
         {
-            Ok(result) => result,
-            Err(err) => {
+            Ok(Ok(result)) => result,
+            Ok(Err(err)) => {
                 drop(request.responder.send(Err(Error::from(err))));
+                continue;
+            }
+            Err(_) => {
+                drop(request.responder.send(Err(Error::ConnectTimeout)));
                 continue;
             }
         };

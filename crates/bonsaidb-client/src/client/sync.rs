@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::Duration;
 
 use bonsaidb_core::admin::{Admin, ADMIN_DATABASE_NAME};
 use bonsaidb_core::api;
@@ -61,6 +62,8 @@ impl BlockingClient {
             url,
             CURRENT_PROTOCOL_VERSION,
             HashMap::default(),
+            None,
+            None,
             #[cfg(not(target_arch = "wasm32"))]
             None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -90,6 +93,14 @@ impl BlockingClient {
     #[must_use]
     pub fn as_async(&self) -> &AsyncClient {
         &self.0
+    }
+
+    /// Sets this instance's request timeout.
+    ///
+    /// Each client has its own timeout. When cloning a client, this timeout
+    /// setting will be copied to the clone.
+    pub fn set_request_timeout(&mut self, timeout: impl Into<Duration>) {
+        self.0.request_timeout = timeout.into();
     }
 }
 
@@ -203,6 +214,7 @@ impl StorageConnection for BlockingClient {
                 session: Arc::new(session),
                 connection_id: self.0.data.connection_counter.load(Ordering::SeqCst),
             },
+            request_timeout: self.0.request_timeout,
         }))
     }
 
@@ -217,6 +229,7 @@ impl StorageConnection for BlockingClient {
                 session: Arc::new(session),
                 connection_id: self.0.data.connection_counter.load(Ordering::SeqCst),
             },
+            request_timeout: self.0.request_timeout,
         }))
     }
 
