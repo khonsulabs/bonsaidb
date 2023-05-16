@@ -12,7 +12,7 @@ homepage = "https://bonsaidb.io/"
 rust-version = "1.65"
 
 [features]
-async = ["tokio", "futures"]
+async = ["dep:tokio", "dep:futures"]
 
 [[example]]
 name = "basic-files-async"

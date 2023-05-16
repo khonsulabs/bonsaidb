@@ -23,17 +23,17 @@ full = [
     "password-hashing",
     "compression",
 ]
-cli = ["clap", "pem", "env_logger", "bonsaidb-local/cli"]
+cli = ["dep:clap", "pem", "dep:env_logger", "bonsaidb-local/cli"]
 test-util = ["bonsaidb-core/test-util"]
 websockets = [
     "bonsaidb-core/websockets",
-    "tokio-tungstenite",
-    "bincode",
-    "base64",
-    "sha-1",
+    "dep:tokio-tungstenite",
+    "dep:bincode",
+    "dep:base64",
+    "dep:sha-1",
 ]
-instrument = ["tracing", "pot/tracing"]
-acme = ["async-acme", "pem"]
+instrument = ["dep:tracing", "pot/tracing"]
+acme = ["dep:async-acme", "pem"]
 encryption = ["bonsaidb-local/encryption", "bonsaidb-core/encryption"]
 password-hashing = [
     "bonsaidb-local/password-hashing",

@@ -43,15 +43,15 @@ server = ["dep:bonsaidb-server", "local", "async"]
 client-full = ["client", "bonsaidb-client?/full"]
 client = ["dep:bonsaidb-client"]
 test-util = ["bonsaidb-client?/test-util", "bonsaidb-server?/test-util"]
-files = ["bonsaidb-files"]
+files = ["dep:bonsaidb-files"]
 
-keystorage-s3 = ["bonsaidb-keystorage-s3"]
+keystorage-s3 = ["dep:bonsaidb-keystorage-s3"]
 
 cli = [
-    "anyhow",
-    "tokio",
-    "clap",
-    "url",
+    "dep:anyhow",
+    "dep:tokio",
+    "dep:clap",
+    "dep:url",
     "bonsaidb-local?/cli",
     "bonsaidb-server?/cli",
 ]

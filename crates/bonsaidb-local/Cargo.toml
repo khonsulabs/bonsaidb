@@ -25,26 +25,26 @@ full = [
     "compression",
     "async",
 ]
-cli = ["clap", "crossterm"]
+cli = ["dep:clap", "dep:crossterm"]
 internal-apis = []
-instrument = ["pot/tracing", "nebari/tracing", "tracing"]
+instrument = ["pot/tracing", "nebari/tracing", "dep:tracing"]
 encryption = [
     "bonsaidb-core/encryption",
-    "hpke",
-    "zeroize",
-    "region",
-    "chacha20poly1305",
+    "dep:hpke",
+    "dep:zeroize",
+    "dep:region",
+    "dep:chacha20poly1305",
 ]
-compression = ["lz4_flex"]
+compression = ["dep:lz4_flex"]
 password-hashing = [
-    "argon2",
-    "zeroize",
-    "once_cell",
+    "dep:argon2",
+    "dep:zeroize",
+    "dep:once_cell",
     "bonsaidb-core/password-hashing",
 ]
 token-authentication = ["bonsaidb-core/token-authentication"]
 included-from-omnibus = []
-async = ["tokio", "async-trait", "futures"]
+async = ["dep:tokio", "dep:async-trait", "dep:futures"]
 
 [dependencies]
 async-trait = { version = "0.1", optional = true }
