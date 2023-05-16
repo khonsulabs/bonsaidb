@@ -572,7 +572,7 @@ impl AsyncClient {
 
         match result {
             Ok(response) => response?,
-            Err(_) => Err(Error::RequestTimeout),
+            Err(_) => Err(Error::request_timeout()),
         }
     }
 
@@ -1041,7 +1041,7 @@ async fn disconnect_pending_requests(
         drop(
             pending
                 .responder
-                .send(Err(pending_error.take().unwrap_or(Error::Disconnected))),
+                .send(Err(pending_error.take().unwrap_or(Error::disconnected()))),
         );
     }
 }

@@ -77,7 +77,7 @@ async fn connect_and_process(
         {
             Ok(Ok(result)) => result,
             Ok(Err(err)) => return Err((Some(initial_request), Some(err))),
-            Err(_) => return Err((Some(initial_request), Some(Error::ConnectTimeout))),
+            Err(_) => return Err((Some(initial_request), Some(Error::connect_timeout()))),
         };
 
     let outstanding_requests = OutstandingRequestMapHandle::default();
@@ -108,7 +108,7 @@ async fn connect_and_process(
             request_receiver,
             payload_sender
         ),
-        async { request_processor.await.map_err(|_| Error::Disconnected)? }
+        async { request_processor.await.map_err(|_| Error::disconnected())? }
     ) {
         let mut pending_error = Some(err);
         // Our socket was disconnected, clear the outstanding requests before returning.
@@ -136,7 +136,7 @@ async fn process_requests(
     drop(payload_sender.finish());
 
     // Return an error to make sure try_join returns.
-    Err(Error::Disconnected)
+    Err(Error::disconnected())
 }
 
 pub async fn process(
@@ -149,7 +149,7 @@ pub async fn process(
         super::process_response_payload(payload, &outstanding_requests, &custom_apis).await;
     }
 
-    Err(Error::Disconnected)
+    Err(Error::disconnected())
 }
 
 async fn connect(

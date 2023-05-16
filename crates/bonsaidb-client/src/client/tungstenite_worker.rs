@@ -61,7 +61,7 @@ pub(super) async fn reconnecting_client_loop(
                 continue;
             }
             Err(_) => {
-                drop(request.responder.send(Err(Error::ConnectTimeout)));
+                drop(request.responder.send(Err(Error::connect_timeout())));
                 continue;
             }
         };
@@ -115,7 +115,7 @@ async fn request_sender(
         );
     }
 
-    Err(Error::Disconnected)
+    Err(Error::disconnected())
 }
 
 #[allow(clippy::collapsible_else_if)] // not possible due to cfg statement

@@ -1,4 +1,5 @@
 use bonsaidb_core::arc_bytes::serde::Bytes;
+use bonsaidb_core::networking;
 use bonsaidb_core::schema::Name;
 
 /// Errors related to working with the BonsaiDb client.
@@ -19,10 +20,6 @@ pub enum Error {
 
     /// The connection was interrupted.
     #[error("unexpected disconnection")]
-    Disconnected,
-
-    /// The connection was interrupted.
-    #[error("unexpected disconnection")]
     Core(#[from] bonsaidb_core::Error),
 
     /// An error from a `Api`. The actual error is still serialized, as it
@@ -38,33 +35,46 @@ pub enum Error {
     /// The server is incompatible with this version of the client.
     #[error("server incompatible with client protocol version")]
     ProtocolVersionMismatch,
+}
 
-    /// A timeout occurred while connecting to the server.
-    #[error("connection to server timed out")]
-    ConnectTimeout,
-    /// A timeout occurred while waiting for a response from the server.
-    #[error("request timed out")]
-    RequestTimeout,
+impl Error {
+    pub(crate) fn disconnected() -> Self {
+        Self::Core(bonsaidb_core::Error::Networking(
+            networking::Error::Disconnected,
+        ))
+    }
+
+    pub(crate) fn request_timeout() -> Self {
+        Self::Core(bonsaidb_core::Error::Networking(
+            networking::Error::RequestTimeout,
+        ))
+    }
+
+    pub(crate) fn connect_timeout() -> Self {
+        Self::Core(bonsaidb_core::Error::Networking(
+            networking::Error::ConnectTimeout,
+        ))
+    }
 }
 
 impl<T> From<flume::SendError<T>> for Error {
     fn from(_: flume::SendError<T>) -> Self {
-        Self::Disconnected
+        Self::disconnected()
     }
 }
 
 impl From<flume::RecvTimeoutError> for Error {
     fn from(err: flume::RecvTimeoutError) -> Self {
         match err {
-            flume::RecvTimeoutError::Timeout => Self::RequestTimeout,
-            flume::RecvTimeoutError::Disconnected => Self::Disconnected,
+            flume::RecvTimeoutError::Timeout => Self::request_timeout(),
+            flume::RecvTimeoutError::Disconnected => Self::disconnected(),
         }
     }
 }
 
 impl From<flume::RecvError> for Error {
     fn from(_: flume::RecvError) -> Self {
-        Self::Disconnected
+        Self::disconnected()
     }
 }
 

@@ -684,6 +684,14 @@ pub enum Error {
     #[error("unexpected response: {0}")]
     UnexpectedResponse(String),
 
+    /// A timeout occurred while connecting to the server.
+    #[error("connection timeout")]
+    ConnectTimeout,
+
+    /// A timeout occurred waiting on a request to complete.
+    #[error("request timeout")]
+    RequestTimeout,
+
     /// The connection was interrupted.
     #[error("unexpected disconnection")]
     Disconnected,
