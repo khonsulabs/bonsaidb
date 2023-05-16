@@ -8,7 +8,10 @@ use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::io::{self, ErrorKind};
-use std::num::TryFromIntError;
+use std::num::{
+    NonZeroI128, NonZeroI16, NonZeroI32, NonZeroI64, NonZeroI8, NonZeroIsize, NonZeroU128,
+    NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU8, NonZeroUsize, TryFromIntError,
+};
 use std::ops::Deref;
 use std::string::FromUtf8Error;
 
@@ -1995,6 +1998,78 @@ impl KeyEncoding<Self> for usize {
     }
 }
 
+impl<'k> Key<'k> for NonZeroIsize {
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+        let possibly_zero = isize::decode_variable(bytes.as_ref())?;
+        Self::new(possibly_zero)
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, NonZeroKeyError::ValueIsZero))
+    }
+
+    fn first_value() -> Result<Self, NextValueError> {
+        Ok(Self::new(1).expect("one is not zero"))
+    }
+
+    fn next_value(&self) -> Result<Self, NextValueError> {
+        let next = self.get().checked_add(1).ok_or(NextValueError::WouldWrap)?;
+        Ok(Self::new(next)
+            .unwrap_or_else(|| Self::first_value().expect("first_value returned error")))
+    }
+}
+
+impl KeyEncoding<Self> for NonZeroIsize {
+    type Error = io::Error;
+
+    const LENGTH: Option<usize> = None;
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Signed);
+    }
+
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
+        self.get().to_variable_vec().map(Cow::Owned)
+    }
+}
+
+impl<'k> Key<'k> for NonZeroUsize {
+    const CAN_OWN_BYTES: bool = false;
+
+    fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+        let possibly_zero = usize::decode_variable(bytes.as_ref())?;
+        Self::new(possibly_zero)
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, NonZeroKeyError::ValueIsZero))
+    }
+
+    fn first_value() -> Result<Self, NextValueError> {
+        Ok(Self::new(1).expect("one is not zero"))
+    }
+
+    fn next_value(&self) -> Result<Self, NextValueError> {
+        self.checked_add(1).ok_or(NextValueError::WouldWrap)
+    }
+}
+
+impl KeyEncoding<Self> for NonZeroUsize {
+    type Error = io::Error;
+
+    const LENGTH: Option<usize> = None;
+
+    fn describe<Visitor>(visitor: &mut Visitor)
+    where
+        Visitor: KeyVisitor,
+    {
+        visitor.visit_type(KeyKind::Unsigned);
+    }
+
+    fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
+        self.get().to_variable_vec().map(Cow::Owned)
+    }
+}
+
 #[cfg(feature = "uuid")]
 impl<'k> Key<'k> for uuid::Uuid {
     const CAN_OWN_BYTES: bool = false;
@@ -2308,6 +2383,82 @@ impl_key_for_primitive!(u64, KeyKind::U64);
 impl_key_for_primitive!(i128, KeyKind::I128);
 impl_key_for_primitive!(u128, KeyKind::U128);
 
+macro_rules! impl_key_for_nonzero_primitive {
+    ($nonzero:ident, $type:ident) => {
+        impl<'k> Key<'k> for $nonzero {
+            const CAN_OWN_BYTES: bool = false;
+
+            fn from_ord_bytes<'e>(bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+                let contents = $type::from_be_bytes(bytes.as_ref().try_into()?);
+                $nonzero::new(contents).ok_or(NonZeroKeyError::ValueIsZero)
+            }
+
+            fn first_value() -> Result<Self, NextValueError> {
+                Ok($nonzero::new(1).expect("one is not zero"))
+            }
+
+            fn next_value(&self) -> Result<Self, NextValueError> {
+                if let Some(nonzero) =
+                    $nonzero::new(self.get().checked_add(1).ok_or(NextValueError::WouldWrap)?)
+                {
+                    Ok(nonzero)
+                } else {
+                    // Since we've done a checked_add, we know the only failure
+                    // case here is going from negative to positive. In this
+                    // sitaution, we skip 0.
+                    Self::first_value()
+                }
+            }
+        }
+
+        impl KeyEncoding<Self> for $nonzero {
+            type Error = NonZeroKeyError;
+
+            const LENGTH: Option<usize> = Some(std::mem::size_of::<$type>());
+
+            fn describe<Visitor>(visitor: &mut Visitor)
+            where
+                Visitor: KeyVisitor,
+            {
+                $type::describe(visitor);
+            }
+
+            fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
+                Ok(Cow::from(self.get().to_be_bytes().to_vec()))
+            }
+        }
+    };
+}
+
+impl_key_for_nonzero_primitive!(NonZeroI8, i8);
+impl_key_for_nonzero_primitive!(NonZeroU8, u8);
+impl_key_for_nonzero_primitive!(NonZeroI16, i16);
+impl_key_for_nonzero_primitive!(NonZeroU16, u16);
+impl_key_for_nonzero_primitive!(NonZeroI32, i32);
+impl_key_for_nonzero_primitive!(NonZeroU32, u32);
+impl_key_for_nonzero_primitive!(NonZeroI64, i64);
+impl_key_for_nonzero_primitive!(NonZeroU64, u64);
+impl_key_for_nonzero_primitive!(NonZeroI128, i128);
+impl_key_for_nonzero_primitive!(NonZeroU128, u128);
+
+/// An error occurred during a [`Key`] or [`KeyEncoding`] implementation for a
+/// non-zero type.
+#[derive(thiserror::Error, Debug)]
+pub enum NonZeroKeyError {
+    /// An incorrect number of bytes were encounted for the type specified.
+    #[error("incorrect byte length")]
+    IncorrectByteLength,
+    /// A zero value was encountered for a non-zero type.
+    #[error("zero is not valid for a non-zero type")]
+    ValueIsZero,
+}
+
+impl From<std::array::TryFromSliceError> for NonZeroKeyError {
+    fn from(_value: std::array::TryFromSliceError) -> Self {
+        Self::IncorrectByteLength
+    }
+}
+
 #[test]
 #[allow(clippy::cognitive_complexity)] // I disagree - @ecton
 fn primitive_key_encoding_tests() -> anyhow::Result<()> {
@@ -2355,6 +2506,81 @@ fn primitive_key_encoding_tests() -> anyhow::Result<()> {
         isize::from_ord_bytes(ByteSource::Borrowed(&isize::MIN.as_ord_bytes().unwrap())).unwrap(),
         isize::MIN
     );
+
+    Ok(())
+}
+
+#[test]
+// #[allow(clippy::cognitive_complexity)] // I disagree - @ecton
+fn nonzero_key_encoding_tests() -> anyhow::Result<()> {
+    macro_rules! test_nonzero {
+        ($nonzero:ident, $inner:ident) => {
+            let zero_bytes = [0; ($nonzero::BITS / 8) as usize];
+            assert!(matches!(
+                $nonzero::from_ord_bytes(ByteSource::Borrowed(&zero_bytes)),
+                Err(NonZeroKeyError::ValueIsZero)
+            ));
+            let max = $nonzero::new($inner::MAX).unwrap();
+            assert_eq!(&max.get().to_be_bytes(), max.as_ord_bytes()?.as_ref());
+            assert_eq!(
+                max,
+                $nonzero::from_ord_bytes(ByteSource::Borrowed(&max.as_ord_bytes()?))?
+            );
+            let min = $nonzero::new(if $inner::MIN == 0 { 1 } else { $inner::MIN }).unwrap();
+            assert_eq!(
+                min,
+                $nonzero::from_ord_bytes(ByteSource::Borrowed(&min.as_ord_bytes()?))?
+            );
+        };
+    }
+    macro_rules! test_signed {
+        ($nonzero:ident, $inner:ident) => {
+            test_nonzero!($nonzero, $inner);
+            let negative_one = $nonzero::new(-1).unwrap();
+            assert_eq!(negative_one.next_value().unwrap().get(), 1);
+        };
+    }
+
+    test_nonzero!(NonZeroU8, u8);
+    test_nonzero!(NonZeroU16, u16);
+    test_nonzero!(NonZeroU32, u32);
+    test_nonzero!(NonZeroU64, u64);
+    test_nonzero!(NonZeroU128, u128);
+    test_signed!(NonZeroI8, i8);
+    test_signed!(NonZeroI16, i16);
+    test_signed!(NonZeroI32, i32);
+    test_signed!(NonZeroI64, i64);
+    test_signed!(NonZeroI128, i128);
+
+    // NonZeroUsize
+    let zero_bytes = [0; (usize::BITS / 8) as usize];
+    assert!(NonZeroUsize::from_ord_bytes(ByteSource::Borrowed(&zero_bytes)).is_err());
+    let max = NonZeroUsize::new(usize::MAX).unwrap();
+    assert_eq!(
+        max.get().as_ord_bytes()?.as_ref(),
+        max.as_ord_bytes()?.as_ref()
+    );
+    assert_eq!(
+        max,
+        NonZeroUsize::from_ord_bytes(ByteSource::Borrowed(&max.as_ord_bytes()?))?
+    );
+    let min = NonZeroUsize::new(1).unwrap();
+    assert_eq!(
+        min,
+        NonZeroUsize::from_ord_bytes(ByteSource::Borrowed(&min.as_ord_bytes()?))?
+    );
+
+    // NonZeroIsize
+    assert!(NonZeroIsize::from_ord_bytes(ByteSource::Borrowed(&zero_bytes)).is_err());
+    let max = NonZeroIsize::new(isize::MAX).unwrap();
+    assert_eq!(max.get().as_ord_bytes()?, max.as_ord_bytes()?.as_ref());
+    let min = NonZeroIsize::new(isize::MIN).unwrap();
+    assert_eq!(
+        min,
+        NonZeroIsize::from_ord_bytes(ByteSource::Borrowed(&min.as_ord_bytes()?))?
+    );
+    let negative_one = NonZeroIsize::new(-1).unwrap();
+    assert_eq!(negative_one.next_value().unwrap().get(), 1);
 
     Ok(())
 }

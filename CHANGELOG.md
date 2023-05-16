@@ -182,6 +182,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   variable integer encoding, allowing for proper cross-architecture behavior.
   When trying to decode a value that is too large for the given target
   architecture, an error will be returned.
+- `Key` is now implemented for `NonZeroU*` and `NonZeroI*` types, wrapping the
+  inner type's encoding functionality and adding extra checks for 0 values. For
+  signed types, `next_value()` will skip 0.
 - `bonsaidb::core::key::KeyFormat` is a new `transmog::Format` that can be used
   as a `SerializedCollection::Format` associated type. This implements
   serialization using the `Key` trait rather than Serde.
