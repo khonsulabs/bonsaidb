@@ -2511,11 +2511,10 @@ fn primitive_key_encoding_tests() -> anyhow::Result<()> {
 }
 
 #[test]
-// #[allow(clippy::cognitive_complexity)] // I disagree - @ecton
 fn nonzero_key_encoding_tests() -> anyhow::Result<()> {
     macro_rules! test_nonzero {
         ($nonzero:ident, $inner:ident) => {
-            let zero_bytes = [0; ($nonzero::BITS / 8) as usize];
+            let zero_bytes = [0; ($inner::BITS / 8) as usize];
             assert!(matches!(
                 $nonzero::from_ord_bytes(ByteSource::Borrowed(&zero_bytes)),
                 Err(NonZeroKeyError::ValueIsZero)
