@@ -263,7 +263,11 @@ fn connect_timeout_callback(
         if let Some(initial_request) = take_initial_request(&initial_request) {
             ws.set_onerror(None);
             let _: Result<_, _> = shutdown.send(());
-            drop(initial_request.responder.send(Err(Error::ConnectTimeout)));
+            drop(
+                initial_request
+                    .responder
+                    .send(Err(Error::connect_timeout())),
+            );
             ws.close().unwrap();
         }
     })
