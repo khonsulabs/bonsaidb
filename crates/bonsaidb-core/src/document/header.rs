@@ -49,7 +49,7 @@ pub trait Emit {
     }
 
     /// Creates a `Map` result with a `key` and an empty value.
-    fn emit_key<K: for<'k> Key<'k>>(&self, key: K) -> Result<Mappings<K, ()>, crate::Error> {
+    fn emit_key<K>(&self, key: K) -> Result<Mappings<K, ()>, crate::Error> {
         self.emit_key_and_value(key, ())
     }
 
