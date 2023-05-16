@@ -137,6 +137,8 @@ fn shared_server() -> &'static Certificate {
                             .into_end_entity_certificate(),
                     )
                     .unwrap();
+
+                #[cfg(feature = "websockets")]
                 tokio::task::spawn({
                     let server = server.clone();
                     async move { server.listen_for_websockets_on("0.0.0.0:7023", false).await }
@@ -153,6 +155,7 @@ fn shared_server() -> &'static Certificate {
 }
 
 #[tokio::test]
+#[cfg(feature = "websockets")]
 async fn ws_request_timeout() {
     shared_server();
     // Give the server a moment to actually start up.
@@ -174,6 +177,7 @@ async fn ws_request_timeout() {
 }
 
 #[test]
+#[cfg(feature = "websockets")]
 fn blocking_ws_request_timeout() {
     shared_server();
     // Give the server a moment to actually start up.
