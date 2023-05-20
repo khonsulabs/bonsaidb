@@ -305,7 +305,7 @@ pub struct BonsaiListenConfig {
 impl Default for BonsaiListenConfig {
     fn default() -> Self {
         Self {
-            address: SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, 5465, 0, 0)),
+            address: SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 5645, 0, 0)),
             reuse_address: false,
         }
     }
