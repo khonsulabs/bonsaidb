@@ -367,6 +367,16 @@ impl<B: Backend> CustomServer<B> {
 
     /// Listens for incoming client connections. Does not return until the
     /// server shuts down.
+    ///
+    /// ## Listening on a port
+    ///
+    /// When passing a `u16` to this function, the server will begin listening
+    /// on an "unspecified" address. This typically is accessible to other
+    /// machines on the network/internet, so care should be taken to ensure this
+    /// is what is intended.
+    ///
+    /// To ensure that the server only listens for local traffic, specify a
+    /// local IP or localhost in addition to the port number.
     pub async fn listen_on(&self, config: impl Into<BonsaiListenConfig>) -> Result<(), Error> {
         let config = config.into();
         let certificate = self.tls_certificate().await?;

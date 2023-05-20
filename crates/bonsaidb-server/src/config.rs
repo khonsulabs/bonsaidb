@@ -289,6 +289,8 @@ impl<B: Backend> Builder for ServerConfiguration<B> {
 #[non_exhaustive]
 pub struct BonsaiListenConfig {
     /// The socket port to listen for connections on.
+    ///
+    /// By default, this is `[::]:5645`.
     pub address: SocketAddr,
 
     /// If this is set to true, the `SO_REUSEADDR` flag will be set on the
