@@ -51,8 +51,9 @@ use std::future::Future;
 
 use async_trait::async_trait;
 use aws_config::meta::region::RegionProviderChain;
-use aws_sdk_s3::types::ByteStream;
-use aws_sdk_s3::{Client, Region};
+use aws_sdk_s3::config::Region;
+use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::Client;
 use bonsaidb_local::vault::{KeyPair, VaultKeyStorage};
 use bonsaidb_local::StorageId;
 use tokio::runtime::{self, Handle, Runtime};
@@ -203,10 +204,7 @@ impl VaultKeyStorage for S3VaultKeyStorage {
                 Err(aws_smithy_client::SdkError::ServiceError(err))
                     if matches!(
                         err.err(),
-                        aws_sdk_s3::error::GetObjectError {
-                            kind: aws_sdk_s3::error::GetObjectErrorKind::NoSuchKey(_),
-                            ..
-                        }
+                        aws_sdk_s3::operation::get_object::GetObjectError::NoSuchKey(_)
                     ) =>
                 {
                     Ok(None)

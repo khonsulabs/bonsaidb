@@ -3,7 +3,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use argon2::password_hash::{ParamsString, SaltString};
-use argon2::{Algorithm, Argon2, Block, ParamsBuilder, PasswordHash, Version};
+use argon2::{Algorithm, Argon2, AssociatedData, Block, ParamsBuilder, PasswordHash, Version};
 use bonsaidb_core::connection::SensitiveString;
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, CryptoRng, Rng};
@@ -112,12 +112,12 @@ impl HashingThread {
             ArgonParams::Timed(config) => {
                 let mut params_builder = ParamsBuilder::new();
                 let params = params_builder
-                    .m_cost(config.ram_per_hasher / 1_024)?
-                    .p_cost(config.lanes)?
-                    .data(&0_u64.to_be_bytes())?;
+                    .m_cost(config.ram_per_hasher / 1_024)
+                    .p_cost(config.lanes)
+                    .data(AssociatedData::new(&0_u64.to_be_bytes())?);
                 let salt = SaltString::generate(rng);
                 let mut salt_arr = [0u8; 64];
-                let salt_bytes = salt.b64_decode(&mut salt_arr)?;
+                let salt_bytes = salt.decode_b64(&mut salt_arr)?;
                 let mut output = Vec::default();
 
                 let minimum_duration = config.minimum_duration;
@@ -137,9 +137,9 @@ impl HashingThread {
                     } else {
                         min_cost
                     };
-                    params.t_cost(t_cost)?;
+                    params.t_cost(t_cost);
 
-                    let params = params.clone().params()?;
+                    let params = params.clone().build()?;
                     self.allocate_blocks(&params);
                     let output_len = params
                         .output_len()
@@ -213,14 +213,14 @@ impl HashingThread {
                 Err(error) => return Err(Error::other("argon2", error)),
             };
 
-        params.data(&request.id.to_be_bytes())?;
+        params.data(AssociatedData::new(&request.id.to_be_bytes())?);
 
-        let params = params.params()?;
+        let params = params.build()?;
         self.allocate_blocks(&params);
 
         let salt = SaltString::generate(rng);
         let mut salt_arr = [0u8; 64];
-        let salt_bytes = salt.b64_decode(&mut salt_arr)?;
+        let salt_bytes = salt.decode_b64(&mut salt_arr)?;
 
         let argon = Argon2::new(self.algorithm, Version::V0x13, params);
 

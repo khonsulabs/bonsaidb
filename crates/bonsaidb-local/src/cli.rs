@@ -1,3 +1,4 @@
+use std::io;
 use std::path::PathBuf;
 
 use clap::Subcommand;
@@ -127,8 +128,8 @@ pub enum ReadPasswordError {
     #[error("password confirmation did not match")]
     PasswordConfirmationFailed,
     /// An error occurred interacting with the terminal.
-    #[error("terminal error: {0}")]
-    Terminal(#[from] crossterm::ErrorKind),
+    #[error("io error: {0}")]
+    Io(#[from] io::Error),
 }
 
 #[cfg(feature = "password-hashing")]
@@ -160,8 +161,7 @@ fn read_sensitive_input_from_stdin(
 }
 
 #[cfg(feature = "password-hashing")]
-fn read_password_loop(
-) -> Result<Option<bonsaidb_core::connection::SensitiveString>, crossterm::ErrorKind> {
+fn read_password_loop() -> io::Result<Option<bonsaidb_core::connection::SensitiveString>> {
     const ESCAPE: u8 = 27;
     const BACKSPACE: u8 = 127;
     const CANCEL: u8 = 3;
