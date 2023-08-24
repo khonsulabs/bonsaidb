@@ -93,7 +93,7 @@ fn all_tests() -> &'static [TestSuite] {
         },
         TestSuite {
             cargo_args: "--all-features",
-            toolchain: "1.65",
+            toolchain: "1.70",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-core --no-default-features",
