@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
-- The Minimum Supported Rust Version (MSRV) has been changed to 1.64.
+- The Minimum Supported Rust Version (MSRV) has been changed to 1.70.
 - All features in the `bonsaidb` crate have been updated to support the new
   features in Rust 1.60. Instead of needing separate flags for
   `client-websockets` and `server-websockets`, a single feature flag

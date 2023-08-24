@@ -240,7 +240,7 @@ async fn basic_test() {
     use bonsaidb_core::test_util::{Basic, BasicSchema, TestDirectory};
     use bonsaidb_local::config::{Builder, StorageConfiguration};
     use bonsaidb_local::AsyncStorage;
-    drop(dotenv::dotenv());
+    drop(dotenvy::dotenv());
 
     let bucket = env_var!("S3_BUCKET");
     let endpoint = env_var!("S3_ENDPOINT");
@@ -300,7 +300,7 @@ fn blocking_test() {
     use bonsaidb_core::test_util::{Basic, BasicSchema, TestDirectory};
     use bonsaidb_local::config::{Builder, StorageConfiguration};
     use bonsaidb_local::Storage;
-    drop(dotenv::dotenv());
+    drop(dotenvy::dotenv());
 
     let bucket = env_var!("S3_BUCKET");
     let endpoint = env_var!("S3_ENDPOINT");

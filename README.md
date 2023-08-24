@@ -104,7 +104,7 @@ Our user's guide is early in development, but is available at: <https://dev.bons
 ## Minimum Supported Rust Version (MSRV)
 
 While this project is alpha, we are actively adopting the current version of
-Rust. The current minimum version is `1.64`.
+Rust. The current minimum version is `1.70`.
 
 ## Feature Flags
 
@@ -247,8 +247,8 @@ cargo +nightly fmt
 
 ## Open-source Licenses
 
-This project, like all projects from [Khonsu Labs](https://khonsulabs.com/), are
-open-source. This repository is available under the [MIT License](./LICENSE-MIT)
-or the [Apache License 2.0](./LICENSE-APACHE).
+This project, like all projects from [Khonsu Labs](https://khonsulabs.com/), is open-source.
+This repository is available under the [MIT License](./LICENSE-MIT) or the
+[Apache License 2.0](./LICENSE-APACHE).
 
 To learn more about contributing, please see [CONTRIBUTING.md](./CONTRIBUTING.md).

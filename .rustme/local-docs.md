@@ -7,4 +7,4 @@ implementing the [`StorageConnection`]($storage-connection-trait$).
 ## Minimum Supported Rust Version (MSRV)
 
 While this project is alpha, we are actively adopting the current version of
-Rust. The current minimum version is `1.64`.
+Rust. The current minimum version is `$msrv$`.

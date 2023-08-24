@@ -10,7 +10,7 @@ our only requirements for contributing:
 - All contributors must uphold the standards of our [Code of
   Conduct](./CODE_OF_CONDUCT.md).
 
-The rest of this document are recommendations/guidelines to help consistency and
+The rest of this document is recommendations/guidelines to help consistency and
 communication within our projects.
 
 ## Creating Issues
@@ -45,7 +45,7 @@ working on it. This will help prevent duplicated efforts.
 
 If you begin working on something but need some assistance, don't hesitate to
 reach out inside of the issue, on [our
-forums](https://community.khonsulabs.com/), or [our
+forums](https://community.khonsulabs.com/), or in [our
 Discord](https://discord.khonsulabs.com/). We will do our best to help you.
 
 ### Project-specific requirements

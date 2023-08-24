@@ -44,7 +44,7 @@ clap = { version = "4.1.4", features = ["derive"] }
 flume = "0.11.0"
 num_cpus = "1"
 cli-table = "0.4"
-dotenv = "0.15"
+dotenvy = "0.15.7"
 plotters = "0.3"
 plotters-backend = "0.3"
 tera = "1"

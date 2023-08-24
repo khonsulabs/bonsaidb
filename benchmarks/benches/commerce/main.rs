@@ -89,9 +89,9 @@ struct Options {
 }
 
 fn main() {
-    match dotenv::dotenv() {
+    match dotenvy::dotenv() {
         Ok(_) => {}
-        Err(dotenv::Error::Io(err)) if err.kind() == ErrorKind::NotFound => {}
+        Err(dotenvy::Error::Io(err)) if err.kind() == ErrorKind::NotFound => {}
         Err(other) => panic!("Error with .env file: {other}"),
     }
     let tera = Arc::new(tera::Tera::new("benches/commerce/templates/**/*").unwrap());

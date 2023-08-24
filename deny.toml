@@ -8,9 +8,8 @@ unmaintained = "warn"
 yanked = "warn"
 notice = "warn"
 ignore = [
-    # both advisories due to chrono dependency via rcgen
-    "RUSTSEC-2020-0159",
-    "RUSTSEC-2020-0071",
+    "RUSTSEC-2020-0168", # region -> mach is unmaintained
+    "RUSTSEC-2023-0052", # https://github.com/User65k/generic-async-http-client/pull/2
 ]
 
 [licenses]
