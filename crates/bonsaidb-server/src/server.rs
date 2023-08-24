@@ -555,7 +555,9 @@ impl<B: Backend> CustomServer<B> {
                         });
 
                         let task_self = self.clone();
-                        let Some(shutdown) = self.data.shutdown.watcher().await else { return Ok(()) };
+                        let Some(shutdown) = self.data.shutdown.watcher().await else {
+                            return Ok(());
+                        };
                         tokio::spawn(async move {
                             if let Err(err) = task_self
                                 .handle_stream(disconnector, sender, receiver, shutdown)
@@ -641,13 +643,12 @@ impl<B: Backend> CustomServer<B> {
                     },
                     client.clone(),
                 )
-                .await
                 .unwrap();
             }
         }
     }
 
-    async fn handle_request_through_worker<
+    fn handle_request_through_worker<
         F: FnOnce(ApiName, Result<Bytes, bonsaidb_core::Error>) -> R + Send + 'static,
         R: Future<Output = Result<(), Error>> + Send,
     >(

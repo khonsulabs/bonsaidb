@@ -802,7 +802,9 @@ pub fn background_worker(
             }
         };
 
-        let Some(key_value_state) = key_value_state.upgrade() else { break };
+        let Some(key_value_state) = key_value_state.upgrade() else {
+            break;
+        };
 
         if perform_operations {
             let mut state = key_value_state.lock();

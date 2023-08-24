@@ -149,7 +149,7 @@ where
     fn new(connection: &'a Cn) -> Self {
         Self {
             connection,
-            _phantom: PhantomData::default(),
+            _phantom: PhantomData,
         }
     }
 
@@ -1156,7 +1156,7 @@ where
     fn new(connection: &'a Cn) -> Self {
         Self {
             connection,
-            _phantom: PhantomData::default(),
+            _phantom: PhantomData,
         }
     }
 

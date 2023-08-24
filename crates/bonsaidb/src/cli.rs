@@ -190,10 +190,10 @@ impl CommandLine for NoBackend {
 
     async fn execute(
         &mut self,
-        _command: Self::Subcommand,
+        command: Self::Subcommand,
         _connection: AnyServerConnection<Self>,
     ) -> anyhow::Result<()> {
-        unreachable!()
+        match command {}
     }
 }
 
@@ -225,10 +225,10 @@ impl<B: Backend> CommandLine for NoCommandLine<B> {
 
     async fn execute(
         &mut self,
-        _command: Self::Subcommand,
+        command: Self::Subcommand,
         _connection: AnyServerConnection<B>,
     ) -> anyhow::Result<()> {
-        unreachable!()
+        match command {}
     }
 }
 

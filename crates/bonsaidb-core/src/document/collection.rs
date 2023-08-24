@@ -73,16 +73,20 @@ impl<C> CollectionDocument<C>
 where
     C: SerializedCollection,
 {
-    /// Stores the new value of `contents` in the document.
+    /// Updates the document stored in the database with the contents of this
+    /// collection document.
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// if let Some(mut document) = MyCollection::get(&42, &db)? {
-    ///     // modify the document
+    ///     // ... do something `document`
     ///     document.update(&db)?;
-    ///     println!("Updated revision: {:?}", document.header.revision);
+    ///     println!(
+    ///         "The document has been updated: {:?}",
+    ///         document.header.revision
+    ///     );
     /// }
     /// # Ok(())
     /// # }

@@ -48,6 +48,7 @@ where
     }
 
     /// Executes the operation using the configured options.
+    #[allow(clippy::missing_panics_doc)]
     pub fn execute(self) -> Result<V, Error> {
         let Self {
             kv,

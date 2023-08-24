@@ -55,10 +55,14 @@ async fn create_websocket(
     subscribers.clear();
 
     // Receive the next/initial request when we are reconnecting.
-    let Ok(mut initial_request) = request_receiver.recv_async().await else { return };
+    let Ok(mut initial_request) = request_receiver.recv_async().await else {
+        return;
+    };
     if let Some(error) = pending_error {
         drop(initial_request.responder.send(Err(error)));
-        let Ok(next_request) = request_receiver.recv_async().await else { return };
+        let Ok(next_request) = request_receiver.recv_async().await else {
+            return;
+        };
         initial_request = next_request;
     }
 

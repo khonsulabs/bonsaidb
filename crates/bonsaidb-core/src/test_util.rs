@@ -1686,7 +1686,9 @@ pub async fn transaction_tests<C: AsyncConnection + 'static>(db: &C) -> anyhow::
     let mut tx = Transaction::new();
     Basic::new("test").push_in_transaction(&mut tx)?;
     let results = tx.apply_async(db).await?;
-    let OperationResult::DocumentUpdated { header, .. } = &results[0] else { unreachable!("unexpected tx result") };
+    let OperationResult::DocumentUpdated { header, .. } = &results[0] else {
+        unreachable!("unexpected tx result")
+    };
     let id: u64 = header.id.deserialize()?;
 
     // Update the doc
@@ -1717,7 +1719,9 @@ pub fn blocking_transaction_tests<C: Connection + 'static>(db: &C) -> anyhow::Re
     let mut tx = Transaction::new();
     Basic::new("test").push_in_transaction(&mut tx)?;
     let results = tx.apply(db)?;
-    let OperationResult::DocumentUpdated { header, .. } = &results[0] else { unreachable!("unexpected tx result") };
+    let OperationResult::DocumentUpdated { header, .. } = &results[0] else {
+        unreachable!("unexpected tx result")
+    };
     let id: u64 = header.id.deserialize()?;
 
     // Update the doc
@@ -3128,14 +3132,14 @@ macro_rules! define_async_kv_test_suite {
 
                     kv.set_numeric_key("i64", (2_i64.pow(f64::MANTISSA_DIGITS) + 1))
                         .await?;
-                    assert!(matches!(kv.get_key("i64").into_f64().await, Err(_)));
+                    assert!(kv.get_key("i64").into_f64().await.is_err());
                     $crate::assert_f64_eq!(
                         kv.get_key("i64").into_f64_lossy().await?.unwrap(),
                         9_007_199_254_740_993_f64
                     );
                     kv.set_numeric_key("i64", -(2_i64.pow(f64::MANTISSA_DIGITS) + 1))
                         .await?;
-                    assert!(matches!(kv.get_key("i64").into_f64().await, Err(_)));
+                    assert!(kv.get_key("i64").into_f64().await.is_err());
                     $crate::assert_f64_eq!(
                         kv.get_key("i64").into_f64_lossy().await?.unwrap(),
                         -9_007_199_254_740_993_f64
@@ -3143,7 +3147,7 @@ macro_rules! define_async_kv_test_suite {
 
                     // For i64 -> u64, the only limit is sign.
                     kv.set_numeric_key("i64", -1_i64).await?;
-                    assert!(matches!(kv.get_key("i64").into_u64().await, Err(_)));
+                    assert!(kv.get_key("i64").into_u64().await.is_err());
                     assert_eq!(
                         kv.get_key("i64").into_u64_lossy(true).await?.unwrap(),
                         0_u64
@@ -3155,13 +3159,13 @@ macro_rules! define_async_kv_test_suite {
 
                     // For f64 -> i64, the limit is fractional numbers. Saturating isn't tested in this conversion path.
                     kv.set_numeric_key("f64", 1.1_f64).await?;
-                    assert!(matches!(kv.get_key("f64").into_i64().await, Err(_)));
+                    assert!(kv.get_key("f64").into_i64().await.is_err());
                     assert_eq!(
                         kv.get_key("f64").into_i64_lossy(false).await?.unwrap(),
                         1_i64
                     );
                     kv.set_numeric_key("f64", -1.1_f64).await?;
-                    assert!(matches!(kv.get_key("f64").into_i64().await, Err(_)));
+                    assert!(kv.get_key("f64").into_i64().await.is_err());
                     assert_eq!(
                         kv.get_key("f64").into_i64_lossy(false).await?.unwrap(),
                         -1_i64
@@ -3169,13 +3173,13 @@ macro_rules! define_async_kv_test_suite {
 
                     // For f64 -> u64, the limit is fractional numbers or negative numbers. Saturating isn't tested in this conversion path.
                     kv.set_numeric_key("f64", 1.1_f64).await?;
-                    assert!(matches!(kv.get_key("f64").into_u64().await, Err(_)));
+                    assert!(kv.get_key("f64").into_u64().await.is_err());
                     assert_eq!(
                         kv.get_key("f64").into_u64_lossy(false).await?.unwrap(),
                         1_u64
                     );
                     kv.set_numeric_key("f64", -1.1_f64).await?;
-                    assert!(matches!(kv.get_key("f64").into_u64().await, Err(_)));
+                    assert!(kv.get_key("f64").into_u64().await.is_err());
                     assert_eq!(
                         kv.get_key("f64").into_u64_lossy(false).await?.unwrap(),
                         0_u64
@@ -3183,7 +3187,7 @@ macro_rules! define_async_kv_test_suite {
 
                     // For u64 -> i64, the limit is > i64::MAX
                     kv.set_numeric_key("u64", i64::MAX as u64 + 1).await?;
-                    assert!(matches!(kv.get_key("u64").into_i64().await, Err(_)));
+                    assert!(kv.get_key("u64").into_i64().await.is_err());
                     assert_eq!(
                         kv.get_key("u64").into_i64_lossy(true).await?.unwrap(),
                         i64::MAX
@@ -3196,14 +3200,8 @@ macro_rules! define_async_kv_test_suite {
 
                 // Test that non-numeric keys won't be changed when attempting to incr/decr
                 kv.set_key("non-numeric", &String::from("test")).await?;
-                assert!(matches!(
-                    kv.increment_key_by("non-numeric", 1_i64).await,
-                    Err(_)
-                ));
-                assert!(matches!(
-                    kv.decrement_key_by("non-numeric", 1_i64).await,
-                    Err(_)
-                ));
+                assert!(kv.increment_key_by("non-numeric", 1_i64).await.is_err());
+                assert!(kv.decrement_key_by("non-numeric", 1_i64).await.is_err());
                 assert_eq!(
                     kv.get_key("non-numeric").into::<String>().await?.unwrap(),
                     String::from("test")
@@ -3612,14 +3610,14 @@ macro_rules! define_blocking_kv_test_suite {
 
                     kv.set_numeric_key("i64", (2_i64.pow(f64::MANTISSA_DIGITS) + 1))
                         .execute()?;
-                    assert!(matches!(kv.get_key("i64").into_f64(), Err(_)));
+                    assert!(kv.get_key("i64").into_f64().is_err());
                     $crate::assert_f64_eq!(
                         kv.get_key("i64").into_f64_lossy()?.unwrap(),
                         9_007_199_254_740_993_f64
                     );
                     kv.set_numeric_key("i64", -(2_i64.pow(f64::MANTISSA_DIGITS) + 1))
                         .execute()?;
-                    assert!(matches!(kv.get_key("i64").into_f64(), Err(_)));
+                    assert!(kv.get_key("i64").into_f64().is_err());
                     $crate::assert_f64_eq!(
                         kv.get_key("i64").into_f64_lossy()?.unwrap(),
                         -9_007_199_254_740_993_f64
@@ -3627,43 +3625,37 @@ macro_rules! define_blocking_kv_test_suite {
 
                     // For i64 -> u64, the only limit is sign.
                     kv.set_numeric_key("i64", -1_i64).execute()?;
-                    assert!(matches!(kv.get_key("i64").into_u64(), Err(_)));
+                    assert!(kv.get_key("i64").into_u64().is_err());
                     assert_eq!(kv.get_key("i64").into_u64_lossy(true)?.unwrap(), 0_u64);
                     assert_eq!(kv.get_key("i64").into_u64_lossy(false)?.unwrap(), u64::MAX);
 
                     // For f64 -> i64, the limit is fractional numbers. Saturating isn't tested in this conversion path.
                     kv.set_numeric_key("f64", 1.1_f64).execute()?;
-                    assert!(matches!(kv.get_key("f64").into_i64(), Err(_)));
+                    assert!(kv.get_key("f64").into_i64().is_err());
                     assert_eq!(kv.get_key("f64").into_i64_lossy(false)?.unwrap(), 1_i64);
                     kv.set_numeric_key("f64", -1.1_f64).execute()?;
-                    assert!(matches!(kv.get_key("f64").into_i64(), Err(_)));
+                    assert!(kv.get_key("f64").into_i64().is_err());
                     assert_eq!(kv.get_key("f64").into_i64_lossy(false)?.unwrap(), -1_i64);
 
                     // For f64 -> u64, the limit is fractional numbers or negative numbers. Saturating isn't tested in this conversion path.
                     kv.set_numeric_key("f64", 1.1_f64).execute()?;
-                    assert!(matches!(kv.get_key("f64").into_u64(), Err(_)));
+                    assert!(kv.get_key("f64").into_u64().is_err());
                     assert_eq!(kv.get_key("f64").into_u64_lossy(false)?.unwrap(), 1_u64);
                     kv.set_numeric_key("f64", -1.1_f64).execute()?;
-                    assert!(matches!(kv.get_key("f64").into_u64(), Err(_)));
+                    assert!(kv.get_key("f64").into_u64().is_err());
                     assert_eq!(kv.get_key("f64").into_u64_lossy(false)?.unwrap(), 0_u64);
 
                     // For u64 -> i64, the limit is > i64::MAX
                     kv.set_numeric_key("u64", i64::MAX as u64 + 1).execute()?;
-                    assert!(matches!(kv.get_key("u64").into_i64(), Err(_)));
+                    assert!(kv.get_key("u64").into_i64().is_err());
                     assert_eq!(kv.get_key("u64").into_i64_lossy(true)?.unwrap(), i64::MAX);
                     assert_eq!(kv.get_key("u64").into_i64_lossy(false)?.unwrap(), i64::MIN);
                 }
 
                 // Test that non-numeric keys won't be changed when attempting to incr/decr
                 kv.set_key("non-numeric", &String::from("test")).execute()?;
-                assert!(matches!(
-                    kv.increment_key_by("non-numeric", 1_i64).execute(),
-                    Err(_)
-                ));
-                assert!(matches!(
-                    kv.decrement_key_by("non-numeric", 1_i64).execute(),
-                    Err(_)
-                ));
+                assert!(kv.increment_key_by("non-numeric", 1_i64).execute().is_err());
+                assert!(kv.decrement_key_by("non-numeric", 1_i64).execute().is_err());
                 assert_eq!(
                     kv.get_key("non-numeric").into::<String>()?.unwrap(),
                     String::from("test")
@@ -3970,10 +3962,10 @@ pub async fn basic_server_connection_tests<C: AsyncStorageConnection>(
         Err(Error::DatabaseNameAlreadyTaken(_))
     ));
 
-    assert!(matches!(
-        server.create_database::<BasicSchema>("tests", true).await,
-        Ok(_)
-    ));
+    assert!(server
+        .create_database::<BasicSchema>("tests", true)
+        .await
+        .is_ok(),);
 
     assert!(matches!(
         server
@@ -4031,10 +4023,9 @@ pub fn blocking_basic_server_connection_tests<C: StorageConnection>(
         Err(Error::DatabaseNameAlreadyTaken(_))
     ));
 
-    assert!(matches!(
-        server.create_database::<BasicSchema>("tests", true),
-        Ok(_)
-    ));
+    assert!(server
+        .create_database::<BasicSchema>("tests", true)
+        .is_err());
 
     assert!(matches!(
         server.create_database::<BasicSchema>("|invalidname", false),

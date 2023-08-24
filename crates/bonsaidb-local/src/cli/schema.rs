@@ -34,22 +34,32 @@ impl Command {
 
     fn handle_schema_command(self, schemas: Vec<SchemaSummary>) -> Result<(), crate::Error> {
         if let Some(name) = self.name {
-            let Some(schema) = schemas.into_iter().find(|s| s.name == name)
-                else { return Err(crate::Error::Core(bonsaidb_core::Error::SchemaNotRegistered(name)))};
+            let Some(schema) = schemas.into_iter().find(|s| s.name == name) else {
+                return Err(crate::Error::Core(
+                    bonsaidb_core::Error::SchemaNotRegistered(name),
+                ));
+            };
 
             if let Some(item) = self.item {
                 match item {
                     CollectionOrView::View(view) => {
-                        let Some(collection) = schema.collection(&view.collection)
-                            else { return Err(crate::Error::Core(bonsaidb_core::Error::CollectionNotFound))};
-                        let Some(view) = collection.view(&view)
-                                else { return Err(crate::Error::Core(bonsaidb_core::Error::ViewNotFound))};
+                        let Some(collection) = schema.collection(&view.collection) else {
+                            return Err(crate::Error::Core(
+                                bonsaidb_core::Error::CollectionNotFound,
+                            ));
+                        };
+                        let Some(view) = collection.view(&view) else {
+                            return Err(crate::Error::Core(bonsaidb_core::Error::ViewNotFound));
+                        };
                         println!("Version: {}", view.version);
                         println!("Policy: {}", view.policy);
                     }
                     CollectionOrView::Collection(collection) => {
-                        let Some(collection) = schema.collection(&collection)
-                            else { return Err(crate::Error::Core(bonsaidb_core::Error::CollectionNotFound))};
+                        let Some(collection) = schema.collection(&collection) else {
+                            return Err(crate::Error::Core(
+                                bonsaidb_core::Error::CollectionNotFound,
+                            ));
+                        };
                         let mut views = collection.views().collect::<Vec<_>>();
                         views.sort_by(|v1, v2| v1.name.cmp(&v2.name));
                         for view in views {

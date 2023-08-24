@@ -36,7 +36,7 @@ impl<B: Backend> CustomServer<B> {
     /// Handles upgrading an HTTP connection to the `WebSocket` protocol based
     /// on the upgrade `request`. Requires feature `hyper` to be enabled.
     #[cfg(feature = "hyper")]
-    pub async fn upgrade_websocket(
+    pub fn upgrade_websocket(
         &self,
         peer_address: std::net::SocketAddr,
         mut request: hyper::Request<hyper::Body>,
@@ -56,11 +56,10 @@ impl<B: Backend> CustomServer<B> {
             return response;
         }
 
-        let Some(sec_websocket_key) = request.headers_mut().remove(SEC_WEBSOCKET_KEY)
-            else {
-                *response.status_mut() = StatusCode::BAD_REQUEST;
-                return response;
-            };
+        let Some(sec_websocket_key) = request.headers_mut().remove(SEC_WEBSOCKET_KEY) else {
+            *response.status_mut() = StatusCode::BAD_REQUEST;
+            return response;
+        };
 
         let task_self = self.clone();
         tokio::spawn(async move {
@@ -116,7 +115,10 @@ impl<B: Backend> CustomServer<B> {
         let (api_response_sender, api_response_receiver) = flume::unbounded();
         let Some(client) = self
             .initialize_client(Transport::WebSocket, peer_address, api_response_sender)
-            .await else { return };
+            .await
+        else {
+            return;
+        };
         let task_sender = response_sender.clone();
         tokio::spawn(async move {
             while let Ok((session_id, name, value)) = api_response_receiver.recv_async().await {

@@ -958,6 +958,11 @@ pub mod limited {
     {
         /// Returns [`SystemTime::now()`] limited to `Resolution`. The timestamp
         /// will be truncated, not rounded.
+        ///
+        /// # Panics
+        ///
+        /// This function will panic [`SystemTime::now()`] is unable to be
+        /// represented by `Resolution` and `Epoch`.
         #[must_use]
         pub fn now() -> Self {
             Self::try_from(SystemTime::now()).expect("now should always be representable")

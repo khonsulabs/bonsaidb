@@ -229,6 +229,7 @@ impl<D, V: View> MappedDocuments<D, V> {
     /// Returns the mapped document at`index`, or `None` if `index >=
     /// self.len()`.
     #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn get(&self, index: usize) -> Option<MappedDocument<'_, D, V::Key, V::Value>> {
         if index < self.len() {
             let mapping = &self.mappings[index];

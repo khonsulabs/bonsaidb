@@ -927,7 +927,7 @@ where
         let schematic = DB::schematic()?;
         Ok(Self {
             schematic,
-            _phantom: PhantomData::default(),
+            _phantom: PhantomData,
         })
     }
 }
@@ -1646,14 +1646,13 @@ impl StorageNonBlocking for Storage {
             return Err(bonsaidb_core::Error::InvalidCredentials);
         }
 
-        let Some(session_id) = session.id
-            else {
-                return Ok(Self {
-                    instance: self.instance.clone(),
-                    authentication: None,
-                    effective_session: Some(Arc::new(session)),
-                })
-            };
+        let Some(session_id) = session.id else {
+            return Ok(Self {
+                instance: self.instance.clone(),
+                authentication: None,
+                effective_session: Some(Arc::new(session)),
+            });
+        };
 
         let session_data = self.instance.data.sessions.read();
         // TODO better error

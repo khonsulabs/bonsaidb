@@ -106,7 +106,7 @@ async fn upgrade_websocket(
     peer_address: extract::Extension<std::net::SocketAddr>,
     req: Request<Body>,
 ) -> Response<Body> {
-    server.upgrade_websocket(*peer_address, req).await
+    server.upgrade_websocket(*peer_address, req)
 }
 
 #[tokio::test]

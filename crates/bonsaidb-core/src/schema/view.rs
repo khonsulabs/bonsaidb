@@ -490,6 +490,7 @@ macro_rules! define_mapped_view {
                 &self,
                 document: $crate::document::CollectionDocument<$collection>,
             ) -> $crate::schema::ViewMapResult<'doc, Self> {
+                #[allow(clippy::redundant_closure_call)]
                 $mapping(document)
             }
         }

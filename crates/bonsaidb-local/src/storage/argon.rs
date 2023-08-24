@@ -155,8 +155,9 @@ impl HashingThread {
                         &mut self.blocks,
                     )?;
 
-                    let Some(elapsed) = Instant::now().checked_duration_since(start)
-                        else { continue };
+                    let Some(elapsed) = Instant::now().checked_duration_since(start) else {
+                        continue;
+                    };
                     if elapsed < minimum_duration {
                         total_spent_t += t_cost;
                         total_duration += elapsed;

@@ -383,8 +383,9 @@ fn iterate_directory<T, F: FnMut(DirEntry, String) -> Result<Option<T>, std::io:
     mut callback: F,
 ) -> Result<Vec<T>, std::io::Error> {
     let mut collected = Vec::new();
-    let Some(mut directories) = std::fs::read_dir(path).ignore_not_found()?
-        else { return Ok(collected) };
+    let Some(mut directories) = std::fs::read_dir(path).ignore_not_found()? else {
+        return Ok(collected);
+    };
 
     while let Some(entry) = directories
         .next()

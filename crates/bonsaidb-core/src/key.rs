@@ -346,6 +346,7 @@ macro_rules! impl_const_key_from {
     ($from:ty, $constkey:expr) => {
         impl From<$from> for KeyAttibuteValue {
             fn from(value: $from) -> Self {
+                #[allow(clippy::redundant_closure_call)]
                 $constkey(value)
             }
         }
@@ -404,6 +405,11 @@ pub enum KeyDescription {
 
 impl KeyDescription {
     /// Returns a description of the given [`KeyEncoding`] implementor.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if `KE` emits an imbalanced sequence of visit
+    /// calls.
     #[must_use]
     pub fn for_encoding<KE: KeyEncoding<K>, K: for<'k> Key<'k>>() -> Self {
         let mut describer = KeyDescriber::default();
@@ -414,6 +420,11 @@ impl KeyDescription {
     }
 
     /// Returns the description of a given [`Key`] implementor.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if `KE` emits an imbalanced sequence of visit
+    /// calls.
     #[must_use]
     pub fn for_key<K: for<'k> Key<'k>>() -> Self {
         Self::for_encoding::<K, K>()
@@ -1542,7 +1553,9 @@ impl CompositeKeyNullHandler for EscapeNullBytes {
                     .iter()
                     .enumerate()
                     .find_map(|(index, b)| (*b == 0).then_some(index))
-                    else { break };
+                else {
+                    break;
+                };
                 index += next_index;
             }
             encoded = ByteSource::Owned(bytes);
