@@ -299,6 +299,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Client`'s builder now has two additional settings: `request_timeout` and
   `connect_timeout`. If not specified, both timeouts are 60 seconds. Thank you
   to @phantie for requesting these settings in #296.
+- `CollectionDocument::refresh()`/`CollectionDocument::refresh_async()` are new
+  methods that reload the document from the database.
 
 ### Changed
 

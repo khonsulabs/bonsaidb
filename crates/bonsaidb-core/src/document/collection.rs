@@ -274,6 +274,28 @@ where
         Ok(())
     }
 
+    /// Refreshes this instance from `connection`. If the document is no longer
+    /// present, [`Error::DocumentNotFound`] will be returned.
+    pub fn refresh<Cn: Connection>(&mut self, connection: &Cn) -> Result<(), Error> {
+        let id = DocumentId::new(&self.header.id)?;
+        *self = C::get(&id, connection)?
+            .ok_or_else(|| Error::DocumentNotFound(C::collection_name(), Box::new(id)))?;
+        Ok(())
+    }
+
+    /// Refreshes this instance from `connection`. If the document is no longer
+    /// present, [`Error::DocumentNotFound`] will be returned.
+    pub async fn refresh_async<Cn: AsyncConnection>(
+        &mut self,
+        connection: &Cn,
+    ) -> Result<(), Error> {
+        let id = DocumentId::new(&self.header.id)?;
+        *self = C::get_async(&id, connection)
+            .await?
+            .ok_or_else(|| Error::DocumentNotFound(C::collection_name(), Box::new(id)))?;
+        Ok(())
+    }
+
     /// Converts this value to a serialized `Document`.
     pub fn to_document(&self) -> Result<OwnedDocument, Error> {
         Ok(OwnedDocument {

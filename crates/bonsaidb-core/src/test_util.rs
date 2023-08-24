@@ -1750,9 +1750,13 @@ pub fn blocking_transaction_tests<C: Connection + 'static>(db: &C) -> anyhow::Re
 
 pub async fn transaction_check_tests<C: AsyncConnection + 'static>(db: &C) -> anyhow::Result<()> {
     let mut doc = Basic::new("test").push_into_async(db).await?;
+    let mut refreshable = doc.clone();
     let initial_header = doc.header;
     doc.contents.value = String::from("updated");
     doc.update_async(db).await?;
+
+    refreshable.refresh_async(db).await?;
+    assert_eq!(refreshable.contents.value, "updated");
 
     // Positive flow, check id, as well as id + header.
     let mut tx = Transaction::new();
@@ -1786,9 +1790,13 @@ pub async fn transaction_check_tests<C: AsyncConnection + 'static>(db: &C) -> an
 
 pub fn blocking_transaction_check_tests<C: Connection + 'static>(db: &C) -> anyhow::Result<()> {
     let mut doc = Basic::new("test").push_into(db)?;
+    let mut refreshable = doc.clone();
     let initial_header = doc.header;
     doc.contents.value = String::from("updated");
     doc.update(db)?;
+
+    refreshable.refresh(db)?;
+    assert_eq!(refreshable.contents.value, "updated");
 
     // Positive flow, check id, as well as id + header.
     let mut tx = Transaction::new();
@@ -3965,7 +3973,7 @@ pub async fn basic_server_connection_tests<C: AsyncStorageConnection>(
     assert!(server
         .create_database::<BasicSchema>("tests", true)
         .await
-        .is_ok(),);
+        .is_ok());
 
     assert!(matches!(
         server
@@ -4023,9 +4031,7 @@ pub fn blocking_basic_server_connection_tests<C: StorageConnection>(
         Err(Error::DatabaseNameAlreadyTaken(_))
     ));
 
-    assert!(server
-        .create_database::<BasicSchema>("tests", true)
-        .is_err());
+    assert!(server.create_database::<BasicSchema>("tests", true).is_ok());
 
     assert!(matches!(
         server.create_database::<BasicSchema>("|invalidname", false),
