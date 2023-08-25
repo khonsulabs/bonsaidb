@@ -364,7 +364,14 @@ pub struct WebSocketError(String);
 
 impl From<JsValue> for WebSocketError {
     fn from(value: JsValue) -> Self {
-        Self(if let Some(value) = value.as_string() {
+        Self(if value.is_object() {
+            let obj: js_sys::Object = value.dyn_into().expect("just checked");
+            let description = obj.to_string();
+            js_sys::JSON::stringify(&description).map_or_else(
+                |_| String::from("(object)"),
+                |str| ToString::to_string(&str),
+            )
+        } else if let Some(value) = value.as_string() {
             value
         } else if let Some(value) = value.as_f64() {
             value.to_string()
@@ -373,7 +380,7 @@ impl From<JsValue> for WebSocketError {
         } else if value.is_null() {
             String::from("(null)")
         } else {
-            String::from("(undefined)")
+            String::new()
         })
     }
 }

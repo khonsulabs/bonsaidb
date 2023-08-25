@@ -56,11 +56,11 @@ web-sys = { version = "0.3", features = [
     "ProgressEvent",
     "WebSocket",
     "CloseEvent",
+    "Window",
 ] }
 js-sys = "0.3"
 wasm-bindgen-futures = "0.4"
 wasm-bindgen = "0.2"
-wasm-timer = "0.2.5"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 fabruic = { version = "0.0.1-dev.6" }

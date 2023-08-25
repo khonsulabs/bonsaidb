@@ -12,7 +12,7 @@ use crate::schema::{CollectionName, NamedReference, Qualified, SchemaSummary, Vi
 use crate::transaction::{Executed, OperationResult, Transaction};
 
 /// The current protocol version.
-pub const CURRENT_PROTOCOL_VERSION: &str = "bonsai/pre/0";
+pub const CURRENT_PROTOCOL_VERSION: &str = "bonsai-pre-1";
 
 /// A payload with an associated id.
 #[derive(Clone, Deserialize, Serialize, Debug)]

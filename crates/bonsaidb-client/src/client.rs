@@ -542,32 +542,28 @@ impl AsyncClient {
 
         #[cfg(target_arch = "wasm32")]
         let result = {
-            use std::pin::pin;
-            // wasm_timer has a weird quirk in how TryFuture is implemented to
-            // try to combine errors. We don't want this behavior, so we're just
-            // going to wrap the result in another result via this adapter.
-            struct FlumeWrapper<F>(F);
-            impl<F> Future for FlumeWrapper<F>
-            where
-                F: Future + Unpin,
+            use wasm_bindgen::JsCast;
+            let (timeout_sender, mut timeout_receiver) = futures::channel::oneshot::channel();
+            // Install the timeout.
             {
-                type Output = Result<F::Output, std::io::Error>;
-
-                fn poll(
-                    mut self: std::pin::Pin<&mut Self>,
-                    cx: &mut std::task::Context<'_>,
-                ) -> std::task::Poll<Self::Output> {
-                    match pin!(&mut self.0).poll(cx) {
-                        std::task::Poll::Ready(result) => std::task::Poll::Ready(Ok(result)),
-                        std::task::Poll::Pending => std::task::Poll::Pending,
-                    }
+                if let Some(window) = web_sys::window() {
+                    let timeout = wasm_bindgen::closure::Closure::once_into_js(move || {
+                        let _result = timeout_sender.send(());
+                    });
+                    let _: Result<_, _> = window
+                        .set_timeout_with_callback_and_timeout_and_arguments_0(
+                            timeout.as_ref().unchecked_ref(),
+                            self.request_timeout
+                                .as_millis()
+                                .try_into()
+                                .unwrap_or(i32::MAX),
+                        );
                 }
             }
-            wasm_timer::ext::TryFutureExt::timeout(
-                FlumeWrapper(result_receiver.recv_async()),
-                self.request_timeout,
-            )
-            .await
+            futures::select! {
+                result = result_receiver.recv_async() => Ok(result),
+                _ = timeout_receiver => Err(Error::Network(bonsaidb_core::networking::Error::RequestTimeout)),
+            }
         };
         #[cfg(not(target_arch = "wasm32"))]
         let result = tokio::time::timeout(self.request_timeout, result_receiver.recv_async()).await;
