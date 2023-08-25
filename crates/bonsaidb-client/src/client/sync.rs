@@ -50,7 +50,8 @@ impl BlockingClient {
     /// If the client has an error connecting, the first request made will
     /// present that error. If the client disconnects while processing requests,
     /// all requests being processed will exit and return
-    /// [`Error::Disconnected`]. The client will automatically try reconnecting.
+    /// [`Error::Disconnected`](bonsaidb_core::networking::Error::Disconnected).
+    /// The client will automatically try reconnecting.
     ///
     /// The goal of this design of this reconnection strategy is to make it
     /// easier to build resilliant apps. By allowing existing Client instances

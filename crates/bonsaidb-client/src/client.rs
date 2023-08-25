@@ -83,8 +83,9 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// connection has been lost. When a disconnect happens, the error that caused
 /// the disconnection will be returned to at least one requestor. If multiple
 /// pending requests are outstanding, all remaining pending requests will have
-/// an [`Error::Disconnected`] returned. This allows the application to detect
-/// when a networking issue has arisen.
+/// an [`Error::Disconnected`](bonsaidb_core::networking::Error::Disconnected)
+/// returned. This allows the application to detect when a networking issue has
+/// arisen.
 ///
 /// If the disconnect happens while the client is completely idle, the next
 /// request will report the disconnection error. The subsequent request will
@@ -276,7 +277,8 @@ impl AsyncClient {
     /// If the client has an error connecting, the first request made will
     /// present that error. If the client disconnects while processing requests,
     /// all requests being processed will exit and return
-    /// [`Error::Disconnected`]. The client will automatically try reconnecting.
+    /// [`Error::Disconnected`](bonsaidb_core::networking::Error::Disconnected).
+    /// The client will automatically try reconnecting.
     ///
     /// The goal of this design of this reconnection strategy is to make it
     /// easier to build resilliant apps. By allowing existing Client instances

@@ -25,10 +25,9 @@
 //!
 //! This crate adds implementations of `tokio::io::AsyncRead` and
 //! `tokio::io::AsyncWrite` when the `async` feature flag is enabled.
-//! ```rust
+#![cfg_attr(feature = "async", doc = "```rust")]
 #![cfg_attr(feature = "async", doc = include_str!("../examples/basic-files-async.rs"))]
-//! ```
-
+#![cfg_attr(feature = "async", doc = "```")]
 #![forbid(unsafe_code)]
 #![warn(
     clippy::cargo,
