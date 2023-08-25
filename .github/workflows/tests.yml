@@ -15,7 +15,7 @@ jobs:
       - name: Generate matrix
         id: xtask
         run: |
-          cargo xtask test-matrix
+          cargo xtask test-matrix >> "$GITHUB_OUTPUT"
 
     outputs:
       matrix: ${{ steps.xtask.outputs.test-matrix }}
@@ -47,6 +47,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+      -
+        name: Free disk space
+        run: |
+          sudo docker rmi $(docker image ls -aq) || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc  || true
 
       - name: Install Rust
         uses: hecrj/setup-rust-action@v1

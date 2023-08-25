@@ -207,7 +207,7 @@ fn all_tests() -> &'static [TestSuite] {
 fn generate_test_matrix_output() -> anyhow::Result<()> {
     let stdout = stdout();
     let mut stdout = stdout.lock();
-    stdout.write_all(b"::set-output name=test-matrix::")?;
+    stdout.write_all(b"test-matrix=")?;
     stdout.write_all(&serde_json::to_vec(all_tests())?)?;
     stdout.write_all(b"\n")?;
     Ok(())
