@@ -9,7 +9,6 @@ yanked = "warn"
 notice = "warn"
 ignore = [
     "RUSTSEC-2020-0168", # region -> mach is unmaintained
-    "RUSTSEC-2023-0052", # https://github.com/User65k/generic-async-http-client/pull/2
 ]
 
 [licenses]
