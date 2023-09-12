@@ -1,6 +1,7 @@
 //! Shows basic setup of a custom api server.
 //!
 //! This example has a section in the User Guide: https://dev.bonsaidb.io/main/guide/about/access-models/custom-api-server.html
+#![allow(clippy::vec_init_then_push)] // Only true if websockets is disabled
 
 use std::time::Duration;
 
