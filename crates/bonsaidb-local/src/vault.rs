@@ -67,6 +67,7 @@ use hpke::aead::{AeadTag, ChaCha20Poly1305};
 use hpke::kdf::HkdfSha256;
 use hpke::kem::DhP256HkdfSha256;
 use hpke::{self, Deserializable, Kem, OpModeS, Serializable};
+use lockedbox::LockedBox;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, Zeroizing};
@@ -390,27 +391,15 @@ pub trait VaultKeyStorage: Send + Sync + Debug + 'static {
     fn vault_key_for(&self, storage_id: StorageId) -> Result<Option<KeyPair>, Self::Error>;
 }
 
-#[derive(Serialize, Deserialize)]
-struct EncryptionKey(Box<[u8; 32]>, #[serde(skip)] Option<region::LockGuard>);
+struct EncryptionKey(LockedBox<[u8; 32]>);
 
 impl EncryptionKey {
     pub fn new(secret: [u8; 32]) -> Self {
-        let mut new_key = Self(Box::new(secret), None);
-        new_key.lock_memory();
-        new_key
+        Self(LockedBox::new(secret))
     }
 
     pub fn key(&self) -> &[u8] {
         &*self.0
-    }
-
-    pub fn lock_memory(&mut self) {
-        if self.1.is_none() {
-            match region::lock(self.key().as_ptr(), self.key().len()) {
-                Ok(guard) => self.1 = Some(guard),
-                Err(err) => log::error!("Security Warning: Unable to lock memory {:?}", err),
-            }
-        }
     }
 
     pub fn random() -> Self {
@@ -479,6 +468,24 @@ impl Drop for EncryptionKey {
 impl Debug for EncryptionKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PrivateKey").finish_non_exhaustive()
+    }
+}
+
+impl Serialize for EncryptionKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for EncryptionKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Self(LockedBox::new(<[u8; 32]>::deserialize(deserializer)?)))
     }
 }
 

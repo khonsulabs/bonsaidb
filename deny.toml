@@ -7,9 +7,7 @@ vulnerability = "deny"
 unmaintained = "warn"
 yanked = "warn"
 notice = "warn"
-ignore = [
-    "RUSTSEC-2020-0168", # region -> mach is unmaintained
-]
+ignore = []
 
 [licenses]
 unlicensed = "deny"

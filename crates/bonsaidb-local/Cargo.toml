@@ -32,7 +32,7 @@ encryption = [
     "bonsaidb-core/encryption",
     "dep:hpke",
     "dep:zeroize",
-    "dep:memsec",
+    "dep:lockedbox",
     "dep:chacha20poly1305",
 ]
 compression = ["dep:lz4_flex"]
@@ -68,7 +68,7 @@ byteorder = "1"
 futures = { version = "0.3.19", optional = true }
 chacha20poly1305 = { version = "0.10", optional = true }
 zeroize = { version = "1", optional = true }
-memsec = { version = "0.6.3", optional = true }
+lockedbox = { version = "0.1.1", optional = true }
 hpke = { version = "0.10", default-features = false, features = [
     "p256",
     "serde_impls",
