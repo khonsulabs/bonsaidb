@@ -12,7 +12,7 @@
 //!
 //! ```rust
 //! # use bonsaidb_keystorage_s3::S3VaultKeyStorage;
-//! # use aws_sdk_s3::Endpoint;
+//! # use aws_config::endpoint::Endpoint;
 //! # use bonsaidb_core::{document::KeyId, test_util::TestDirectory};
 //! # use bonsaidb_local::config::{StorageConfiguration, Builder};
 //! # use http::Uri;
