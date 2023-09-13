@@ -20,8 +20,13 @@ use crate::document::{
 use crate::key::{ByteSource, IntoPrefixRange, Key, KeyEncoding, KeyKind, KeyVisitor};
 use crate::permissions::Permissions;
 use crate::schema::view::map::MappedDocuments;
+#[deprecated(
+    since = "0.5.0",
+    note = "ViewMappings has been moved to bonsaidb_core::schema::view::ViewMappings"
+)]
+pub use crate::schema::view::map::ViewMappings;
 use crate::schema::{
-    self, Map, MappedValue, Nameable, NamedReference, Schema, SchemaName, SchemaSummary,
+    self, MappedValue, Nameable, NamedReference, Schema, SchemaName, SchemaSummary,
     SerializedCollection,
 };
 use crate::{transaction, Error};
@@ -1027,13 +1032,6 @@ where
     }
 }
 
-/// This type is the result of `query()`. It is a list of mappings, which
-/// contains:
-///
-/// - The key emitted during the map function.
-/// - The value emitted during the map function.
-/// - The source document header that the mappings originated from.
-pub type ViewMappings<V> = Vec<Map<<V as schema::View>::Key, <V as schema::View>::Value>>;
 /// This type is the result of `reduce_grouped()`. It is a list of all matching
 /// keys and the reduced value of all mapped entries for that key.
 pub type GroupedReductions<V> =
@@ -2128,7 +2126,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn query(self) -> Result<Vec<Map<V::Key, V::Value>>, Error> {
+    pub async fn query(self) -> Result<ViewMappings<V>, Error> {
         self.connection
             .query::<V, Key>(self.key, self.sort, self.limit, self.access_policy)
             .await

@@ -151,6 +151,20 @@ where
     }
 }
 
+impl<'a, PrimaryKey> TryFrom<&'a Header> for CollectionHeader<PrimaryKey>
+where
+    PrimaryKey: for<'k> Key<'k>,
+{
+    type Error = crate::Error;
+
+    fn try_from(value: &'a Header) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: value.id.deserialize::<PrimaryKey>()?,
+            revision: value.revision,
+        })
+    }
+}
+
 impl<PrimaryKey> TryFrom<CollectionHeader<PrimaryKey>> for Header
 where
     PrimaryKey: for<'k> Key<'k>,
@@ -158,6 +172,20 @@ where
     type Error = crate::Error;
 
     fn try_from(value: CollectionHeader<PrimaryKey>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: DocumentId::new(&value.id)?,
+            revision: value.revision,
+        })
+    }
+}
+
+impl<'a, PrimaryKey> TryFrom<&'a CollectionHeader<PrimaryKey>> for Header
+where
+    PrimaryKey: for<'k> Key<'k>,
+{
+    type Error = crate::Error;
+
+    fn try_from(value: &'a CollectionHeader<PrimaryKey>) -> Result<Self, Self::Error> {
         Ok(Self {
             id: DocumentId::new(&value.id)?,
             revision: value.revision,

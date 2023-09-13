@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use std::task::Poll;
 
 use bonsaidb_core::connection::Connection;
-use bonsaidb_core::document::{CollectionDocument, DocumentId, Header};
+use bonsaidb_core::document::{CollectionDocument, CollectionHeader};
 use bonsaidb_core::key::time::TimestampAsNanoseconds;
 use bonsaidb_core::schema::SerializedCollection;
 #[cfg(feature = "async")]
@@ -705,7 +705,7 @@ struct AsyncBlockTask {
     block_receiver:
         flume::r#async::RecvFut<'static, Result<BTreeMap<u64, Vec<u8>>, std::io::Error>>,
     requested: bool,
-    request_sender: flume::Sender<Vec<DocumentId>>,
+    request_sender: flume::Sender<Vec<u64>>,
 }
 
 impl<Database: Clone, Config: FileConfig> Clone for Contents<Database, Config> {
@@ -891,7 +891,7 @@ impl<
 }
 
 impl<Database: Clone, Config: FileConfig> Contents<Database, Config> {
-    fn next_blocks(&self) -> Vec<DocumentId> {
+    fn next_blocks(&self) -> Vec<u64> {
         let mut last_block = self.current_block;
         let mut requesting_size = 0;
         for index in self.current_block..self.blocks.len() {
@@ -906,7 +906,7 @@ impl<Database: Clone, Config: FileConfig> Contents<Database, Config> {
 
         self.blocks[self.current_block..=last_block]
             .iter()
-            .map(|info| info.header.id.clone())
+            .map(|info| info.header.id)
             .collect()
     }
 
@@ -1193,7 +1193,7 @@ pub(crate) struct BlockInfo {
     pub offset: u64,
     pub length: usize,
     pub timestamp: TimestampAsNanoseconds,
-    pub header: Header,
+    pub header: CollectionHeader<u64>,
 }
 
 /// A buffered [`std::io::Write`] and [`std::io::Seek`] implementor for a

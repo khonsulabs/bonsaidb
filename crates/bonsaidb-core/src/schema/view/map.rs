@@ -4,8 +4,9 @@ use std::fmt::Debug;
 use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
-use crate::document::{DocumentId, Header, OwnedDocument};
+use crate::document::{CollectionHeader, DocumentId, Header, OwnedDocument};
 use crate::schema::view::{self, ByteSource, Key, SerializedView, View, ViewSchema};
+use crate::schema::Collection;
 
 /// A document's entry in a View's mappings.
 #[derive(Eq, PartialEq, Debug)]
@@ -46,6 +47,33 @@ impl<K, V> Map<K, V> {
         Self { source, key, value }
     }
 }
+
+/// A document's entry in a View's mappings.
+#[derive(Eq, PartialEq, Debug)]
+pub struct CollectionMap<PrimaryKey, K = (), V = ()> {
+    /// The header of the document that emitted this entry.
+    pub source: CollectionHeader<PrimaryKey>,
+
+    /// The key used to index the View.
+    pub key: K,
+
+    /// An associated value stored in the view.
+    pub value: V,
+}
+
+/// This type is the result of `query()`. It is a list of mappings, which
+/// contains:
+///
+/// - The key emitted during the map function.
+/// - The value emitted during the map function.
+/// - The source document header that the mappings originated from.
+pub type ViewMappings<V> = Vec<
+    CollectionMap<
+        <<V as View>::Collection as Collection>::PrimaryKey,
+        <V as View>::Key,
+        <V as View>::Value,
+    >,
+>;
 
 /// A collection of [`Map`]s.
 #[derive(Debug, Eq, PartialEq)]
@@ -203,14 +231,13 @@ impl<'a, K, V> Iterator for MappingsIter<'a, K, V> {
 }
 
 /// A collection of mappings and the associated documents.
-#[derive(Debug)]
 pub struct MappedDocuments<D, V: View> {
     /// The collection of mappings.
-    pub mappings: Vec<Map<V::Key, V::Value>>,
+    pub mappings: ViewMappings<V>,
     /// All associated documents by ID.
     ///
     /// Documents can appear in a mapping query multiple times. As a result, they are stored separately to avoid duplication.
-    pub documents: BTreeMap<DocumentId, D>,
+    pub documents: BTreeMap<<V::Collection as Collection>::PrimaryKey, D>,
 }
 
 impl<D, V: View> MappedDocuments<D, V> {
@@ -245,6 +272,21 @@ impl<D, V: View> MappedDocuments<D, V> {
         } else {
             None
         }
+    }
+}
+
+impl<D, V: View> Debug for MappedDocuments<D, V>
+where
+    V::Key: Debug,
+    V::Value: Debug,
+    D: Debug,
+    <V::Collection as Collection>::PrimaryKey: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MappedDocuments")
+            .field("mappings", &self.mappings)
+            .field("documents", &self.documents)
+            .finish()
     }
 }
 
@@ -330,12 +372,26 @@ impl MappedSerializedDocuments {
         let mappings = self
             .mappings
             .iter()
-            .map(Serialized::deserialized::<View>)
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|mapping| {
+                let deserialized = Serialized::deserialized::<View>(mapping)?;
+                Ok(CollectionMap {
+                    source: deserialized.source.try_into()?,
+                    key: deserialized.key,
+                    value: deserialized.value,
+                })
+            })
+            .collect::<Result<Vec<_>, crate::Error>>()?;
 
         Ok(MappedDocuments {
             mappings,
-            documents: self.documents,
+            documents: self
+                .documents
+                .into_iter()
+                .map(|(key, value)| {
+                    let key = key.deserialize()?;
+                    Ok((key, value))
+                })
+                .collect::<Result<BTreeMap<_, _>, crate::Error>>()?,
         })
     }
 }

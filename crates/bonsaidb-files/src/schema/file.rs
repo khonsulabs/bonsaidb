@@ -3,13 +3,14 @@ use std::marker::PhantomData;
 
 #[cfg(feature = "async")]
 use bonsaidb_core::connection::AsyncConnection;
-use bonsaidb_core::connection::{Bound, BoundRef, Connection, RangeRef, ViewMappings};
-use bonsaidb_core::document::{CollectionDocument, Emit};
+use bonsaidb_core::connection::{Bound, BoundRef, Connection, RangeRef};
+use bonsaidb_core::document::{CollectionDocument, Emit, Header};
 use bonsaidb_core::key::time::TimestampAsNanoseconds;
 use bonsaidb_core::key::{
     ByteSource, CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError, CompositeKind,
     IntoPrefixRange, Key, KeyEncoding, KeyKind,
 };
+use bonsaidb_core::schema::view::map::ViewMappings;
 use bonsaidb_core::schema::{
     Collection, CollectionMapReduce, CollectionName, DefaultSerialization, SerializedCollection,
     View, ViewMapResult,
@@ -134,11 +135,13 @@ where
                 name: Cow::Borrowed(path),
             }
         };
-        Ok(convert_mappings_to_documents(
-            database.view::<ByPath<Config>>().with_key(&key).query()?,
-        )?
-        .into_iter()
-        .next())
+        Ok(
+            convert_mappings_to_documents(
+                database.view::<ByPath<Config>>().with_key(&key).query()?,
+            )
+            .into_iter()
+            .next(),
+        )
     }
 
     #[cfg(feature = "async")]
@@ -174,7 +177,7 @@ where
                 .with_key(&key)
                 .query()
                 .await?,
-        )?
+        )
         .into_iter()
         .next())
     }
@@ -183,7 +186,7 @@ where
         path: &str,
         database: &Database,
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
-        convert_mappings_to_documents(
+        Ok(convert_mappings_to_documents(
             database
                 .view::<ByPath<Config>>()
                 .with_key_prefix(&FileKey::ExactPath {
@@ -191,7 +194,7 @@ where
                     end: Box::new(FileKey::ExactPathPart { path, start: false }),
                 })
                 .query()?,
-        )
+        ))
     }
 
     #[cfg(feature = "async")]
@@ -199,7 +202,7 @@ where
         path: &str,
         database: &Database,
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
-        convert_mappings_to_documents(
+        Ok(convert_mappings_to_documents(
             database
                 .view::<ByPath<Config>>()
                 .with_key_prefix(&FileKey::ExactPath {
@@ -208,14 +211,14 @@ where
                 })
                 .query()
                 .await?,
-        )
+        ))
     }
 
     pub fn list_recursive_path_contents<Database: Connection>(
         path: &str,
         database: &Database,
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
-        convert_mappings_to_documents(
+        Ok(convert_mappings_to_documents(
             database
                 .view::<ByPath<Config>>()
                 .with_key_prefix(&FileKey::RecursivePath {
@@ -223,7 +226,7 @@ where
                     end: Box::new(FileKey::RecursivePathPart { path, start: false }),
                 })
                 .query()?,
-        )
+        ))
     }
 
     #[cfg(feature = "async")]
@@ -231,7 +234,7 @@ where
         path: &str,
         database: &Database,
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
-        convert_mappings_to_documents(
+        Ok(convert_mappings_to_documents(
             database
                 .view::<ByPath<Config>>()
                 .with_key_prefix(&FileKey::RecursivePath {
@@ -240,7 +243,7 @@ where
                 })
                 .query()
                 .await?,
-        )
+        ))
     }
 
     pub fn summarize_recursive_path_contents<Database: Connection>(
@@ -255,8 +258,8 @@ where
             })
             .query()?
             .iter()
-            .map(|mapping| mapping.source.id.deserialize())
-            .collect::<Result<Vec<u32>, _>>()?;
+            .map(|mapping| mapping.source.id)
+            .collect::<Vec<u32>>();
         let append_info = Block::<Config>::summary_for_ids(&ids, database)?;
         Ok(Statistics {
             total_bytes: append_info.length,
@@ -279,8 +282,8 @@ where
             .query()
             .await?
             .iter()
-            .map(|mapping| mapping.source.id.deserialize())
-            .collect::<Result<Vec<u32>, _>>()?;
+            .map(|mapping| mapping.source.id)
+            .collect::<Vec<u32>>();
         let append_info = Block::<Config>::summary_for_ids_async(&ids, database).await?;
         Ok(Statistics {
             total_bytes: append_info.length,
@@ -326,7 +329,8 @@ where
                 if block_length <= bytes_to_remove {
                     tx.push(Operation::delete(
                         block_collection.clone(),
-                        blocks[offset].header.clone(),
+                        Header::try_from(blocks[offset].header)
+                            .expect("u64 serialization can't fail"),
                     ));
                     blocks.remove(offset);
                     bytes_to_remove -= block_length;
@@ -427,12 +431,12 @@ impl<'a> IntoPrefixRange<'a, OwnedFileKey> for FileKey<'a> {
 
 fn convert_mappings_to_documents<Config: FileConfig>(
     mappings: ViewMappings<ByPath<Config>>,
-) -> Result<Vec<CollectionDocument<File<Config>>>, bonsaidb_core::Error> {
+) -> Vec<CollectionDocument<File<Config>>> {
     let mut docs = Vec::with_capacity(mappings.len());
     for mapping in mappings {
         if let OwnedFileKey(FileKey::Full { path, name }) = mapping.key {
             docs.push(CollectionDocument {
-                header: mapping.source.try_into()?,
+                header: mapping.source,
                 contents: File {
                     path: match path.into_owned() {
                         path if path == "/" => None,
@@ -447,7 +451,7 @@ fn convert_mappings_to_documents<Config: FileConfig>(
         }
     }
 
-    Ok(docs)
+    docs
 }
 
 #[derive(Debug, Clone, PartialEq)]

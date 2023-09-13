@@ -1349,7 +1349,7 @@ pub struct InsertError<T> {
 #[async_trait]
 pub trait NamedCollection: Collection + Unpin {
     /// The name view defined for the collection.
-    type ByNameView: crate::schema::SerializedView<Key = String>;
+    type ByNameView: crate::schema::SerializedView<Key = String, Collection = Self>;
 
     /// Gets a [`CollectionDocument`] with `id` from `connection`.
     fn load<'name, N: Nameable<'name, Self::PrimaryKey> + Send + Sync, C: Connection>(
@@ -1668,7 +1668,7 @@ where
                 .query()?
                 .into_iter()
                 .next()
-                .map(|e| e.source.id.deserialize())
+                .map(|e| Ok(e.source.id))
                 .transpose(),
             Self::Id(id) => Ok(Some(id.deserialize()?)),
             Self::Key(id) => Ok(Some(id.clone())),
@@ -1689,7 +1689,7 @@ where
                 .await?
                 .into_iter()
                 .next()
-                .map(|e| e.source.id.deserialize())
+                .map(|e| Ok(e.source.id))
                 .transpose(),
             Self::Id(id) => Ok(Some(id.deserialize()?)),
             Self::Key(id) => Ok(Some(id.clone())),

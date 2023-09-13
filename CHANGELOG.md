@@ -170,6 +170,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `bonsaidb::server::api::Handler` has had its generic arguments order reversed,
   which allows the type to specify a default `Backend` of `NoBackend`.
 
+- View query APIs now return `CollectionMap` types instead of `Map` types. The
+  change allows for the `Collection::PrimaryKey` type to be used instead of
+  `DocumentId`. The affected APIs are:
+
+  - `bonsaidb::core::connection::View::query()`
+  - `bonsaidb::core::connection::View::query_with_docs()`
+  - `bonsaidb::core::connection::AsyncView::query()`
+  - `bonsaidb::core::connection::AsyncView::query_with_docs()`
+  - `bonsaidb::core::connection::LowLevelConnection::query()`
+  - `bonsaidb::core::connection::LowLevelConnection::query_with_docs()`
+  - `bonsaidb::core::connection::AsyncLowLevelConnection::query()`
+  - `bonsaidb::core::connection::AsyncLowLevelConnection::query_with_docs()`
+  - `MappedDocuments`: Both `mappings` and `documents` have had their types
+    updated.
+  - `MappedSerialiedSocuments::deserialized()`
+
+### Deprecated
+
+- `bonsaidb::core::connection::ViewMappings` as been moved to
+  `bonsaidb::core::schema::view::ViewMappings`. A deprecated re-export has been
+  provided to minimize code breakage when upgrading.
+
 ### Added
 
 - [#239][239] `Key` can now be derived on enums and structs, allowing an easier way

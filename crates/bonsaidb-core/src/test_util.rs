@@ -2046,6 +2046,7 @@ pub fn blocking_unimplemented_reduce<C: Connection>(db: &C) -> anyhow::Result<()
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)] // The non-async version is less than the limit :)
 pub async fn view_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let collection = db.collection::<Basic>();
     let a = collection.push(&Basic::new("A")).await?;
@@ -2125,7 +2126,10 @@ pub async fn view_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()>
         .query()
         .await?;
     assert_eq!(b_children.len(), 1);
-    assert_eq!(b_children[0].source, doc.header);
+    assert_eq!(
+        b_children[0].source,
+        CollectionHeader::try_from(&doc.header)?
+    );
     assert_eq!(
         db.view::<BasicByParentId>()
             .with_key(&Some(a.id))
@@ -2147,7 +2151,10 @@ pub async fn view_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()>
         .query()
         .await?;
     assert_eq!(b_children.len(), 1);
-    assert_eq!(b_children[0].source, doc.header);
+    assert_eq!(
+        b_children[0].source,
+        CollectionHeader::try_from(&doc.header)?
+    );
 
     // Test deleting a record and ensuring it goes away
     db.collection::<Basic>().delete(&doc).await?;
@@ -2234,7 +2241,10 @@ pub fn blocking_view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 
     let b_children = db.view::<BasicByParentId>().with_key(&Some(b.id)).query()?;
     assert_eq!(b_children.len(), 1);
-    assert_eq!(b_children[0].source, doc.header);
+    assert_eq!(
+        b_children[0].source,
+        CollectionHeader::try_from(&doc.header)?
+    );
     assert_eq!(
         db.view::<BasicByParentId>()
             .with_key(&Some(a.id))
@@ -2251,7 +2261,10 @@ pub fn blocking_view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     db.update::<Basic, _>(&mut doc)?;
     let b_children = db.view::<BasicByParentId>().with_key(&Some(b.id)).query()?;
     assert_eq!(b_children.len(), 1);
-    assert_eq!(b_children[0].source, doc.header);
+    assert_eq!(
+        b_children[0].source,
+        CollectionHeader::try_from(&doc.header)?
+    );
 
     // Test deleting a record and ensuring it goes away
     db.collection::<Basic>().delete(&doc)?;

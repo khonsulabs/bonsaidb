@@ -12,11 +12,9 @@ use crate::document::{
     CollectionDocument, CollectionHeader, Document, DocumentId, HasHeader, Header, OwnedDocument,
 };
 use crate::key::{self, ByteSource, Key, KeyEncoding};
-use crate::schema::view::map::{MappedDocuments, MappedSerializedValue};
+use crate::schema::view::map::{CollectionMap, MappedDocuments, MappedSerializedValue};
 use crate::schema::view::{self};
-use crate::schema::{
-    self, CollectionName, Map, MappedValue, Schematic, SerializedCollection, ViewName,
-};
+use crate::schema::{self, CollectionName, MappedValue, Schematic, SerializedCollection, ViewName};
 use crate::transaction::{OperationResult, Transaction};
 use crate::Error;
 
@@ -288,12 +286,12 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         mappings
             .into_iter()
             .map(|mapping| {
-                Ok(Map {
+                Ok(CollectionMap {
                     key: <V::Key as key::Key>::from_ord_bytes(ByteSource::Borrowed(&mapping.key))
                         .map_err(view::Error::key_serialization)
                         .map_err(Error::from)?,
                     value: V::deserialize(&mapping.value)?,
-                    source: mapping.source,
+                    source: mapping.source.try_into()?,
                 })
             })
             .collect::<Result<Vec<_>, Error>>()
@@ -328,8 +326,11 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         let documents = self
             .get_multiple::<V::Collection, _, _, _>(results.iter().map(|m| &m.source.id))?
             .into_iter()
-            .map(|doc| (doc.header.id.clone(), doc))
-            .collect::<BTreeMap<_, _>>();
+            .map(|doc| {
+                let id = doc.header.id.deserialize()?;
+                Ok((id, doc))
+            })
+            .collect::<Result<BTreeMap<_, _>, Error>>()?;
 
         Ok(MappedDocuments {
             mappings: results,
@@ -915,12 +916,12 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
         mappings
             .into_iter()
             .map(|mapping| {
-                Ok(Map {
+                Ok(CollectionMap {
                     key: <V::Key as key::Key>::from_ord_bytes(ByteSource::Borrowed(&mapping.key))
                         .map_err(view::Error::key_serialization)
                         .map_err(Error::from)?,
                     value: V::deserialize(&mapping.value)?,
-                    source: mapping.source,
+                    source: mapping.source.try_into()?,
                 })
             })
             .collect::<Result<Vec<_>, Error>>()
@@ -954,8 +955,11 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
             .get_multiple::<V::Collection, _, _, _>(results.iter().map(|m| &m.source.id))
             .await?
             .into_iter()
-            .map(|doc| (doc.header.id.clone(), doc))
-            .collect::<BTreeMap<_, _>>();
+            .map(|doc| {
+                let id = doc.header.id.deserialize()?;
+                Ok((id, doc))
+            })
+            .collect::<Result<BTreeMap<_, _>, Error>>()?;
 
         Ok(MappedDocuments {
             mappings: results,
