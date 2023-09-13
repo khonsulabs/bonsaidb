@@ -19,12 +19,7 @@ use crate::document::{
 };
 use crate::key::{ByteSource, IntoPrefixRange, Key, KeyEncoding, KeyKind, KeyVisitor};
 use crate::permissions::Permissions;
-use crate::schema::view::map::MappedDocuments;
-#[deprecated(
-    since = "0.5.0",
-    note = "ViewMappings has been moved to bonsaidb_core::schema::view::ViewMappings"
-)]
-pub use crate::schema::view::map::ViewMappings;
+use crate::schema::view::map::{MappedDocuments, ViewMappings as ViewMappingsCurrent};
 use crate::schema::{
     self, MappedValue, Nameable, NamedReference, Schema, SchemaName, SchemaSummary,
     SerializedCollection,
@@ -913,7 +908,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn query(self) -> Result<ViewMappings<V>, Error> {
+    pub fn query(self) -> Result<ViewMappingsCurrent<V>, Error> {
         self.connection
             .query::<V, Key>(self.key, self.sort, self.limit, self.access_policy)
     }
@@ -2126,7 +2121,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn query(self) -> Result<ViewMappings<V>, Error> {
+    pub async fn query(self) -> Result<ViewMappingsCurrent<V>, Error> {
         self.connection
             .query::<V, Key>(self.key, self.sort, self.limit, self.access_policy)
             .await
@@ -3873,3 +3868,18 @@ pub enum IdentityId {
     /// A [`Role`](crate::admin::Role) id.
     Role(u64),
 }
+
+/// This type is the result of `query()`. It is a list of mappings, which
+/// contains:
+///
+/// - The key emitted during the map function.
+/// - The value emitted during the map function.
+/// - The source document header that the mappings originated from.
+///
+/// This type alias is being moved to [`schema::view::map::ViewMappings`] and
+/// will be removed in v0.6.0.
+#[deprecated(
+    since = "0.5.0",
+    note = "ViewMappings has been moved to bonsaidb_core::schema::view::ViewMappings"
+)]
+pub type ViewMappings<V> = schema::view::map::ViewMappings<V>;

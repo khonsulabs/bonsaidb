@@ -6,13 +6,15 @@ use async_trait::async_trait;
 
 use super::GroupedReductions;
 use crate::connection::{
-    AccessPolicy, HasSession, QueryKey, Range, RangeRef, SerializedQueryKey, Sort, ViewMappings,
+    AccessPolicy, HasSession, QueryKey, Range, RangeRef, SerializedQueryKey, Sort,
 };
 use crate::document::{
     CollectionDocument, CollectionHeader, Document, DocumentId, HasHeader, Header, OwnedDocument,
 };
 use crate::key::{self, ByteSource, Key, KeyEncoding};
-use crate::schema::view::map::{CollectionMap, MappedDocuments, MappedSerializedValue};
+use crate::schema::view::map::{
+    CollectionMap, MappedDocuments, MappedSerializedValue, ViewMappings,
+};
 use crate::schema::view::{self};
 use crate::schema::{self, CollectionName, MappedValue, Schematic, SerializedCollection, ViewName};
 use crate::transaction::{OperationResult, Transaction};
