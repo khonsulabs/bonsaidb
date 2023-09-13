@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use async_lock::{Mutex, MutexGuard};
@@ -43,6 +44,7 @@ struct Data<B: Backend = NoBackend> {
     transport: Transport,
     response_sender: Sender<(Option<SessionId>, ApiName, Bytes)>,
     client_data: Mutex<Option<B::ClientData>>,
+    connected: AtomicBool,
 }
 
 #[derive(Debug)]
@@ -62,6 +64,16 @@ impl<B: Backend> ConnectedClient<B> {
     #[must_use]
     pub fn transport(&self) -> &Transport {
         &self.data.transport
+    }
+
+    /// Returns true if the server still believes the client is connected.
+    #[must_use]
+    pub fn connected(&self) -> bool {
+        self.data.connected.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn set_disconnected(&self) {
+        self.data.connected.store(false, Ordering::Relaxed);
     }
 
     pub(crate) fn logged_in_as(&self, session: Session) {
@@ -287,6 +299,7 @@ impl<B: Backend> OwnedClient<B> {
                     response_sender,
                     sessions: RwLock::new(session),
                     client_data: Mutex::default(),
+                    connected: AtomicBool::new(true),
                 }),
             },
             runtime: Arc::new(tokio::runtime::Handle::current()),

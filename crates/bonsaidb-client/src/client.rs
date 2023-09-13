@@ -2,8 +2,6 @@ use std::any::TypeId;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::ops::Deref;
-#[cfg(feature = "test-util")]
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -29,7 +27,7 @@ use futures::future::BoxFuture;
 use futures::{Future, FutureExt};
 use parking_lot::Mutex;
 #[cfg(not(target_arch = "wasm32"))]
-use tokio::{runtime::Handle, task::JoinHandle};
+use tokio::runtime::Handle;
 use url::Url;
 
 pub use self::remote_database::{AsyncRemoteDatabase, AsyncRemoteSubscriber};
@@ -253,15 +251,11 @@ impl PartialEq for AsyncClient {
 #[derive(Debug)]
 pub struct Data {
     request_sender: Sender<PendingRequest>,
-    #[cfg(not(target_arch = "wasm32"))]
-    _worker: CancellableHandle<Result<(), Error>>,
     effective_permissions: Mutex<Option<Permissions>>,
     schemas: Mutex<HashMap<TypeId, Arc<Schematic>>>,
     connection_counter: Arc<AtomicU32>,
     request_id: AtomicU32,
     subscribers: SubscriberMap,
-    #[cfg(feature = "test-util")]
-    background_task_running: Arc<AtomicBool>,
 }
 
 impl AsyncClient {
@@ -388,7 +382,7 @@ impl AsyncClient {
         let request_timeout = server.request_timeout;
         let subscribers = server.subscribers.clone();
 
-        let worker = sync::spawn_client(
+        sync::spawn_client(
             quic_worker::reconnecting_client_loop(
                 server,
                 protocol_version,
@@ -400,24 +394,14 @@ impl AsyncClient {
             tokio,
         );
 
-        #[cfg(feature = "test-util")]
-        let background_task_running = Arc::new(AtomicBool::new(true));
-
         Self {
             data: Arc::new(Data {
                 request_sender,
-                _worker: CancellableHandle {
-                    worker,
-                    #[cfg(feature = "test-util")]
-                    background_task_running: background_task_running.clone(),
-                },
                 schemas: Mutex::default(),
                 connection_counter,
                 request_id: AtomicU32::default(),
                 effective_permissions: Mutex::default(),
                 subscribers,
-                #[cfg(feature = "test-util")]
-                background_task_running,
             }),
             session: ClientSession::default(),
             request_timeout,
@@ -436,7 +420,7 @@ impl AsyncClient {
         let request_timeout = server.request_timeout;
         let subscribers = server.subscribers.clone();
 
-        let worker = sync::spawn_client(
+        sync::spawn_client(
             tungstenite_worker::reconnecting_client_loop(
                 server,
                 protocol_version,
@@ -447,25 +431,14 @@ impl AsyncClient {
             tokio,
         );
 
-        #[cfg(feature = "test-util")]
-        let background_task_running = Arc::new(AtomicBool::new(true));
-
         Self {
             data: Arc::new(Data {
                 request_sender,
-                #[cfg(not(target_arch = "wasm32"))]
-                _worker: CancellableHandle {
-                    worker,
-                    #[cfg(feature = "test-util")]
-                    background_task_running: background_task_running.clone(),
-                },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
                 connection_counter,
                 effective_permissions: Mutex::default(),
                 subscribers,
-                #[cfg(feature = "test-util")]
-                background_task_running,
             }),
             session: ClientSession::default(),
             request_timeout,
@@ -498,12 +471,6 @@ impl AsyncClient {
         Self {
             data: Arc::new(Data {
                 request_sender,
-                #[cfg(not(target_arch = "wasm32"))]
-                worker: CancellableHandle {
-                    worker,
-                    #[cfg(feature = "test-util")]
-                    background_task_running: background_task_running.clone(),
-                },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
                 connection_counter,
@@ -618,13 +585,6 @@ impl AsyncClient {
     pub fn effective_permissions(&self) -> Option<Permissions> {
         let effective_permissions = self.data.effective_permissions.lock();
         effective_permissions.clone()
-    }
-
-    #[cfg(feature = "test-util")]
-    #[doc(hidden)]
-    #[must_use]
-    pub fn background_task_running(&self) -> Arc<AtomicBool> {
-        self.data.background_task_running.clone()
     }
 
     pub(crate) fn register_subscriber(&self, id: u64, sender: flume::Sender<Message>) {
@@ -896,23 +856,6 @@ type PendingRequestResponder = Sender<Result<Bytes, Error>>;
 pub struct PendingRequest {
     request: Payload,
     responder: PendingRequestResponder,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug)]
-struct CancellableHandle<T> {
-    worker: JoinHandle<T>,
-    #[cfg(feature = "test-util")]
-    background_task_running: Arc<AtomicBool>,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl<T> Drop for CancellableHandle<T> {
-    fn drop(&mut self) {
-        self.worker.abort();
-        #[cfg(feature = "test-util")]
-        self.background_task_running.store(false, Ordering::Release);
-    }
 }
 
 async fn process_response_payload(

@@ -301,6 +301,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to @phantie for requesting these settings in #296.
 - `CollectionDocument::refresh()`/`CollectionDocument::refresh_async()` are new
   methods that reload the document from the database.
+- `ConnectedClient::connected()` is a new function that returns the current
+  state of whether the client is still connected. Because `ConnectedClient` is
+  able to be cloned and sent between threads, this allows other threads to
+  notice when clients have disconnected without needing to be notified via the
+  `Backend`.
 
 ### Changed
 

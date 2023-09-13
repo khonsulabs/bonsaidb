@@ -491,6 +491,7 @@ impl<B: Backend> CustomServer<B> {
         };
 
         if let Some(client) = removed_client {
+            client.set_disconnected();
             for session in client.all_sessions::<Vec<_>>() {
                 if let Err(err) = self
                     .data

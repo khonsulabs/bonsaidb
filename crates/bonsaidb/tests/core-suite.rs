@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bonsaidb::client::url::Url;
 use bonsaidb::client::{AsyncClient, AsyncRemoteDatabase};
@@ -422,6 +422,51 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
         .create_user("otheruser")
         .await
         .expect("should be able to create user after logging in");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn client_disconnection() -> anyhow::Result<()> {
+    use bonsaidb_core::connection::AsyncStorageConnection;
+    let database_path = TestDirectory::new("client_disconnection");
+    let server = Server::open(
+        ServerConfiguration::new(&database_path).default_permissions(Permissions::allow_all()),
+    )
+    .await?;
+    server.install_self_signed_certificate(false).await?;
+    let certificate = server
+        .certificate_chain()
+        .await?
+        .into_end_entity_certificate();
+
+    tokio::spawn({
+        let server = server.clone();
+        async move {
+            server.listen_on(6003).await?;
+            Result::<(), anyhow::Error>::Ok(())
+        }
+    });
+    // Give the server time to listen
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    let url = Url::parse("bonsaidb://localhost:6003")?;
+    let client = AsyncClient::build(url)
+        .with_certificate(certificate)
+        .build()?;
+    // We need to call any API to ensure the client connects.
+    let _result = client.create_user("otheruser").await;
+
+    let connected_client = server.connected_clients();
+    assert_eq!(connected_client.len(), 1);
+    drop(client);
+
+    // Wait for the connected client to observe the disconnection
+    let start = Instant::now();
+    while connected_client[0].connected() && start.elapsed() < Duration::from_secs(2) {
+        tokio::task::yield_now().await;
+    }
+    assert!(!connected_client[0].connected());
 
     Ok(())
 }
