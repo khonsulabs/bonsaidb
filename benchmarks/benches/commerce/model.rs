@@ -26,6 +26,7 @@ pub struct InitialDataSet {
     pub reviews: Vec<ProductReview>,
 }
 
+#[derive(Debug)]
 pub struct InitialDataSetConfig {
     pub number_of_customers: RangeInclusive<u32>,
     pub number_of_products: RangeInclusive<u32>,
@@ -67,7 +68,7 @@ impl InitialDataSetConfig {
                     .iter()
                     .map(|&product_id| (order.customer_id, product_id))
             })
-            .collect::<Vec<_>>();
+            .collect::<HashSet<_>>();
         let mut rated_products = HashSet::new();
         if !products_available_to_rate.is_empty() {
             for _ in 0..gen_range(rng, self.number_of_reviews.clone()) {
@@ -228,23 +229,32 @@ pub struct ProductReview {
 impl ProductReview {
     pub fn fake<R: Rng>(
         rng: &mut R,
-        available_customer_products: &[(u32, u32)],
+        available_customer_products: &HashSet<(u32, u32)>,
         already_rated: &mut HashSet<(u32, u32)>,
     ) -> Option<Self> {
-        while available_customer_products.len() > already_rated.len() {
-            let index = rng.gen_range(0..available_customer_products.len());
-            let (customer_id, product_id) = available_customer_products[index];
-            if already_rated.insert((customer_id, product_id)) {
-                return Some(Self {
-                    customer_id,
-                    product_id,
-                    rating: rng.gen_range(1..=5),
-                    review: if rng.gen_bool(0.25) {
-                        Some(Vec::<String>::dummy_with_rng(&Paragraphs(EN, 1..5), rng).join("\n\n"))
-                    } else {
-                        None
-                    },
-                });
+        if available_customer_products.len() > already_rated.len() {
+            for (customer_id, product_id) in available_customer_products
+                .iter()
+                .chain(available_customer_products.iter())
+                .skip(rng.gen_range(0..available_customer_products.len()))
+                .take(available_customer_products.len())
+                .copied()
+            {
+                if already_rated.insert((customer_id, product_id)) {
+                    return Some(Self {
+                        customer_id,
+                        product_id,
+                        rating: rng.gen_range(1..=5),
+                        review: if rng.gen_bool(0.25) {
+                            Some(
+                                Vec::<String>::dummy_with_rng(&Paragraphs(EN, 1..5), rng)
+                                    .join("\n\n"),
+                            )
+                        } else {
+                            None
+                        },
+                    });
+                }
             }
         }
 
