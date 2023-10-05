@@ -35,6 +35,12 @@ jobs:
       - name: Install Rust
         uses: hecrj/setup-rust-action@v1
 
+      -
+        name: Free disk space
+        run: |
+          sudo docker rmi $(docker image ls -aq) || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc  || true
+
       - name: Run code coverage
         run: |
           cargo xtask generate-code-coverage-report --install-dependencies
