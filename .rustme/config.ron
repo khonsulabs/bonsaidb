@@ -66,12 +66,12 @@ Configuration(
             "msrv": "1.70",
             "ref-name": (
                 default: "main",
-                release: "v0.4.0",
+                release: "v0.5.0",
 
             ),
             "pages-base": (
                 default: "https://dev.bonsaidb.io/main",
-                release: "https://dev.bonsaidb.io/v0.4.0",
+                release: "https://dev.bonsaidb.io/v0.5.0",
             ),
             "bonsaidb-docs": (
                 default: "https://dev.bonsaidb.io/main/docs/bonsaidb",

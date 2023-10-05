@@ -19,8 +19,8 @@ compression = ["bonsaidb/compression"]
 mongo = ["mongodb"]
 
 [dependencies]
-redis = { version = "0.22.3", optional = true, features = ["tokio-comp"] }
-bonsaidb = { path = "../crates/bonsaidb", version = "0.4.0", features = [
+redis = { version = "0.23.3", optional = true, features = ["tokio-comp"] }
+bonsaidb = { path = "../crates/bonsaidb", version = "0.5.0", features = [
     "client",
     "server",
     "websockets",

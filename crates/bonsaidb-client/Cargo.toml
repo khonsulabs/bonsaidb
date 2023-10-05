@@ -1,6 +1,6 @@
 [package]
 name = "bonsaidb-client"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2021"
 description = "Client for accessing BonsaiDb servers."
@@ -28,10 +28,10 @@ token-authentication = ["bonsaidb-core/token-authentication"]
 included-from-omnibus = []
 
 [dependencies]
-bonsaidb-core = { path = "../bonsaidb-core", version = "=0.4.0", default-features = false, features = [
+bonsaidb-core = { path = "../bonsaidb-core", version = "=0.5.0", default-features = false, features = [
     "included-from-client",
 ] }
-bonsaidb-utils = { path = "../bonsaidb-utils", version = "=0.4.0" }
+bonsaidb-utils = { path = "../bonsaidb-utils", version = "=0.5.0" }
 thiserror = "1"
 url = "2.2"
 flume = "0.11.0"
@@ -63,7 +63,7 @@ wasm-bindgen-futures = "0.4"
 wasm-bindgen = "0.2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-fabruic = { version = "0.0.1-dev.6" }
+fabruic = { version = "0.1.0" }
 tokio = { version = "1.16.1", features = ["sync", "macros", "time"] }
 tokio-tungstenite = { version = "0.20.0", optional = true, features = [
     "rustls-tls-native-roots",
