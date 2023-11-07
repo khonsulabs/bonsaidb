@@ -6,7 +6,7 @@ When a document is updated, BonsaiDb will check that the revision information pa
 
 ## Serializable Collections
 
-BonsaiDb provides the [`SerializedCollection`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.SerializedCollection.html) trait, which allows automatic serialization and deserialization in many sitautions. When using [`SerializedCollection::document_contents()`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.SerializedCollection.html#method.document_contents) function, the document is serialized and deserialized by the format returned from [`SerializedCollection::format()`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.SerializedCollection.html#tymethod.format).
+BonsaiDb provides the [`SerializedCollection`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.SerializedCollection.html) trait, which allows automatic serialization and deserialization in many situations. When using [`SerializedCollection::document_contents()`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.SerializedCollection.html#method.document_contents) function, the document is serialized and deserialized by the format returned from [`SerializedCollection::format()`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.SerializedCollection.html#tymethod.format).
 
 The [`CollectionDocument<T>`]({{DOCS_BASE_URL}}/bonsaidb/core/document/struct.CollectionDocument.html) type provides convenience methods of interacting with serializable documents.
 

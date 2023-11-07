@@ -32,7 +32,7 @@ back up their data and test that restoring from backup works correctly.
 
 Around May 2022, a bug and a mistake in benchmarking were discovered. The bug
 was promptly fixed, but the net result is that BonsaiDb's transactional write
-performance is significantly slower than other databases. Unless you're buliding
+performance is significantly slower than other databases. Unless you're building
 a very write-heavy application, the performance will likely still be acceptable.
 [Issue #251 on GitHub](https://github.com/khonsulabs/bonsaidb/issues/251) is
 where progress of the performance updates are being tracked. From a developer's
