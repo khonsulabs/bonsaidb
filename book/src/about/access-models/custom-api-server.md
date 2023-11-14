@@ -32,7 +32,7 @@ One of the strengths of using BonsaiDb's custom api functionality is the ability
 
 The [`Handler`][handler] is provided a [`HandlerSession`][handler-session] as well as the `Api` type, which provides all the context information needed to verify the connected client's authenticated identity and permissions. Additionally, it provides two ways to access the storage layer: with unrestricted permissions or restricted to the permissions granted to the client.
 
-Let's finish configuring the server to allow all unauthenticated users the abilty to `Ping`, and all authenticated users the ability to `Increment` the counter:
+Let's finish configuring the server to allow all unauthenticated users the ability to `Ping`, and all authenticated users the ability to `Increment` the counter:
 
 ```rust,noplayground,no_run
 {{#include ../../../../examples/basic-server/examples/custom-api.rs:server-init}}

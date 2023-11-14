@@ -46,7 +46,7 @@ Can also be set using [`Builder::check_view_integrity_on_open`]({{DOCS_BASE_URL}
 
 The Key-Value store is designed to be a lightweight, atomic data store that is suitable for caching data, tracking metrics, or other situations where a Collection might be overkill.
 
-By default, BonsaiDb persists Key-Value store changes to disk immediately. For light usage, this will not be noticable, and it ensures that no data will ever be lost.
+By default, BonsaiDb persists Key-Value store changes to disk immediately. For light usage, this will not be noticeable, and it ensures that no data will ever be lost.
 
 If you're willing to accept potentially losing recent writes, [`key_value_persistence`]({{DOCS_BASE_URL}}/bonsaidb/local/config/trait.Builder.html#tymethod.key_value_persistence) can be configured to lazily commit changes to disk. The documentation for [`KeyValuePersistence`]({{DOCS_BASE_URL}}/bonsaidb/local/config/struct.KeyValuePersistence.html) contains examples as well as an explanation of how the rules are evaluated.
 

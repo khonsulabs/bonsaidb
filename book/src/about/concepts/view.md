@@ -64,7 +64,7 @@ In this example, we're using the built-in [`Iterator::sum()`](https://doc.rust-l
 {{#include ../../../book-examples/tests/view-example-string.rs:reduce_one_key}}
 ```
 
-## Changing an exising view
+## Changing an existing view
 
 If you have data stored in a view, but want to update the view to store data
 differently, implement [`ViewSchema::version()`][viewschema-version] and return
