@@ -60,17 +60,21 @@ use bonsaidb_core::arc_bytes::serde::Bytes;
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::permissions::bonsai::{encryption_key_resource_name, EncryptionKeyAction};
 use bonsaidb_core::permissions::Permissions;
-use chacha20poly1305::aead::generic_array::GenericArray;
 use chacha20poly1305::aead::{Aead, Payload};
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305};
+use generic_array::GenericArray;
 use hpke::aead::{AeadTag, ChaCha20Poly1305};
 use hpke::kdf::HkdfSha256;
 use hpke::kem::DhP256HkdfSha256;
 use hpke::{self, Deserializable, Kem, OpModeS, Serializable};
 use lockedbox::LockedBox;
 use rand::{thread_rng, Rng};
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as DeError, Deserialize, Serialize};
 use zeroize::{Zeroize, Zeroizing};
+
+type HpkePublicKey = <DhP256HkdfSha256 as Kem>::PublicKey;
+type HpkePrivateKey = <DhP256HkdfSha256 as Kem>::PrivateKey;
+type HpkeEncappedKey = <DhP256HkdfSha256 as Kem>::EncappedKey;
 
 /// A private encryption key.
 #[derive(Serialize, Deserialize)]
@@ -78,10 +82,76 @@ pub enum KeyPair {
     /// A P256 keypair.
     P256 {
         /// The private key.
-        private: <DhP256HkdfSha256 as Kem>::PrivateKey,
+        #[serde(with = "serde_privkey")]
+        private: HpkePrivateKey,
         /// The public key.
-        public: <DhP256HkdfSha256 as Kem>::PublicKey,
+        #[serde(with = "serde_pubkey")]
+        public: HpkePublicKey,
     },
+}
+
+mod serde_pubkey {
+    use super::*;
+
+    pub(super) fn serialize<S: serde::Serializer>(
+        public_key: &HpkePublicKey,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let arr = public_key.to_bytes();
+        arr.serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<HpkePublicKey, D::Error> {
+        let arr = GenericArray::<u8, <HpkePublicKey as Serializable>::OutputSize>::deserialize(
+            deserializer,
+        )?;
+        HpkePublicKey::from_bytes(&arr).map_err(D::Error::custom)
+    }
+}
+
+mod serde_privkey {
+    use super::*;
+    use hpke::Serializable;
+
+    pub(super) fn serialize<S: serde::Serializer>(
+        private_key: &HpkePrivateKey,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let arr = private_key.to_bytes();
+        arr.serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<HpkePrivateKey, D::Error> {
+        let arr = GenericArray::<u8, <HpkePrivateKey as Serializable>::OutputSize>::deserialize(
+            deserializer,
+        )?;
+        HpkePrivateKey::from_bytes(&arr).map_err(D::Error::custom)
+    }
+}
+
+mod serde_encapped_key {
+    use super::*;
+
+    pub(super) fn serialize<S: serde::Serializer>(
+        encapped_key: &HpkeEncappedKey,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let arr = encapped_key.to_bytes();
+        serializer.serialize_bytes(&arr)
+    }
+
+    pub(super) fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<HpkeEncappedKey, D::Error> {
+        let arr = GenericArray::<u8, <HpkeEncappedKey as Serializable>::OutputSize>::deserialize(
+            deserializer,
+        )?;
+        HpkeEncappedKey::from_bytes(&arr).map_err(D::Error::custom)
+    }
 }
 
 impl KeyPair {
@@ -100,7 +170,8 @@ impl KeyPair {
 #[derive(Serialize, Deserialize)]
 pub enum PublicKey {
     /// A P256 public key.
-    P256(<DhP256HkdfSha256 as Kem>::PublicKey),
+    #[serde(with = "serde_pubkey")]
+    P256(HpkePublicKey),
 }
 
 impl PublicKey {
@@ -618,7 +689,8 @@ struct HpkePayload {
     encryption: PublicKeyEncryption,
     payload: Bytes,
     tag: [u8; 16],
-    encapsulated_key: <DhP256HkdfSha256 as Kem>::EncappedKey,
+    #[serde(with = "serde_encapped_key")]
+    encapsulated_key: HpkeEncappedKey,
 }
 
 #[derive(Serialize, Deserialize)]
