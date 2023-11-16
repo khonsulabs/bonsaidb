@@ -22,6 +22,8 @@ pub mod cli;
 pub mod config;
 mod database;
 mod error;
+#[cfg(feature = "encryption")]
+mod hpke_util;
 mod open_trees;
 mod storage;
 mod tasks;
