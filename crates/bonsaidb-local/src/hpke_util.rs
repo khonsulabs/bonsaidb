@@ -73,7 +73,7 @@ pub(crate) mod serde_encapped_key {
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         let arr = encapped_key.to_bytes();
-        serializer.serialize_bytes(&arr)
+        arr.serialize(serializer)
     }
 
     pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
