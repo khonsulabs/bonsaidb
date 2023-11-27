@@ -69,6 +69,7 @@ impl publish::Config for Config {
             String::from("crates/bonsaidb-server"),
             String::from("crates/bonsaidb-client"),
             String::from("crates/bonsaidb-keystorage-s3"),
+            String::from("crates/bonsaidb-files"),
             String::from("crates/bonsaidb"),
         ]
     }

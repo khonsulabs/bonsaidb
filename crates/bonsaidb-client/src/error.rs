@@ -18,8 +18,8 @@ pub enum Error {
     #[error("invalid url: '{0}'")]
     InvalidUrl(String),
 
-    /// The connection was interrupted.
-    #[error("unexpected disconnection")]
+    /// A BonsaiDb error occurred.
+    #[error("{0}")]
     Core(#[from] bonsaidb_core::Error),
 
     /// An error from a `Api`. The actual error is still serialized, as it
