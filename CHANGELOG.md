@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- `bonsaidb::client::Error` now implements
+  `From<bonsaidb::client::ApiError<Infallible>>`.
+
 ### Fixed
 
 - `bonsaidb::client::Error::Core`'s `Display` no longer just prints "unexpected

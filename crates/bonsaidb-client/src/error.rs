@@ -1,3 +1,4 @@
+use bonsaidb_core::api::Infallible;
 use bonsaidb_core::arc_bytes::serde::Bytes;
 use bonsaidb_core::networking;
 use bonsaidb_core::schema::Name;
@@ -154,6 +155,15 @@ impl From<ApiError<Self>> for bonsaidb_core::Error {
         match error {
             ApiError::Api(err) => err,
             ApiError::Client(err) => Self::from(err),
+        }
+    }
+}
+
+impl From<ApiError<Infallible>> for Error {
+    fn from(err: ApiError<Infallible>) -> Self {
+        match err {
+            ApiError::Client(err) => err,
+            ApiError::Api(_) => unreachable!("infallible"),
         }
     }
 }
