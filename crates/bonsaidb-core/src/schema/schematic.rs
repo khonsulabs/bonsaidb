@@ -98,13 +98,10 @@ impl Schematic {
             let unique_views = self
                 .eager_views_by_collection
                 .entry(collection.clone())
-                .or_insert_with(Vec::new);
+                .or_default();
             unique_views.push(TypeId::of::<V>());
         }
-        let views = self
-            .views_by_collection
-            .entry(collection)
-            .or_insert_with(Vec::new);
+        let views = self.views_by_collection.entry(collection).or_default();
         views.push(TypeId::of::<V>());
 
         Ok(())

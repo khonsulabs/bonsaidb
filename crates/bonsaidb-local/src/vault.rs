@@ -48,11 +48,6 @@
 //! used directly. This variant of `ChaCha20Poly1305` extends the nonce from 12
 //! bytes to 24 bytes, which allows for random nonces to be used.
 
-use crate::hpke_util::{
-    serde_encapped_key, serde_privkey, serde_pubkey, VaultP256EncappedKey, VaultP256Kem,
-    VaultP256PrivateKey, VaultP256PublicKey,
-};
-
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
@@ -75,6 +70,11 @@ use lockedbox::LockedBox;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, Zeroizing};
+
+use crate::hpke_util::{
+    serde_encapped_key, serde_privkey, serde_pubkey, VaultP256EncappedKey, VaultP256Kem,
+    VaultP256PrivateKey, VaultP256PublicKey,
+};
 
 /// A private encryption key.
 #[derive(Serialize, Deserialize)]

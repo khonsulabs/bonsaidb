@@ -48,7 +48,7 @@ impl PubSub for super::Database {
                         pubsub_topic_resource_name(self.name(), &topic),
                         &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish)),
                     )
-                    .map(|_| OwnedBytes::from(database_topic(&self.data.name, &topic)))
+                    .map(|()| OwnedBytes::from(database_topic(&self.data.name, &topic)))
                 })
                 .collect::<Result<Vec<_>, _>>()?,
             payload,

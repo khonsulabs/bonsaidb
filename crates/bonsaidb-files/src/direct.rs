@@ -1311,7 +1311,7 @@ impl<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static> tokio:
             }
         } else if self.buffer.capacity() == self.buffer.len() {
             match ready!(std::pin::Pin::new(&mut self).poll_flush(cx)) {
-                Ok(_) => {}
+                Ok(()) => {}
                 Err(err) => {
                     return Poll::Ready(Err(err));
                 }

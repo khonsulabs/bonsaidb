@@ -197,7 +197,7 @@ impl HashingThread {
         let argon = Argon2::new(algorithm, version, argon2::Params::try_from(&hash)?);
 
         hash.verify_password(&[&argon], request.password.0.as_bytes())
-            .map(|_| HashResponse::Verified)
+            .map(|()| HashResponse::Verified)
             .map_err(Error::from)
     }
 

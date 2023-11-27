@@ -253,7 +253,7 @@ impl<'a> DocumentRequest<'a> {
                         let key_mappings = batch
                             .new_mappings
                             .entry(ArcBytes::from(mapping.key.to_vec()))
-                            .or_insert_with(Vec::default);
+                            .or_default();
                         key_mappings.push(mapping);
                     }
                 }

@@ -788,7 +788,7 @@ pub fn background_worker(
                     // fails. So, we will cap the sleep time at 1 day.
                     let remaining = remaining.min(Duration::from_secs(60 * 60 * 24));
                     match timestamp_receiver.watch_timeout(remaining) {
-                        Ok(_) | Err(watchable::TimeoutError::Timeout) => {
+                        Ok(()) | Err(watchable::TimeoutError::Timeout) => {
                             perform_operations = true;
                         }
                         Err(watchable::TimeoutError::Disconnected) => break,

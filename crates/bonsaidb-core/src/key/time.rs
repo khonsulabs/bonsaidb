@@ -1023,7 +1023,7 @@ pub mod limited {
         /// to be converted to a value relative to the unix epoch.
         pub fn to_timestamp_string(&self) -> Result<String, TimeError> {
             let mut string = String::new();
-            self.display(&mut string).map(|_| string)
+            self.display(&mut string).map(|()| string)
         }
 
         fn display(&self, f: &mut impl Write) -> Result<(), TimeError> {

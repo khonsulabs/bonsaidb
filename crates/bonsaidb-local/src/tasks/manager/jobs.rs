@@ -80,7 +80,7 @@ where
         id: Id,
     ) -> Handle<T, E> {
         let (sender, receiver) = flume::bounded(1);
-        let senders = self.result_senders.entry(id).or_insert_with(Vec::default);
+        let senders = self.result_senders.entry(id).or_default();
         senders.push(Box::new(sender));
 
         Handle { id, receiver }

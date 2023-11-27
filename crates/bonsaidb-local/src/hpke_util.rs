@@ -1,9 +1,8 @@
 use generic_array::GenericArray;
-use hpke::{
-    kem::{DhP256HkdfSha256, Kem as KemTrait},
-    Deserializable, Serializable,
-};
-use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use hpke::kem::{DhP256HkdfSha256, Kem as KemTrait};
+use hpke::{Deserializable, Serializable};
+use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 // Helpful aliases for the HPKE types we use in vault encryption
 

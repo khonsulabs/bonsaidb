@@ -54,7 +54,7 @@ fn core_path() -> Path {
                 () if cfg!(feature = "server-path") => parse_quote!(::bonsaidb_server::core),
                 () if cfg!(feature = "local-path") => parse_quote!(::bonsaidb_local::core),
                 () if cfg!(feature = "client-path") => parse_quote!(::bonsaidb_client::core),
-                _ => parse_quote!(::bonsaidb_core),
+                () => parse_quote!(::bonsaidb_core),
             },
         },
     }
