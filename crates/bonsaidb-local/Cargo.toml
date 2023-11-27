@@ -31,6 +31,7 @@ instrument = ["pot/tracing", "nebari/tracing", "dep:tracing"]
 encryption = [
     "bonsaidb-core/encryption",
     "dep:hpke",
+    "dep:generic-array",
     "dep:zeroize",
     "dep:lockedbox",
     "dep:chacha20poly1305",
@@ -71,9 +72,8 @@ zeroize = { version = "1", optional = true }
 lockedbox = { version = "0.1.1", optional = true }
 hpke = { version = "0.10", default-features = false, features = [
     "p256",
-    "serde_impls",
 ], optional = true }
-p256 = "0.13.2"
+generic-array = { version = "0.14", features = ["serde"], optional = true }
 tracing = { version = "0.1", optional = true, default-features = false, features = [
     "attributes",
 ] }

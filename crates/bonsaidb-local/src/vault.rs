@@ -48,6 +48,11 @@
 //! used directly. This variant of `ChaCha20Poly1305` extends the nonce from 12
 //! bytes to 24 bytes, which allows for random nonces to be used.
 
+use crate::hpke_util::{
+    serde_encapped_key, serde_privkey, serde_pubkey, VaultP256EncappedKey, VaultP256Kem,
+    VaultP256PrivateKey, VaultP256PublicKey,
+};
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
@@ -65,8 +70,7 @@ use chacha20poly1305::aead::{Aead, Payload};
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305};
 use hpke::aead::{AeadTag, ChaCha20Poly1305};
 use hpke::kdf::HkdfSha256;
-use hpke::kem::DhP256HkdfSha256;
-use hpke::{self, Deserializable, Kem, OpModeS, Serializable};
+use hpke::{self, Deserializable, Kem as KemTrait, OpModeS, Serializable};
 use lockedbox::LockedBox;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -78,9 +82,11 @@ pub enum KeyPair {
     /// A P256 keypair.
     P256 {
         /// The private key.
-        private: <DhP256HkdfSha256 as Kem>::PrivateKey,
+        #[serde(with = "serde_privkey")]
+        private: VaultP256PrivateKey,
         /// The public key.
-        public: <DhP256HkdfSha256 as Kem>::PublicKey,
+        #[serde(with = "serde_pubkey")]
+        public: VaultP256PublicKey,
     },
 }
 
@@ -100,7 +106,8 @@ impl KeyPair {
 #[derive(Serialize, Deserialize)]
 pub enum PublicKey {
     /// A P256 public key.
-    P256(<DhP256HkdfSha256 as Kem>::PublicKey),
+    #[serde(with = "serde_pubkey")]
+    P256(VaultP256PublicKey),
 }
 
 impl PublicKey {
@@ -198,7 +205,7 @@ impl Vault {
         master_key_storage: Arc<dyn AnyVaultKeyStorage>,
     ) -> Result<Self, Error> {
         let master_key = EncryptionKey::random();
-        let (private, public) = DhP256HkdfSha256::gen_keypair(&mut thread_rng());
+        let (private, public) = VaultP256Kem::gen_keypair(&mut thread_rng());
 
         master_key_storage
             .set_vault_key_for(
@@ -226,7 +233,7 @@ impl Vault {
             let (encapsulated_key, aead_tag) = hpke::single_shot_seal_in_place_detached::<
                 ChaCha20Poly1305,
                 HkdfSha256,
-                DhP256HkdfSha256,
+                VaultP256Kem,
                 _,
             >(
                 &OpModeS::Base,
@@ -281,7 +288,7 @@ impl Vault {
             let master_keys = match &vault_key {
                 KeyPair::P256 { private, .. } => {
                     let mut decryption_context =
-                        hpke::setup_receiver::<ChaCha20Poly1305, HkdfSha256, DhP256HkdfSha256>(
+                        hpke::setup_receiver::<ChaCha20Poly1305, HkdfSha256, VaultP256Kem>(
                             &hpke::OpModeR::Base,
                             private,
                             &encrypted_master_keys.encapsulated_key,
@@ -618,7 +625,8 @@ struct HpkePayload {
     encryption: PublicKeyEncryption,
     payload: Bytes,
     tag: [u8; 16],
-    encapsulated_key: <DhP256HkdfSha256 as Kem>::EncappedKey,
+    #[serde(with = "serde_encapped_key")]
+    encapsulated_key: VaultP256EncappedKey,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -657,7 +665,7 @@ mod tests {
         let mut master_keys = HashMap::new();
         master_keys.insert(0, EncryptionKey::random());
 
-        let (_, public_key) = <DhP256HkdfSha256 as Kem>::gen_keypair(&mut thread_rng());
+        let (_, public_key) = <VaultP256Kem as KemTrait>::gen_keypair(&mut thread_rng());
 
         Vault {
             _vault_public_key: PublicKey::P256(public_key),
