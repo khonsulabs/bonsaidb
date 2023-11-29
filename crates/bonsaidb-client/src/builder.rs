@@ -17,7 +17,12 @@ use crate::client::{AnyApiCallback, ApiCallback};
 use crate::BlockingClient;
 use crate::{AsyncClient, Error};
 
+/// A type marker for [`Builder`] indicating the returned client should be an
+/// [`AsyncClient`].
 pub struct Async;
+
+/// A type marker for [`Builder`] indicating the returned client should be an
+/// [`BlockingClient`].
 #[cfg(not(target_arch = "wasm32"))]
 pub struct Blocking;
 

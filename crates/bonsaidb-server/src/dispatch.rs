@@ -200,6 +200,15 @@ impl<B: Backend> Handler<Authenticate, B> for ServerDispatcher {
 
         session.client.logged_in_as(new_session.clone());
 
+        if let Err(err) = session
+            .server
+            .backend()
+            .client_authenticated(session.client.clone(), &new_session, session.server)
+            .await
+        {
+            log::error!("[server] Error in `client_authenticated`: {err:?}");
+        }
+
         Ok(new_session)
     }
 }
@@ -214,6 +223,15 @@ impl<B: Backend> Handler<AssumeIdentity, B> for ServerDispatcher {
         let new_session = authenticated.session().cloned().unwrap();
 
         session.client.logged_in_as(new_session.clone());
+
+        if let Err(err) = session
+            .server
+            .backend()
+            .client_authenticated(session.client.clone(), &new_session, session.server)
+            .await
+        {
+            log::error!("[server] Error in `client_authenticated`: {err:?}");
+        }
 
         Ok(new_session)
     }
