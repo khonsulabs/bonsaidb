@@ -144,6 +144,8 @@ where
     /// Modifies `self`, automatically retrying the modification if the document
     /// has been updated on the server.
     ///
+    /// The contents of `Ok` will be the last value returned from `modifier`.
+    ///
     /// ## Data loss warning
     ///
     /// If you've modified `self` before calling this function and a conflict
@@ -151,11 +153,11 @@ where
     /// fetched before retrying the process again. When you use this function,
     /// you should limit the edits to the value to within the `modifier`
     /// callback.
-    pub fn modify<Cn: Connection, Modifier: FnMut(&mut Self) + Send + Sync>(
+    pub fn modify<R, Cn: Connection, Modifier: FnMut(&mut Self) -> R + Send + Sync>(
         &mut self,
         connection: &Cn,
         mut modifier: Modifier,
-    ) -> Result<(), Error>
+    ) -> Result<R, Error>
     where
         C::Contents: Clone,
     {
@@ -176,16 +178,18 @@ where
                         }
                     })?;
             }
-            modifier(&mut *self);
+            let result = modifier(&mut *self);
             match self.update(connection) {
                 Err(Error::DocumentConflict(..)) => {}
-                other => return other,
+                other => return other.map(|()| result),
             }
         }
     }
 
     /// Modifies `self`, automatically retrying the modification if the document
     /// has been updated on the server.
+    ///
+    /// The contents of `Ok` will be the last value returned from `modifier`.
     ///
     /// ## Data loss warning
     ///
@@ -194,11 +198,15 @@ where
     /// fetched before retrying the process again. When you use this function,
     /// you should limit the edits to the value to within the `modifier`
     /// callback.
-    pub async fn modify_async<Cn: AsyncConnection, Modifier: FnMut(&mut Self) + Send + Sync>(
+    pub async fn modify_async<
+        R,
+        Cn: AsyncConnection,
+        Modifier: FnMut(&mut Self) -> R + Send + Sync,
+    >(
         &mut self,
         connection: &Cn,
         mut modifier: Modifier,
-    ) -> Result<(), Error>
+    ) -> Result<R, Error>
     where
         C::Contents: Clone,
     {
@@ -218,10 +226,10 @@ where
                         Err(err) => err,
                     })?;
             }
-            modifier(&mut *self);
+            let result = modifier(&mut *self);
             match self.update_async(connection).await {
                 Err(Error::DocumentConflict(..)) => {}
-                other => return other,
+                other => return other.map(|()| result),
             }
         }
     }

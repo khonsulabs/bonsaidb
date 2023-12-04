@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Breaking Changes
+
+- `CollectionDocument::modify`/`CollectionDocument::modify_async` now take an
+  additional parameter: the return type of the callback function. This result
+  from the call that succeeds in updating will be returned in `Ok`.
+
 ### Added
 
 - `bonsaidb::client::Error` now implements
