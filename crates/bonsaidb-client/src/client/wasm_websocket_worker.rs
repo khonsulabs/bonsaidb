@@ -210,7 +210,7 @@ async fn send_request(
         }
     };
     match ws.send_with_u8_array(&bytes) {
-        Ok(_) => {
+        Ok(()) => {
             outstanding_requests.insert(
                 pending.request.id.expect("all requests must have ids"),
                 pending,
