@@ -1721,6 +1721,7 @@ where
     EU: EntryUpdate<Col> + 'a + Unpin,
     'name: 'a,
 {
+    /// Retrieves the document, if found/inserted.
     pub fn execute(self) -> Result<Option<CollectionDocument<Col>>, Error> {
         let Self {
             name,
@@ -1731,9 +1732,9 @@ where
             ..
         } = self;
         if let Some(mut existing) = Col::load(name, connection)? {
-            if let Some(update) = update {
+            if let Some(mut update) = update {
                 loop {
-                    update.call(&mut existing.contents);
+                    update.update(&mut existing.contents);
                     match existing.update(connection) {
                         Ok(()) => return Ok(Some(existing)),
                         Err(Error::DocumentConflict(collection, header)) => {
@@ -1853,9 +1854,9 @@ where
         mut retry_limit: usize,
     ) -> Result<Option<CollectionDocument<Col>>, Error> {
         if let Some(mut existing) = Col::load_async(name, connection).await? {
-            if let Some(update) = update {
+            if let Some(mut update) = update {
                 loop {
-                    update.call(&mut existing.contents);
+                    update.update(&mut existing.contents);
                     match existing.update_async(connection).await {
                         Ok(()) => return Ok(Some(existing)),
                         Err(Error::DocumentConflict(collection, header)) => {
@@ -1961,7 +1962,9 @@ where
     }
 }
 
+/// A function that is invoked when inserting a document using the entry api.
 pub trait EntryInsert<Col: SerializedCollection>: Send + Unpin {
+    /// Returns the contents of the new document.
     fn call(self) -> Col::Contents;
 }
 
@@ -1984,19 +1987,22 @@ where
     }
 }
 
+/// A function that is invoked when updating a document using the entry api.
 pub trait EntryUpdate<Col>: Send + Unpin
 where
     Col: SerializedCollection,
 {
-    fn call(&self, doc: &mut Col::Contents);
+    /// Updates `doc` with modifications to perform before returning the
+    /// document.
+    fn update(&mut self, doc: &mut Col::Contents);
 }
 
 impl<F, Col> EntryUpdate<Col> for F
 where
-    F: Fn(&mut Col::Contents) + Send + Unpin,
+    F: FnMut(&mut Col::Contents) + Send + Unpin,
     Col: NamedCollection + SerializedCollection,
 {
-    fn call(&self, doc: &mut Col::Contents) {
+    fn update(&mut self, doc: &mut Col::Contents) {
         self(doc);
     }
 }
@@ -2005,7 +2011,7 @@ impl<Col> EntryUpdate<Col> for ()
 where
     Col: SerializedCollection,
 {
-    fn call(&self, _doc: &mut Col::Contents) {
+    fn update(&mut self, _doc: &mut Col::Contents) {
         unreachable!();
     }
 }

@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `bonsaidb::client::Async`/`Blocking` are now exposed. These types are used
   when building a client.
 - `bonsaidb::server::Backend::client_authenticated` is now invoked.
+- `bonsaidb::core::schema` now exports these types already in-use by
+  `NamedCollection::entry`:
+  - `AsyncEntry`
+  - `Entry`
+  - `EntryInsert`
+  - `EntryUpdate`
 
 ## v0.5.0
 

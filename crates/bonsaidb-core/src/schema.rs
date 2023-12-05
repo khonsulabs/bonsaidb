@@ -8,8 +8,8 @@ pub mod view;
 pub use bonsaidb_macros::{Collection, Schema, View, ViewSchema};
 
 pub use self::collection::{
-    AsyncEntry, AsyncList, Collection, DefaultSerialization, InsertError, List, Nameable,
-    NamedCollection, NamedReference, SerializedCollection,
+    AsyncEntry, AsyncList, Collection, DefaultSerialization, Entry, EntryInsert, EntryUpdate,
+    InsertError, List, Nameable, NamedCollection, NamedReference, SerializedCollection,
 };
 pub use self::names::{
     Authority, CollectionName, InvalidNameError, Name, Qualified, QualifiedName, SchemaName,
