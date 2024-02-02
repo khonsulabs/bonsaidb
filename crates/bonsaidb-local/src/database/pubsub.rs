@@ -1,5 +1,4 @@
 use bonsaidb_core::arc_bytes::OwnedBytes;
-pub use bonsaidb_core::circulate::Relay;
 use bonsaidb_core::connection::{Connection, HasSession};
 use bonsaidb_core::permissions::bonsai::{
     database_resource_name, pubsub_topic_resource_name, BonsaiAction, DatabaseAction, PubSubAction,

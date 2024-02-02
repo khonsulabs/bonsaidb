@@ -592,7 +592,7 @@ impl KeyValueState {
     }
 
     fn update_background_worker_target(&mut self) {
-        let key_expiration_target = self.expiration_order.get(0).map(|key| {
+        let key_expiration_target = self.expiration_order.front().map(|key| {
             let expiration_timeout = self.expiring_keys.get(key).unwrap();
             *expiration_timeout
         });

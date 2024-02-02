@@ -33,11 +33,11 @@ pub enum Transport {
 #[derive(Debug)]
 #[derive_where(Clone)]
 pub struct ConnectedClient<B: Backend = NoBackend> {
-    data: Arc<Data<B>>,
+    data: Arc<ConnectedClientData<B>>,
 }
 
 #[derive(Debug)]
-struct Data<B: Backend = NoBackend> {
+struct ConnectedClientData<B: Backend = NoBackend> {
     id: u32,
     sessions: RwLock<HashMap<Option<SessionId>, ClientSession>>,
     address: SocketAddr,
@@ -292,7 +292,7 @@ impl<B: Backend> OwnedClient<B> {
         );
         Self {
             client: ConnectedClient {
-                data: Arc::new(Data {
+                data: Arc::new(ConnectedClientData {
                     id,
                     address,
                     transport,

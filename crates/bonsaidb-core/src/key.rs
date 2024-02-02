@@ -1883,9 +1883,8 @@ impl<'k> Key<'k> for Signed {
     }
 
     fn next_value(&self) -> Result<Self, NextValueError> {
-        i128::try_from(*self)
-            .ok()
-            .and_then(|key| key.checked_add(1))
+        i128::from(*self)
+            .checked_add(1)
             .map(Self::from)
             .ok_or(NextValueError::WouldWrap)
     }
@@ -1920,9 +1919,8 @@ impl<'k> Key<'k> for Unsigned {
     }
 
     fn next_value(&self) -> Result<Self, NextValueError> {
-        u128::try_from(*self)
-            .ok()
-            .and_then(|key| key.checked_add(1))
+        u128::from(*self)
+            .checked_add(1)
             .map(Self::from)
             .ok_or(NextValueError::WouldWrap)
     }

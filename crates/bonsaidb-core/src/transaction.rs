@@ -490,6 +490,15 @@ impl DocumentChanges {
     }
 }
 
+impl<'a> IntoIterator for &'a DocumentChanges {
+    type IntoIter = DocumentChangesIter<'a>;
+    type Item = (&'a CollectionName, &'a ChangedDocument);
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 /// An iterator over [`DocumentChanges`].
 #[must_use]
 pub struct DocumentChangesIter<'a> {
@@ -578,7 +587,7 @@ fn document_changes_iter() {
     let mut a_changes = 0;
     let mut b_changes = 0;
     let mut ids = Vec::new();
-    for (collection, document) in changes.iter() {
+    for (collection, document) in &changes {
         assert!(!ids.contains(&document.id));
         ids.push(document.id.clone());
         match collection.name.as_ref() {

@@ -273,6 +273,15 @@ impl<D, V: View> MappedDocuments<D, V> {
             None
         }
     }
+
+    /// Returns an iterator over the contained mapped documents.
+    #[must_use]
+    pub const fn iter(&self) -> MappedDocumentsIter<'_, D, V> {
+        MappedDocumentsIter {
+            docs: self,
+            index: 0,
+        }
+    }
 }
 
 impl<D, V: View> Debug for MappedDocuments<D, V>
@@ -301,10 +310,7 @@ impl<'a, D, V: View> IntoIterator for &'a MappedDocuments<D, V> {
     type Item = MappedDocument<'a, D, V::Key, V::Value>;
 
     fn into_iter(self) -> Self::IntoIter {
-        MappedDocumentsIter {
-            docs: self,
-            index: 0,
-        }
+        self.iter()
     }
 }
 

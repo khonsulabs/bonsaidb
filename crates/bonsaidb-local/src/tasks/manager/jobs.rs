@@ -13,7 +13,7 @@ use crate::tasks::{Job, Keyed};
 pub struct Jobs<Key> {
     last_task_id: u64,
     result_senders: HashMap<Id, Vec<Box<dyn AnySender>>>,
-    keyed_jobs: HashMap<Key, Id>,
+    keyed: HashMap<Key, Id>,
     queuer: Sender<Box<dyn Executable>>,
     queue: Receiver<Box<dyn Executable>>,
 }
@@ -26,7 +26,7 @@ where
         f.debug_struct("Jobs")
             .field("last_task_id", &self.last_task_id)
             .field("result_senders", &self.result_senders.len())
-            .field("keyed_jobs", &self.keyed_jobs)
+            .field("keyed", &self.keyed)
             .field("queuer", &self.queuer)
             .field("queue", &self.queue)
             .finish()
@@ -40,7 +40,7 @@ impl<Key> Default for Jobs<Key> {
         Self {
             last_task_id: 0,
             result_senders: HashMap::new(),
-            keyed_jobs: HashMap::new(),
+            keyed: HashMap::new(),
             queuer,
             queue,
         }
@@ -92,11 +92,11 @@ where
         manager: Manager<Key>,
     ) -> Handle<<J as Job>::Output, <J as Job>::Error> {
         let key = job.key();
-        if let Some(&id) = self.keyed_jobs.get(&key) {
+        if let Some(&id) = self.keyed.get(&key) {
             self.create_new_task_handle(id)
         } else {
             let handle = self.enqueue(job, Some(key.clone()), manager);
-            self.keyed_jobs.insert(key, handle.id);
+            self.keyed.insert(key, handle.id);
             handle
         }
     }
@@ -108,7 +108,7 @@ where
         result: Result<T, E>,
     ) {
         if let Some(key) = key {
-            self.keyed_jobs.remove(key);
+            self.keyed.remove(key);
         }
 
         if let Some(senders) = self.result_senders.remove(&id) {
