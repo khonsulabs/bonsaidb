@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `bonsaidb::client::Error` now implements
   `From<bonsaidb::client::ApiError<Infallible>>`.
+- `KeyVisitor::visit_other` is a new function that indicates the key encoded is
+  a byte sequence of a known type.
 
 ### Fixed
 
@@ -32,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `Entry`
   - `EntryInsert`
   - `EntryUpdate`
+- `KeyDescriber` no longer panics when a `Key` type calls no visitor methods in
+  its `KeyEncoding::describe` implementation.
 
 ## v0.5.0
 

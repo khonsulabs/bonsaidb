@@ -4,6 +4,7 @@ mod varint;
 
 mod deprecated;
 
+use std::any::type_name;
 use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -244,6 +245,10 @@ pub trait KeyVisitor {
     /// Report that a basic key type is encoded next in this key.
     fn visit_type(&mut self, kind: KeyKind);
 
+    /// Report that a custom type is encoded next as a single byte sequence in
+    /// this key.
+    fn visit_other(&mut self, kind: impl Into<Cow<'static, str>>);
+
     /// Report that a composite type made up of `count` fields is encoded next in
     /// this key.
     ///
@@ -411,12 +416,10 @@ impl KeyDescription {
     /// This function will panic if `KE` emits an imbalanced sequence of visit
     /// calls.
     #[must_use]
-    pub fn for_encoding<KE: KeyEncoding<K>, K: for<'k> Key<'k>>() -> Self {
+    pub fn for_encoding<KE: KeyEncoding<K>, K: for<'k> Key<'k> + 'static>() -> Self {
         let mut describer = KeyDescriber::default();
         KE::describe(&mut describer);
-        describer
-            .result
-            .expect("invalid KeyEncoding::describe implementation -- imbalanced visit calls")
+        describer.finish_for::<K>()
     }
 
     /// Returns the description of a given [`Key`] implementor.
@@ -426,7 +429,7 @@ impl KeyDescription {
     /// This function will panic if `KE` emits an imbalanced sequence of visit
     /// calls.
     #[must_use]
-    pub fn for_key<K: for<'k> Key<'k>>() -> Self {
+    pub fn for_key<K: for<'k> Key<'k> + 'static>() -> Self {
         Self::for_encoding::<K, K>()
     }
 }
@@ -465,12 +468,28 @@ impl KeyDescriber {
             }
         }
     }
+
+    fn finish_for<T>(self) -> KeyDescription
+    where
+        T: 'static,
+    {
+        assert!(
+            self.stack.is_empty(),
+            "invalid KeyEncoding::describe implementation -- imbalanced visit calls"
+        );
+        self.result
+            .unwrap_or_else(|| KeyDescription::Other(Cow::Borrowed(type_name::<T>())))
+    }
 }
 
 impl KeyVisitor for KeyDescriber {
     fn visit_type(&mut self, kind: KeyKind) {
         let description = KeyDescription::Basic(kind);
         self.record(description);
+    }
+
+    fn visit_other(&mut self, kind: impl Into<Cow<'static, str>>) {
+        self.record(KeyDescription::Other(kind.into()));
     }
 
     fn visit_composite(&mut self, kind: CompositeKind, count: usize) {
@@ -2759,6 +2778,34 @@ fn enum_derive_tests() -> anyhow::Result<()> {
 #[test]
 fn key_descriptions() {
     use time::limited::TimeEpoch;
+
+    #[derive(Clone)]
+    struct NoDescriptionKey;
+
+    impl<'k> Key<'k> for NoDescriptionKey {
+        const CAN_OWN_BYTES: bool = false;
+
+        fn from_ord_bytes<'e>(_bytes: ByteSource<'k, 'e>) -> Result<Self, Self::Error> {
+            Ok(NoDescriptionKey)
+        }
+    }
+
+    impl KeyEncoding<NoDescriptionKey> for NoDescriptionKey {
+        type Error = Infallible;
+
+        const LENGTH: Option<usize> = None;
+
+        fn describe<Visitor>(_visitor: &mut Visitor)
+        where
+            Visitor: KeyVisitor,
+        {
+        }
+
+        fn as_ord_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
+            Ok(Cow::Borrowed(b""))
+        }
+    }
+
     assert_eq!(
         KeyDescription::for_key::<Vec<u8>>(),
         KeyDescription::Basic(KeyKind::Bytes)
@@ -2789,6 +2836,13 @@ fn key_descriptions() {
             ],
             attributes: HashMap::new(),
         })
+    );
+
+    assert_eq!(
+        KeyDescription::for_key::<NoDescriptionKey>(),
+        KeyDescription::Other(Cow::Borrowed(
+            "bonsaidb_core::key::key_descriptions::NoDescriptionKey"
+        ))
     );
 }
 
