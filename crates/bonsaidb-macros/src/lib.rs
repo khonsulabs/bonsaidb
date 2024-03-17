@@ -355,9 +355,7 @@ impl AttributeBase for NullHandling {
 }
 
 impl AttributeValue for NullHandling {
-    fn parse_value(
-        input: ParseStream,
-    ) -> syn::Result<SpannedValue<Self>> {
+    fn parse_value(input: ParseStream<'_>) -> syn::Result<SpannedValue<Self>> {
         let ident: Ident = input.parse()?;
 
         Ok(SpannedValue::new(
