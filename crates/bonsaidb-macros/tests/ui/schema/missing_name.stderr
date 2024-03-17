@@ -1,6 +1,6 @@
 error: required `name` is not specified
 
-       = help: try `#[schema(name="name")]`
+       = help: try `#[schema(name = "name")]`
  --> tests/ui/schema/missing_name.rs:3:10
   |
 3 | #[derive(Schema)]

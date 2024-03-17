@@ -1,4 +1,4 @@
-error: expected identifier
+error: supported fields are `authority`, `name`, `views`, `serialization`, `encryption_key`, `encryption_required`, `encryption_optional`, `primary_key`, `natural_id` and `core`
  --> tests/ui/collection/invalid_attribute.rs:4:48
   |
 4 | #[collection(name = "hi", authority = "hello", "hi")]

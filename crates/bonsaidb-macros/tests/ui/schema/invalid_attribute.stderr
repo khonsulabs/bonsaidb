@@ -1,4 +1,4 @@
-error: expected identifier
+error: supported fields are `name`, `authority`, `collections`, `include` and `core`
  --> tests/ui/schema/invalid_attribute.rs:5:25
   |
 5 | #[schema(name = "name", "hi")]

@@ -1,6 +1,6 @@
 error: required `collection` is not specified
 
-       = help: try `#[view(collection=CollectionType)]`
+       = help: try `#[view(collection = CollectionType)]`
  --> tests/ui/view/missing_collection.rs:3:10
   |
 3 | #[derive(View)]

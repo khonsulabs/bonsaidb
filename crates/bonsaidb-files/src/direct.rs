@@ -117,7 +117,7 @@ where
         schema::file::File::<Config>::summarize_recursive_path_contents(path, database)
     }
 
-    /// Return all direct descendents of this file. For example, consider this
+    /// Return all direct descendants of this file. For example, consider this
     /// list of files:
     ///
     /// - /top-level
@@ -348,7 +348,7 @@ where
         schema::file::File::<Config>::summarize_recursive_path_contents_async(path, database).await
     }
 
-    /// Return all direct descendents of this file. For example, consider this
+    /// Return all direct descendants of this file. For example, consider this
     /// list of files:
     ///
     /// - /top-level
