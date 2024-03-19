@@ -11,7 +11,8 @@
 )]
 #![cfg_attr(doc, deny(rustdoc::all))]
 
-use attribute_derive::{Attribute, ConvertParsed};
+use attribute_derive::parsing::{AttributeBase, AttributeValue, SpannedValue};
+use attribute_derive::{Attribute, FromAttr};
 use manyhow::{bail, error_message, manyhow, JoinToTokensError, Result};
 use proc_macro2::{Span, TokenStream};
 use proc_macro_crate::{crate_name, FoundCrate};
@@ -19,6 +20,7 @@ use quote::{quote_spanned, ToTokens};
 use quote_use::{
     format_ident_namespaced as format_ident, parse_quote_use as parse_quote, quote_use as quote,
 };
+use syn::parse::ParseStream;
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{
@@ -60,7 +62,7 @@ fn core_path() -> Path {
     }
 }
 
-#[derive(Attribute)]
+#[derive(FromAttr)]
 #[attribute(ident = collection)]
 struct CollectionAttribute {
     authority: Option<Expr>,
@@ -264,7 +266,7 @@ pub fn view_schema_derive(input: proc_macro::TokenStream) -> Result {
     view::derive_schema(parse(input)?)
 }
 
-#[derive(Attribute)]
+#[derive(FromAttr)]
 #[attribute(ident = schema)]
 struct SchemaAttribute {
     #[attribute(example = "\"name\"")]
@@ -328,7 +330,7 @@ pub fn schema_derive(input: proc_macro::TokenStream) -> Result {
     })
 }
 
-#[derive(Attribute)]
+#[derive(FromAttr)]
 #[attribute(ident = key)]
 struct KeyAttribute {
     #[attribute(example = "bosaidb::core")]
@@ -348,22 +350,28 @@ enum NullHandling {
     Deny,
 }
 
-impl ConvertParsed for NullHandling {
-    type Type = Ident;
+impl AttributeBase for NullHandling {
+    type Partial = Self;
+}
 
-    fn convert(value: Self::Type) -> syn::Result<Self> {
-        if value == "escape" {
-            Ok(NullHandling::Escape)
-        } else if value == "allow" {
-            Ok(NullHandling::Allow)
-        } else if value == "deny" {
-            Ok(NullHandling::Deny)
-        } else {
-            Err(syn::Error::new(
-                Span::call_site(),
-                "only `escape`, `allow`, and `deny` are allowed for `null_handling`",
-            ))
-        }
+impl AttributeValue for NullHandling {
+    fn parse_value(input: ParseStream<'_>) -> syn::Result<SpannedValue<Self>> {
+        let ident: Ident = input.parse()?;
+
+        Ok(SpannedValue::new(
+            match ident.to_string().as_str() {
+                "escape" => NullHandling::Escape,
+                "allow" => NullHandling::Allow,
+                "deny" => NullHandling::Deny,
+                _ => {
+                    return Err(syn::Error::new(
+                        Span::call_site(),
+                        "only `escape`, `allow`, and `deny` are allowed for `null_handling`",
+                    ))
+                }
+            },
+            ident.span(),
+        ))
     }
 }
 
@@ -848,7 +856,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> Result {
     })
 }
 
-#[derive(Attribute)]
+#[derive(FromAttr)]
 #[attribute(ident = api)]
 struct ApiAttribute {
     #[attribute(example = "\"name\"")]
@@ -933,7 +941,7 @@ fn files_path() -> Path {
     }
 }
 
-#[derive(Attribute)]
+#[derive(FromAttr)]
 #[attribute(ident = file_config)]
 struct FileConfigAttribute {
     #[attribute(example = "MetadataType")]

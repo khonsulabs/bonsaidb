@@ -1,6 +1,6 @@
 error: required `name` is not specified
 
-       = help: try `#[collection(name="name")]`
+       = help: try `#[collection(name = "name")]`
  --> tests/ui/view/missing_name.rs:3:10
   |
 3 | #[derive(Collection)]

@@ -1,4 +1,4 @@
-use attribute_derive::Attribute;
+use attribute_derive::FromAttr;
 use manyhow::Result;
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -8,7 +8,7 @@ use syn::{DeriveInput, Ident, LitStr, Path, Type, TypeTuple};
 
 use crate::core_path;
 
-#[derive(Attribute)]
+#[derive(FromAttr)]
 #[attribute(ident = view)]
 struct ViewAttribute {
     #[attribute(example = "CollectionType")]
@@ -87,7 +87,7 @@ pub fn derive(
     })
 }
 
-#[derive(Attribute)]
+#[derive(FromAttr)]
 #[attribute(ident = view_schema)]
 struct ViewSchemaAttribute {
     #[attribute(example = "ViewType")]
