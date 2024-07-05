@@ -70,7 +70,7 @@ futures = { version = "0.3.19", optional = true }
 chacha20poly1305 = { version = "0.10", optional = true }
 zeroize = { version = "1", optional = true }
 lockedbox = { version = "0.1.1", optional = true }
-hpke = { version = "0.10", default-features = false, features = [
+hpke = { version = "0.12", default-features = false, features = [
     "p256",
 ], optional = true }
 generic-array = { version = "0.14", features = ["serde"], optional = true }
