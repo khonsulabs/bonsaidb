@@ -39,10 +39,12 @@ macro_rules! impl_serde {
             pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
                 deserializer: D,
             ) -> Result<$t, D::Error> {
-                let arr = GenericArray::<u8, <$t as Serializable>::OutputSize>::deserialize(
+                let mut arr = GenericArray::<u8, <$t as Serializable>::OutputSize>::deserialize(
                     deserializer,
                 )?;
-                <$t>::from_bytes(&arr).map_err(D::Error::custom)
+                let ret = <$t>::from_bytes(&arr).map_err(D::Error::custom);
+                arr.zeroize();
+                ret
             }
         }
     };
