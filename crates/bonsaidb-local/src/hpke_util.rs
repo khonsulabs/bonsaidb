@@ -3,6 +3,7 @@ use hpke::kem::{DhP256HkdfSha256, Kem as KemTrait};
 use hpke::{Deserializable, Serializable};
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use zeroize::Zeroize;
 
 // Helpful aliases for the HPKE types we use in vault encryption
 
@@ -29,17 +30,21 @@ macro_rules! impl_serde {
                 val: &$t,
                 serializer: S,
             ) -> Result<S::Ok, S::Error> {
-                let arr = val.to_bytes();
-                arr.serialize(serializer)
+                let mut arr = val.to_bytes();
+                let ret = arr.serialize(serializer);
+                arr.zeroize();
+                ret
             }
 
             pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
                 deserializer: D,
             ) -> Result<$t, D::Error> {
-                let arr = GenericArray::<u8, <$t as Serializable>::OutputSize>::deserialize(
+                let mut arr = GenericArray::<u8, <$t as Serializable>::OutputSize>::deserialize(
                     deserializer,
                 )?;
-                <$t>::from_bytes(&arr).map_err(D::Error::custom)
+                let ret = <$t>::from_bytes(&arr).map_err(D::Error::custom);
+                arr.zeroize();
+                ret
             }
         }
     };
